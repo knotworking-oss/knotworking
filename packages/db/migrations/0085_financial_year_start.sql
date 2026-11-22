@@ -1,0 +1,1 @@
+ALTER TABLE "workspaces" ADD COLUMN "financial_year_start_month" integer DEFAULT 1 NOT NULL;

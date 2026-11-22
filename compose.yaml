@@ -1,0 +1,151 @@
+# Knotworking — self-hosted stack (local server or cloud VM).
+#
+#   cp deploy/env.example deploy/.env      # then edit APP_URL and BETTER_AUTH_SECRET
+#   docker compose --env-file deploy/.env up -d --build
+#
+# Caddy is the only container exposed (it serves the web app, and the MCP server at /mcp):
+# plain HTTP on HTTP_PORT (default 3000) for a LAN. For automatic HTTPS set DOMAIN and also load compose.https.yaml, which
+# publishes port 443 (add COMPOSE_FILE=compose.yaml:compose.https.yaml to deploy/.env).
+# See docs/self-hosting.md.
+name: knotworking
+
+x-auth-env: &auth-env
+  APP_URL: ${APP_URL:?Set APP_URL in deploy/.env}
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in deploy/.env}
+  TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+  GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+  MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+  MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+  MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}
+  CALENDAR_SYNC_INTERVAL_SECONDS: ${CALENDAR_SYNC_INTERVAL_SECONDS:-300}
+  SMTP_URL: ${SMTP_URL:-}
+  # No value: passed through only when set in deploy/.env, so an unset MAIL_FROM
+  # reaches the API as "unset" (not as an empty string) and its default applies.
+  # When SMTP_URL is set it must be an address your SMTP provider accepts.
+  MAIL_FROM:
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: knotworking
+      # Required, no default. Use URL-safe characters only (openssl rand -hex 24): the
+      # password is embedded in the default DATABASE_URL below without URL-encoding.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/.env (openssl rand -hex 24)}
+      POSTGRES_DB: knotworking
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knotworking -d knotworking"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: { context: ., target: api }
+    image: knotworking-api:latest
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      <<: *auth-env
+      API_HOST: "0.0.0.0" # Reachable on the Compose network only.
+      # Point at a hosted database (e.g. Neon) instead by setting DATABASE_URL in deploy/.env.
+      DATABASE_URL: ${DATABASE_URL:-postgres://knotworking:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/.env}@db:5432/knotworking}
+      # Direct (non-pooled) URL used only by the migration step; falls back to DATABASE_URL.
+      MIGRATE_DATABASE_URL:
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
+      # true/false forces prepared statements off/on; unset auto-detects Neon/Supabase poolers.
+      DATABASE_POOLED:
+      # Fixed first-run setup code; unset means a random one is printed in the API log.
+      SETUP_TOKEN:
+      # Only for deliberately loading the demo data into a non-local database.
+      ALLOW_DEMO_SEED:
+      # Where the API reaches the MCP server for the assistant's tools (docs/assistant.md).
+      MCP_INTERNAL_URL: http://mcp:4100/mcp
+      # Per-token API requests per minute (personal API tokens only; 0 = off). Counted per API process.
+      API_TOKEN_READ_LIMIT_PER_MINUTE: ${API_TOKEN_READ_LIMIT_PER_MINUTE:-600}
+      API_TOKEN_WRITE_LIMIT_PER_MINUTE: ${API_TOKEN_WRITE_LIMIT_PER_MINUTE:-120}
+      # Attachments (images in docs, files on tasks). Stored on the `uploads` volume below unless
+      # UPLOAD_STORAGE=s3; back the volume up with the database (docs/self-hosting.md).
+      # Modules switched on in this deployment (docs/modules.md). Unset = all except `calendar`, `accounting`, and `bi` (`all` includes them).
+      KNOTWORKING_MODULES:
+      UPLOAD_DIR: /app/data/uploads
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
+      # No value: passed through only when set in deploy/.env (S3-compatible storage instead of the volume).
+      UPLOAD_STORAGE:
+      S3_BUCKET:
+      S3_REGION:
+      S3_ENDPOINT:
+      S3_ACCESS_KEY_ID:
+      S3_SECRET_ACCESS_KEY:
+      S3_FORCE_PATH_STYLE:
+      S3_PREFIX:
+    volumes:
+      - uploads:/app/data/uploads
+
+  web:
+    build: { context: ., target: web }
+    image: knotworking-web:latest
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+    environment:
+      API_URL: http://api:4000
+      # Caddy is the one trusted proxy in front: it records the real client IP
+      # (used for sign-in rate limits) and ignores anything the browser claims.
+      TRUSTED_PROXIES: "1"
+
+  # Model Context Protocol server, so AI agents can read and write the workspace (docs/mcp.md).
+  # A stateless client of the API: it stores nothing and forwards each caller's
+  # "Authorization: Bearer knw_..." API token. Not published directly; Caddy serves it at /mcp.
+  mcp:
+    build: { context: ., target: mcp }
+    image: knotworking-mcp:latest
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+    environment:
+      KNOTWORKING_API_URL: http://api:4000
+      # How the API reaches this server (the assistant's tools); its hostname is always accepted below.
+      MCP_INTERNAL_URL: http://mcp:4100/mcp
+      # Hostnames accepted in the Host/Origin headers (DNS-rebinding protection). By default:
+      # localhost plus the hostnames of APP_URL and TRUSTED_ORIGINS, so the address your team
+      # already uses works. Set MCP_ALLOWED_HOSTS (comma-separated, no ports) to override.
+      APP_URL: ${APP_URL:?Set APP_URL in deploy/.env}
+      TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:-}
+      MCP_ALLOWED_HOSTS:
+      # Per-token tool calls per minute (default 120, 0 = off) and largest JSON-RPC batch (default 10).
+      MCP_RATE_LIMIT_PER_MINUTE:
+      MCP_MAX_BATCH:
+      # No value: passed through only when set in deploy/.env.
+      KNOTWORKING_DEFAULT_WORKSPACE:
+      # Same value as the api service: tools of inactive modules are not offered to agents.
+      KNOTWORKING_MODULES:
+
+  # Front door. Without DOMAIN: plain HTTP on HTTP_PORT (LAN); port 443 is not published.
+  # With DOMAIN: automatic HTTPS from Let's Encrypt. Also load compose.https.yaml (it
+  # publishes 443), set HTTP_PORT=80, open ports 80/443, point DNS here, and set
+  # APP_URL=https://$DOMAIN.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [web]
+    environment:
+      SITE_ADDRESS: ${DOMAIN:-:80}
+    ports:
+      - "${HTTP_PORT:-3000}:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  db-data:
+  uploads:
+  caddy-data:
+  caddy-config:

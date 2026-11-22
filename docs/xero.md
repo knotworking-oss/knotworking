@@ -1,0 +1,23 @@
+# Xero purchase invoice adapter
+
+`apps/server/src/accounting/adapters/xero.ts` provides a server-side `createXeroAdapter` implementation of the shared `AccountingAdapter` interface. It is an HTTP adapter library with a fake-transport test suite, not an authenticated connection wizard or a verified live deployment. Creating or saving a Xero connection in settings does not invoke it.
+
+## Supported contract
+
+- One configured connection UUID and Xero OAuth tenant UUID per instance, with a server-side access-token callback. The application origin and workspace slug identify the existing source purchase invoice page. Credentials are not accepted from a browser and are not stored in connection metadata.
+- Base-currency GBP, EUR or USD purchase invoices, with explicit invoice/due dates, an existing Xero ContactID as supplier reference, reviewed account codes and Xero tax types. The adapter advertises only its configured base currency. It reads `/Organisations` to verify the organisation ID and base currency before a write. It refuses other currencies rather than allowing implicit currency conversion.
+- A single authorised `ACCPAY` bill with `Exclusive` line amounts. Each canonical financial line becomes quantity one with its supplied net/tax amount; it is not an inventory-item movement or a quantity/unit import. Nothing infers a tax rate, payment term, rounding adjustment, account or supplier.
+- Exact decimal strings remain canonical in shared code. For Xero's numeric JSON fields, these bounded two-decimal amounts are serialised as numbers at the HTTP boundary. Read-back rejects extra precision instead of silently rounding it.
+- Requests use Xero's `Idempotency-Key` header with the stable posting UUID, never the attempt UUID. The supplier invoice reference remains `InvoiceNumber`; the source `Url` carries the stable posting reference. The adapter does not use the sales-only `Reference` field to identify a purchase bill.
+- A successful create response is followed by `GET /Invoices/{InvoiceID}`. The adapter verifies the external ID, supplier, original invoice reference, source URL/posting key, dates, currency, authorised/paid status, line amount type, every description/account/tax/amount line and document totals. Line order may change; duplicate lines remain distinct in the comparison.
+- Preflight failures return a sanitised definitive no-write rejection. Once PUT is invoked, any timeout, HTTP failure, malformed response, validation flag or read-back mismatch is uncertain. The outbox will not automatically resend it. `readBack({postingKey, document, externalId})` allows positive reconciliation by a known external ID without a write. A missing result is not permission to resend.
+
+## Integration and remaining work
+
+Instantiate the adapter only from trusted server code with the configured destination and an authorised, approved-source producer. That producer must supply the invoice's actual due date and reviewed mappings. Posting through `dispatchAccountingPosting` enforces connection disable state and the shared durable lifecycle. Do not expose arbitrary prepared documents or the token callback through a public route.
+
+OAuth registration, refresh-token storage/rotation, consent and UI connection verification are still separate work. Once they exist, register `createXeroAdapter` as the `xero` factory in the [adapter registry](accounting.md#dispatch-and-the-finance-review-queue); the shared dispatcher and review queue (including read-back by Xero InvoiceID) then apply. Approved invoices are now prepared by the [shared producer](accounting.md#preparing-approved-purchase-invoices); map Xero ContactIDs, account codes and tax types as the supplier, account and tax references. Xero acceptance needs a test organisation and the documented `accounting.transactions` plus organisation/settings read permissions. No organisation or credentials are needed to run the unit/integration suite.
+
+The tests use a fake HTTP transport, including a simulated committed write followed by a lost response. A migrated Postgres outbox test proves a second dispatch does not send again and positive external-ID read-back can settle the original attempt. These tests do not prove real Xero tax handling, organisation permissions or live compatibility; those require provider acceptance before offering production posting.
+
+The provider contract was checked against [Xero's official Accounting OpenAPI specification](https://github.com/XeroAPI/Xero-OpenAPI/blob/master/xero_accounting.yaml), notably `createInvoices` (PUT `/Invoices`), `getInvoice`, `Organisations`, `Invoice`, `LineItem` and the idempotency header. Sage 50 and other adapters remain separate implementations on the [same shared interface](accounting.md).

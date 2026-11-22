@@ -1,0 +1,657 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1794150286457,
+      "tag": "0000_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794152823758,
+      "tag": "0001_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794154107470,
+      "tag": "0002_calendar",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794158818328,
+      "tag": "0003_meeting_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794170518138,
+      "tag": "0004_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794189742514,
+      "tag": "0005_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794208063489,
+      "tag": "0006_api_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794226436530,
+      "tag": "0007_reserved_workspace_slugs",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794238080919,
+      "tag": "0008_task_dependencies",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794239270919,
+      "tag": "0009_time_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794243247725,
+      "tag": "0010_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794244529860,
+      "tag": "0011_document_revisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794387412970,
+      "tag": "0012_module_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794388655254,
+      "tag": "0013_api_token_modules",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794389034546,
+      "tag": "0014_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794390949474,
+      "tag": "0015_recipes",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794408489680,
+      "tag": "0016_sops",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794408605629,
+      "tag": "0017_stock",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794416865068,
+      "tag": "0018_misty_ego",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794420274332,
+      "tag": "0019_people",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794421166582,
+      "tag": "0020_training",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794422600795,
+      "tag": "0021_attendance",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794422601861,
+      "tag": "0022_reserve_kiosk_slug",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794451746535,
+      "tag": "0023_demand",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794451747670,
+      "tag": "0024_production",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794451748803,
+      "tag": "0025_haccp",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794468395882,
+      "tag": "0026_quality",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794474183878,
+      "tag": "0027_org_chart",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794481969502,
+      "tag": "0028_purchasing",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794486863273,
+      "tag": "0029_token_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794500661378,
+      "tag": "0030_assistant",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794508100955,
+      "tag": "0031_site",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794525265028,
+      "tag": "0032_labels",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794531710535,
+      "tag": "0033_notifications_due",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794534916113,
+      "tag": "0034_kiosk_extras",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794535733396,
+      "tag": "0035_module_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794551395803,
+      "tag": "0036_purchase_invoices",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794552895732,
+      "tag": "0037_workspace_time_zone",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794557816900,
+      "tag": "0038_tense_silver_sable",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794560202861,
+      "tag": "0039_dusty_talkback",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794575789839,
+      "tag": "0040_third_captain_britain",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794576204942,
+      "tag": "0041_bumpy_shadowcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794576223721,
+      "tag": "0042_rare_baron_zemo",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794576235004,
+      "tag": "0043_fast_marvel_zombies",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794576256826,
+      "tag": "0044_luxuriant_ares",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794589253861,
+      "tag": "0045_review_fixes",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794605064985,
+      "tag": "0046_dashing_master_chief",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794642965407,
+      "tag": "0047_free_smasher",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794643624932,
+      "tag": "0048_regular_greymalkin",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794643651817,
+      "tag": "0049_easy_sprite",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794643829995,
+      "tag": "0050_fearless_iron_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794644685104,
+      "tag": "0051_lethal_namora",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1794644989446,
+      "tag": "0052_overrated_phil_sheldon",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794645247610,
+      "tag": "0053_superb_mentallo",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794659815492,
+      "tag": "0054_right_white_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794661083395,
+      "tag": "0055_module_information_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1794665899784,
+      "tag": "0056_customer_despatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794677419414,
+      "tag": "0057_omniscient_microbe",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794682066104,
+      "tag": "0058_smiling_corsair",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794687957130,
+      "tag": "0059_specifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794688830896,
+      "tag": "0060_testing",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1794689483510,
+      "tag": "0061_lot_release",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794690151335,
+      "tag": "0062_supplier_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1794690776579,
+      "tag": "0063_npd",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1794728666022,
+      "tag": "0064_grey_ironclad",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1794732840756,
+      "tag": "0065_food_defence",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1794733462227,
+      "tag": "0066_governance",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1794737154753,
+      "tag": "0067_easy_king_bedlam",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1794749361781,
+      "tag": "0068_release_exceptions_supplier_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1794753197764,
+      "tag": "0069_sales_review_fixes",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1794754451557,
+      "tag": "0070_wandering_morbius",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1794762812496,
+      "tag": "0071_hse_incident_actions_and_injuries",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794771763427,
+      "tag": "0072_accounting_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1794772284650,
+      "tag": "0073_accounting_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1794774832697,
+      "tag": "0074_workforce_absences",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1794778418933,
+      "tag": "0075_workforce_rotas_staffing",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1794794608142,
+      "tag": "0076_workforce_payroll_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1794813647473,
+      "tag": "0077_production_detailed_scheduling",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1794822086703,
+      "tag": "0078_production_performance",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1794832679141,
+      "tag": "0079_production_packing",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1794844528598,
+      "tag": "0080_production_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1794849766491,
+      "tag": "0081_governance_standards",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1794853616278,
+      "tag": "0082_governance_clause_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1794860911389,
+      "tag": "0083_governance_drafts_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1794925442397,
+      "tag": "0084_stock_balances",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1794984053632,
+      "tag": "0085_financial_year_start",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1794992832891,
+      "tag": "0086_bi_dashboards",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1795000034461,
+      "tag": "0087_bi_dashboard_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1795006105753,
+      "tag": "0088_bi_board_packs",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1795022851956,
+      "tag": "0089_bi_analysis_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1795117261890,
+      "tag": "0090_assistant_byo_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1795117323956,
+      "tag": "0091_assistant_drop_runners",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1795119511499,
+      "tag": "0092_assistant_tool_modules",
+      "breakpoints": true
+    }
+  ]
+}

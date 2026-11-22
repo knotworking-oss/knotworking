@@ -1,0 +1,1 @@
+ALTER TABLE "meetings" ADD COLUMN "local_version" integer DEFAULT 0 NOT NULL;

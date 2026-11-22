@@ -1,0 +1,14 @@
+pnpm-lock.yaml
+packages/db/migrations
+packages/tokens/src/generated
+.next
+dist
+apps/web/AGENTS.md
+apps/web/next-env.d.ts
+
+# shadcn/ui-managed files keep the registry's formatting so `shadcn add --diff` stays clean
+packages/ui/src/components
+packages/ui/src/hooks
+packages/ui/src/styles
+packages/ui/components.json
+apps/web/components.json

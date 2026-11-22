@@ -1,0 +1,1 @@
+ALTER TABLE "bi_dashboards" ADD COLUMN "is_template" boolean DEFAULT false NOT NULL;

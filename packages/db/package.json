@@ -1,0 +1,36 @@
+{
+  "name": "@knotworking/db",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Postgres schema (Drizzle), migrations, client factory and seed data.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate": "tsx --env-file-if-exists=../../.env src/scripts/migrate.ts",
+    "seed": "tsx --env-file-if-exists=../../.env src/scripts/seed.ts",
+    "reset": "tsx --env-file-if-exists=../../.env src/scripts/reset.ts",
+    "studio": "drizzle-kit studio",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.15",
+    "@knotworking/core": "workspace:*",
+    "better-auth": "^1.7.18",
+    "drizzle-orm": "^0.45.4",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "^5.1.0"
+  }
+}

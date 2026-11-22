@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Knotworking</title>
+    <link rel="stylesheet" href="connect.css" />
+    <script src="connect.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <p id="status" class="status" hidden></p>
+      <form id="connect" hidden>
+        <h1>Connect to Knotworking</h1>
+        <p class="hint">Enter the address you use to open Knotworking in your browser.</p>
+        <label for="server">Server address</label>
+        <input
+          id="server"
+          name="server"
+          type="text"
+          inputmode="url"
+          autocomplete="url"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="knotworking.example.com"
+          required
+        />
+        <p id="error" class="error" role="alert" hidden></p>
+        <button type="submit">Connect</button>
+      </form>
+    </main>
+  </body>
+</html>

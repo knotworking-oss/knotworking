@@ -1,0 +1,13 @@
+Knotworking
+Copyright 2026 Knotworking contributors
+
+Knotworking includes UI components adapted from shadcn/ui.
+Copyright (c) 2023 shadcn. MIT license: licenses/shadcn-ui.txt.
+
+Knotworking carries a local patch for deepmerge 4.3.1. The patch changes
+property assignment to use own data properties.
+Copyright (c) 2012 James Halliday, Josh Duff, and other contributors.
+MIT license: licenses/deepmerge.txt.
+
+Dependencies installed from the package and Cargo registries retain their
+upstream licenses. See their package metadata and accompanying license files.

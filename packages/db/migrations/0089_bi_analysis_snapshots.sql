@@ -1,0 +1,1 @@
+ALTER TABLE "bi_snapshots" ADD COLUMN "kind" text DEFAULT 'dashboard' NOT NULL;

@@ -1,0 +1,53 @@
+{
+  "name": "@knotworking/server",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Knotworking HTTP API. One API for every client (web today; desktop and mobile later).",
+  "exports": {
+    ".": "./src/app.ts"
+  },
+  "scripts": {
+    "demo:business": "tsx scripts/demo-business/index.ts",
+    "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
+    "build": "tsup",
+    "start": "node --env-file-if-exists=../../.env dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.106",
+    "@ai-sdk/deepseek": "3.0.88",
+    "@ai-sdk/google": "4.0.122",
+    "@ai-sdk/groq": "4.0.85",
+    "@ai-sdk/mcp": "2.0.101",
+    "@ai-sdk/mistral": "4.0.88",
+    "@ai-sdk/openai": "4.0.121",
+    "@ai-sdk/xai": "5.0.47",
+    "@electric-sql/pglite": "^0.5.15",
+    "@hono/node-server": "^2.1.6",
+    "@hono/zod-validator": "^0.9.1",
+    "@knotworking/core": "workspace:*",
+    "@knotworking/db": "workspace:*",
+    "ai": "7.0.177",
+    "better-auth": "^1.7.18",
+    "busboy": "^1.6.0",
+    "drizzle-orm": "^0.45.4",
+    "fractional-indexing": "^4.0.0",
+    "hono": "^4.13.17",
+    "nodemailer": "^10.4.0",
+    "postgres": "^3.4.9",
+    "uuidv7": "^1.2.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/busboy": "^1.5.5",
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.2",
+    "tsup": "^9.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "^5.1.0"
+  }
+}

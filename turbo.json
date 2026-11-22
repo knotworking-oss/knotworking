@@ -1,0 +1,55 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "ui": "tui",
+  "globalEnv": [
+    "API_TOKEN_READ_LIMIT_PER_MINUTE",
+    "API_TOKEN_WRITE_LIMIT_PER_MINUTE",
+    "API_URL",
+    "APP_URL",
+    "BETTER_AUTH_SECRET",
+    "CALENDAR_SYNC_INTERVAL_SECONDS",
+    "DATABASE_POOLED",
+    "DATABASE_POOL_SIZE",
+    "DATABASE_URL",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "KNOTWORKING_API_URL",
+    "KNOTWORKING_DEFAULT_WORKSPACE",
+    "MAIL_FROM",
+    "MCP_ALLOWED_HOSTS",
+    "MCP_HOST",
+    "MCP_INTERNAL_URL",
+    "MCP_MAX_BATCH",
+    "MCP_MAX_BODY_BYTES",
+    "MCP_PORT",
+    "MCP_RATE_LIMIT_PER_MINUTE",
+    "MICROSOFT_CLIENT_ID",
+    "MICROSOFT_CLIENT_SECRET",
+    "MICROSOFT_TENANT_ID",
+    "MIGRATIONS_DIR",
+    "NODE_ENV",
+    "PORT",
+    "SETUP_TOKEN",
+    "SMTP_URL",
+    "TRUSTED_ORIGINS",
+    "TRUSTED_PROXIES"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

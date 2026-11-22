@@ -1,0 +1,24 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fixed, deliberately fake test fixtures; never usable credentials"
+regexTarget = "secret"
+regexes = [
+  '^test-secret-0123456789abcdef0123456789$',
+  '^knw_AbC-123_xyz$',
+]
+
+[[rules]]
+id = "knotworking-credential"
+description = "Knotworking API, retired assistant runner (knr_), or paired kiosk credential"
+regex = '''\b(?:knw|knr|knk)_[A-Za-z0-9_-]{43}\b'''
+entropy = 3.5
+keywords = ["knw_", "knr_", "knk_"]
+
+[[allowlists]]
+description = "Mock provider key used only in the assistant test harness"
+condition = "AND"
+regexTarget = "secret"
+paths = ['^apps/server/src/assistant-testkit\.ts$']
+regexes = ['^sk-valid-key-1234567890$']

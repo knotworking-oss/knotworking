@@ -1,0 +1,34 @@
+node_modules
+.turbo
+.next
+dist
+out
+coverage
+*.tsbuildinfo
+next-env.d.ts
+
+# local data (PGlite dev database)
+.data
+
+# env
+.env
+.env.*
+!.env.example
+
+# Tauri (apps/desktop)
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen/schemas
+
+# misc
+.DS_Store
+*.log
+deploy/.env
+
+# Local generated coding-agent instructions
+/apps/web/AGENTS.md
+
+# Claude Code agent worktrees
+.claude/worktrees/
+
+# Audit harness run output (the harness itself is committed under apps/server/sim)
+apps/server/sim/out/

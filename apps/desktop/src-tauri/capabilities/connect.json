@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "connect",
+  "description": "The bundled connect page may read and set the server address. Pages from the Knotworking server get no IPC access: this capability has no `remote` URLs, so it applies to bundled pages only.",
+  "windows": ["main"],
+  "permissions": ["allow-saved-server", "allow-connect"]
+}

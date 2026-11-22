@@ -1,0 +1,16 @@
+{
+  "name": "@knotworking/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Knotworking desktop app: a Tauri window around a Knotworking server's web app.",
+  "scripts": {
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "desktop:icons": "tauri icon app-icon.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4"
+  }
+}

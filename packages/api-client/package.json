@@ -1,0 +1,22 @@
+{
+  "name": "@knotworking/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "End-to-end typed client for the Knotworking API. Works in browsers, Node, React Native and desktop webviews.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.13.17"
+  },
+  "devDependencies": {
+    "@knotworking/server": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.3"
+  }
+}

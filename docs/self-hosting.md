@@ -42,6 +42,8 @@ docker compose --env-file deploy/.env logs api | grep setup
 
 There you create the workspace and the owner account. Requiring the code from the log means nobody else on the network can claim a fresh install before you do. Setup only works while the database has no users. To get a new code, restart the API with `docker compose restart api`, or set `SETUP_TOKEN` in `deploy/.env` to a code of your choice. The same applies with a hosted database: it starts empty, and this screen creates the owner.
 
+To connect from the desktop app, enter this same web address. See the [desktop build and install guide](desktop.md#running-it).
+
 ## 2. Invite your team
 
 Go to **Members → Invite people**. Knotworking is invite-only: there is no public sign-up, and only invited email addresses can create an account.

@@ -2,7 +2,7 @@
 
 Tasks, projects, meetings and a team wiki in one workspace for any kind of team: assign work, group it into projects, and see what's due, with the speed of a keyboard-first app and the calm of a writing tool.
 
-Web first, built so native **desktop** and **mobile** apps can follow without re-architecting: every client talks to one typed HTTP API and stays current through a shared sync protocol.
+Use Knotworking in a browser or through the [Tauri desktop app](#desktop-app). The desktop app loads the web interface from your server.
 
 |                   |                                                                                                                                                                                                                     |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -16,7 +16,7 @@ Web first, built so native **desktop** and **mobile** apps can follow without re
 
 ## Quick start
 
-Requires Node 22+ and pnpm 10 (`corepack enable`).
+Requires Node 22.12 or later and pnpm 10 (`corepack enable`).
 
 ```bash
 pnpm install --frozen-lockfile
@@ -59,12 +59,31 @@ See [docs/database.md](docs/database.md) for step-by-step setup.
 
 > PGlite allows one process at a time. Stop `pnpm dev` before running `db:*` scripts.
 
+## Desktop app
+
+The Tauri desktop app is available to build from source. It connects to a running Knotworking server, either from the [local quick start](#quick-start) or a [self-hosted installation](docs/self-hosting.md). This is a source-only release.
+
+1. Install Node.js 22.12 or later, pnpm 10, stable Rust, and the [Tauri prerequisites for your OS](https://tauri.app/start/prerequisites/).
+2. Clone the repository if you need a checkout. From its root, install the workspace dependencies and build the desktop package.
+
+   ```bash
+   git clone https://github.com/knotworking-oss/knotworking.git
+   cd knotworking
+   pnpm install --frozen-lockfile
+   pnpm --filter @knotworking/desktop desktop:build
+   ```
+
+3. Install or run the [package for your OS](docs/desktop.md#build-and-install) from `apps/desktop/src-tauri/target/release/bundle/`. Launch Knotworking, enter the web address of your server, and sign in. For the local quick start, enter `http://localhost:3000`.
+
+Run `pnpm desktop` from the repository root to open the development build. The [desktop guide](docs/desktop.md#running-it) covers platform setup, build options, and known limitations.
+
 ## Repository layout
 
 ```
 apps/
   web/          Next.js 16 web app (App Router, React 19, Tailwind CSS 4)
   server/       Hono HTTP API — the single backend for every client
+  desktop/      Tauri desktop client for a running Knotworking server
   mcp/          MCP server: lets AI agents read and write tasks, projects, docs and comments via the API
 packages/
   core/         Domain model shared by every client: enums, zod schemas, IDs, ordering, sync protocol
@@ -111,15 +130,6 @@ docs/           Architecture, data model and design system guides
 Built so far: the data model, API, sync log, design system, read views and task editing. Task editing covers optimistic create, edit and delete, property menus in list rows, board cards and the task sidebar, and drag-and-drop between states and within manual or priority ordering.
 
 Keyboard: `⌘K` opens the command menu (it also searches the text of docs and tasks), `C` creates a task and `?` lists every shortcut. In a list or board, `J`/`K` (or the arrow keys) move focus between tasks, `←`/`→` hop between board columns, `Enter` opens the focused task, `S`, `P`, `A` and `L` open its status, priority, assignee and label menus, `X` marks it done (or reopens it) and `Esc` clears focus. The same four keys work on a task page. In an open property menu, number keys pick an option. To move a task in a list or board, focus it, press `Space`, use the arrow keys, then press `Space` again. Shortcuts stay out of the way while you type in a field, while a menu or dialog is open, and during a drag.
-
-Next up:
-
-- [x] Mutations in the UI: create/edit tasks, inline property menus, drag-and-drop ordering
-- [x] Project create, edit and delete, with a project page listing its tasks
-- [x] More keyboard shortcuts: list and board navigation (`J`/`K`), shortcuts on a focused row, and a `?` help dialog (`C`, the ⌘K menu and task-page property keys were already in)
-- [ ] Rich-text editor for docs and descriptions (Tiptap/ProseMirror over the stored JSON)
-- [x] Client-side sync store consuming `/sync`, with real-time push (SSE) so teammates' edits appear live
-- [ ] Desktop (Tauri) and mobile (Expo + React Native Reusables) apps on the same API (the desktop shell around the web app is in: [desktop.md](docs/desktop.md))
 
 ## Contributing and licensing
 

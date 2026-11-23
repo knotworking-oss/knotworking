@@ -35,23 +35,49 @@ The CSP in `tauri.conf.json` covers the bundled connect page only (including `fr
 
 ## Running it
 
-Prerequisites: Rust (stable, via [rustup](https://rustup.rs)) and the [Tauri system dependencies](https://tauri.app/start/prerequisites/) for your OS. On Linux these are WebKitGTK 4.1 and friends (`libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev libssl-dev`).
+### Prerequisites
+
+Install Git, Node.js 22.12 or later, pnpm 10 (the workspace pins `10.28.0`), and a stable Rust toolchain from [rustup](https://rustup.rs). Install the native build dependencies for your OS using the [Tauri 2 prerequisite guide](https://tauri.app/start/prerequisites/).
+
+- **Linux:** Install the WebKitGTK 4.1 development libraries and the native build tools for your distribution. The WebKit package is `libwebkit2gtk-4.1-dev` on Debian and Ubuntu, and `webkit2gtk-4.1` on Arch and CachyOS. Use the matching installation commands in the Tauri guide for the full package list.
+- **macOS:** Install the Xcode Command Line Tools with `xcode-select --install`.
+- **Windows:** Install Microsoft C++ Build Tools with the **Desktop development with C++** workload and ensure the WebView2 Runtime is installed. Use the Rust MSVC toolchain. If you are building an MSI, check the [VBScript prerequisite](https://tauri.app/start/prerequisites/#vbscript-for-msi-installers).
+
+### Build and install
+
+Run these from the repository root on the OS where you want to use the app.
 
 ```bash
-pnpm dev                 # in one terminal: API + web on :3000
-pnpm desktop             # in another: builds and opens the app
+pnpm install --frozen-lockfile
+pnpm --filter @knotworking/desktop desktop:build
 ```
 
-The first build compiles about 500 crates and takes a few minutes. Enter `http://localhost:3000` on the connect page. To skip the connect page, set `KNOTWORKING_SERVER_URL=http://localhost:3000`. It is opened for that run only, not saved. Under `tauri dev`, the bundled page is served from the CLI's dev server (`http://127.0.0.1:1430`), not `tauri://localhost`. `bundled_origin` handles both.
+Find the artifacts in `apps/desktop/src-tauri/target/release/bundle/`. This is a source-only release, and the default build produces unsigned packages.
 
-| Command (in `apps/desktop`) | What it does                                                                  |
-| --------------------------- | ----------------------------------------------------------------------------- |
-| `pnpm desktop:dev`          | Run the app, rebuilding when Rust files change (`pnpm desktop` from the root) |
-| `pnpm desktop:build`        | Release build and installers for the current OS (`.dmg`, `.msi`, `.deb`, …)   |
-| `pnpm desktop:icons`        | Regenerate `src-tauri/icons` from `app-icon.png`                              |
-| `cargo test` (`src-tauri`)  | Rust unit tests (server address handling)                                     |
+- **Linux:** Install the generated `.deb` with your package manager on Debian or Ubuntu, or make the generated AppImage executable and run it.
+- **macOS:** Open the generated `.dmg`, then copy Knotworking to Applications.
+- **Windows:** Open the generated `.msi` and follow the installer prompts.
 
-The desktop scripts are deliberately not named `dev`/`build`, so `pnpm dev`, `pnpm build` and CI don't need a Rust toolchain.
+To compile only the desktop executable, run `pnpm --filter @knotworking/desktop desktop:build --no-bundle`. The executable is in `apps/desktop/src-tauri/target/release/`.
+
+### Connect to a server
+
+1. Start a server with the [local quick start](../README.md#quick-start) or the [self-hosting guide](self-hosting.md). If your team has a running server, use its existing web address.
+2. Launch Knotworking and enter the address you would use in a browser. Use `http://localhost:3000` for the local quick start or your team's HTTPS URL for a hosted server.
+3. Sign in with your workspace account. To point the app at another server later, choose **Change server…** from the account menu.
+
+### Development commands
+
+After installing the dependencies, run `pnpm desktop` from the repository root to build and open the development app. Open a second terminal for the [local server](../README.md#quick-start) if you need one. Set `KNOTWORKING_SERVER_URL` when launching to open a specific server for that run. The override is temporary.
+
+| Command from the repository root                                        | What it does                                       |
+| ----------------------------------------------------------------------- | -------------------------------------------------- |
+| `pnpm desktop`                                                          | Opens the desktop app in development mode          |
+| `pnpm --filter @knotworking/desktop desktop:build`                      | Builds desktop packages for the current OS         |
+| `pnpm --filter @knotworking/desktop desktop:icons`                      | Regenerates the platform icons from `app-icon.png` |
+| `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked` | Runs the desktop Rust tests                        |
+
+The web app and API build separately with `pnpm build`.
 
 ## Known limitations
 

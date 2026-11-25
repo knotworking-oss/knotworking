@@ -173,6 +173,7 @@ describe("member module access", () => {
       bi: "manage",
       purchase_requests: "manage",
       client_services: "manage",
+      crm: "manage",
     });
     // New modules are opt-in: members have nothing until an admin grants it.
     expect((await level(member.cookie)).items).toBe("none");
@@ -229,6 +230,7 @@ describe("member module access", () => {
       "bi",
       "purchase_requests",
       "client_services",
+      "crm",
     ]);
     const row = list.members.find((m: { userId: string }) => m.userId === member.userId);
     expect(row.access.docs).toEqual({ grant: null, effective: "write" });
@@ -440,6 +442,7 @@ describe("member module access", () => {
       bi: "none",
       purchase_requests: "none",
       client_services: "none",
+      crm: "none",
     });
     const headers = { authorization: `Bearer ${docsOnly}`, origin: "" };
     expect((await ctx.req("/v1/workspaces/acme/documents", { headers })).status).toBe(200);

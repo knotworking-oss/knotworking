@@ -68,6 +68,7 @@ import { defenceRoutes } from "./routes/defence";
 import { concernRoutes, governanceRoutes } from "./routes/governance";
 import { purchaseRequestRoutes } from "./routes/purchase-requests";
 import { clientServicesRoutes } from "./routes/client-services";
+import { crmRoutes } from "./routes/crm";
 import { assetRoutes } from "./routes/assets";
 import { notificationRoutes } from "./routes/notifications";
 import { registerNotificationDelivery } from "./services/notifications";
@@ -359,6 +360,7 @@ export function createApp({
     .route("/v1/workspaces/:slug", concernRoutes)
     .route("/v1/workspaces/:slug", purchaseRequestRoutes)
     .route("/v1/workspaces/:slug", clientServicesRoutes)
+    .route("/v1/workspaces/:slug", crmRoutes)
     .route("/v1/workspaces/:slug", assistantRoutes)
     .route("/v1/workspaces/:slug", biRoutes)
     .route("/v1/calendar", calendarConnectionRoutes);

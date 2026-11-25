@@ -51,10 +51,9 @@ function fixture(
     readOverride: {} as Record<string, unknown>,
     sent: null as Record<string, any> | null,
     organisation: {} as Record<string, unknown>,
-    taxRates: [{ TaxType: "INPUT2", Status: "ACTIVE", CanApplyToExpenses: true, EffectiveRate: 20 }] as Record<
-      string,
-      unknown
-    >[],
+    taxRates: [
+      { TaxType: "INPUT2", Status: "ACTIVE", CanApplyToExpenses: true, EffectiveRate: 20 },
+    ] as Record<string, unknown>[],
     /** Respond to the next request whose path contains this with the status, once. */
     refuse: null as { path: string; status: number } | null,
     /** Bills the source-link search returns. */
@@ -91,7 +90,8 @@ function fixture(
     if (url.endsWith("/Accounts"))
       return Response.json({ Accounts: [{ Code: "5000", Class: "EXPENSE", Status: "ACTIVE" }] });
     if (url.endsWith("/TaxRates")) return Response.json({ TaxRates: state.taxRates });
-    if (url.includes("/Invoices?") && init?.method !== "PUT") return Response.json({ Invoices: state.search });
+    if (url.includes("/Invoices?") && init?.method !== "PUT")
+      return Response.json({ Invoices: state.search });
     if (init?.method === "PUT") {
       state.sent = JSON.parse(String(init.body)).Invoices[0];
       if (state.loseWriteReply) throw new Error("secret-token must never escape");
@@ -428,7 +428,10 @@ describe("Xero purchase invoice HTTP adapter (fake transport)", () => {
       refusals++;
       return new Response(null, { status: 401 });
     });
-    expect(await post(f)).toMatchObject({ outcome: "rejected", evidence: expect.stringContaining("refresh") });
+    expect(await post(f)).toMatchObject({
+      outcome: "rejected",
+      evidence: expect.stringContaining("refresh"),
+    });
     expect(refusals).toBe(2);
   });
   it("leaves the bill queued when refreshing needs a reconnect", async () => {

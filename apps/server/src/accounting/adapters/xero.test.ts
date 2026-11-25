@@ -176,6 +176,8 @@ describe("Xero purchase invoice HTTP adapter (fake transport)", () => {
     const f = fixture();
     f.document.lines[0]!.net = "999999999999.97";
     f.document.lines[0]!.tax = "0.02";
+    // A rate Xero doesn't state isn't checked here: this is about the numeric boundary.
+    f.state.taxRates = [{ TaxType: "INPUT2", Status: "ACTIVE", CanApplyToExpenses: true }];
     Object.assign(f.document, { net: "999999999999.97", tax: "0.02", gross: "999999999999.99" });
     f.state.readOverride = { SubTotal: 999999999999.97, TotalTax: 0.02, Total: 999999999999.99 };
     expect(
@@ -476,9 +478,7 @@ describe("Xero purchase invoice HTTP adapter (fake transport)", () => {
   ])("checks line tax against the Xero rate %j: tax %s is %s", async (rate, tax, outcome) => {
     const f = fixture();
     const taxType = (rate as { TaxType?: string }).TaxType ?? "INPUT2";
-    f.state.taxRates = [
-      { TaxType: taxType, Status: "ACTIVE", CanApplyToExpenses: true, ...rate },
-    ].map(({ EffectiveRate, ...r }) => (EffectiveRate === undefined ? r : { ...r, EffectiveRate }));
+    f.state.taxRates = [{ TaxType: taxType, Status: "ACTIVE", CanApplyToExpenses: true, ...rate }];
     f.document.lines[0]!.taxReference = taxType;
     f.document.lines[0]!.tax = tax;
     const gross = (10 + Number(tax)).toFixed(2);

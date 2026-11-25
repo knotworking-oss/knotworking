@@ -10,6 +10,13 @@ describe("CRM tools", () => {
         expect.arrayContaining(["save_crm_lead", "record_crm_outcome", "get_crm_pipeline"]),
       );
       expect(names.filter((name) => /handoff|hand_off/.test(name))).toEqual([]);
+      // Saving without an id creates a new record each call, so a retry isn't idempotent.
+      const tools = (await client.listTools()).tools;
+      for (const name of ["save_crm_lead", "save_crm_opportunity", "save_crm_follow_up"])
+        expect(tools.find((tool) => tool.name === name)?.annotations, name).toMatchObject({
+          readOnlyHint: false,
+          idempotentHint: false,
+        });
       // Without Sales or Client services there are no quote tools to link from.
       expect(names).not.toContain("draft_sales_document");
       expect(names).not.toContain("list_service_quotes");

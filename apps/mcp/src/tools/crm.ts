@@ -16,13 +16,6 @@ import { z } from "zod";
 import { ToolError, type Api } from "../api";
 import { CREATE, READ, type ToolContext } from "./shared";
 
-const SAVE = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-} as const;
-
 function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
   const parsed = schema.safeParse(value);
   if (!parsed.success)
@@ -76,7 +69,7 @@ export function registerCrmTools({ define, slugOf, workspaceParam }: ToolContext
       title: "Create or edit a CRM lead",
       description:
         "Without lead_id: create from { name, company?, email?, phone?, source?, notes?, ownerId? }. With lead_id: change those fields or status (new, contacted, qualified, disqualified with statusReason) and pass expectedRevision from the lead you read. The owner must have CRM access.",
-      annotations: SAVE,
+      annotations: CREATE,
       input: {
         workspace: workspaceParam,
         lead_id: z.uuid().optional(),
@@ -172,8 +165,8 @@ export function registerCrmTools({ define, slugOf, workspaceParam }: ToolContext
       module: "crm",
       title: "Create, move or edit a CRM opportunity",
       description:
-        "Without opportunity_id: create from { title, customerId or leadId, currency, value?, stageId? (default: first stage), ownerId?, expectedCloseDate?, notes?, salesQuoteId?, serviceQuoteId? }. With opportunity_id: change those fields (stageId moves it along the pipeline) and pass expectedRevision. A linked quote must be the same customer's; linking needs read access to Sales or Client services.",
-      annotations: SAVE,
+        "Without opportunity_id: create from { title, customerId or leadId, currency, value?, stageId? (default: first stage), ownerId?, expectedCloseDate?, notes?, salesQuoteId?, serviceQuoteId? }. With opportunity_id: change those fields (stageId moves it along the pipeline) and pass expectedRevision. Link one quote at most (salesQuoteId or serviceQuoteId), of the same customer, not yet handed off; linking or unlinking needs read access to Sales or Client services, and the link is fixed once the opportunity is closed or handed off.",
+      annotations: CREATE,
       input: {
         workspace: workspaceParam,
         opportunity_id: z.uuid().optional(),
@@ -249,7 +242,7 @@ export function registerCrmTools({ define, slugOf, workspaceParam }: ToolContext
       title: "Log an activity or plan a follow-up",
       description:
         "Without activity_id: create from { leadId or opportunityId, kind (call, email, meeting, task, note), subject, notes?, dueOn?, ownerId? (default you), done? }. With activity_id: change those fields, or set done true or false. A new owner is notified.",
-      annotations: SAVE,
+      annotations: CREATE,
       input: {
         workspace: workspaceParam,
         activity_id: z.uuid().optional(),

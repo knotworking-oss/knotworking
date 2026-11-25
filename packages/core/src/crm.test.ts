@@ -3,6 +3,7 @@ import {
   crmActivityCreateSchema,
   crmLeadUpdateSchema,
   crmOpportunityCreateSchema,
+  crmOpportunityUpdateSchema,
   crmStagesSaveSchema,
   defaultCrmStages,
 } from "./crm";
@@ -43,6 +44,24 @@ describe("CRM", () => {
       salesQuoteId: null,
       serviceQuoteId: null,
     });
+  });
+
+  it("links an opportunity to one quote at most", () => {
+    const other = "0190a000-0000-7000-8000-000000000002";
+    const base = { commandId: id, title: "Retainer", currency: "GBP", customerId: id };
+    expect(
+      crmOpportunityCreateSchema.safeParse({ ...base, salesQuoteId: id, serviceQuoteId: other }).success,
+    ).toBe(false);
+    expect(crmOpportunityCreateSchema.safeParse({ ...base, serviceQuoteId: other }).success).toBe(true);
+    expect(
+      crmOpportunityUpdateSchema.safeParse({ expectedRevision: 1, salesQuoteId: id, serviceQuoteId: other })
+        .success,
+    ).toBe(false);
+    // Swapping one kind for the other in a single change is fine.
+    expect(
+      crmOpportunityUpdateSchema.safeParse({ expectedRevision: 1, salesQuoteId: null, serviceQuoteId: other })
+        .success,
+    ).toBe(true);
   });
 
   it("attaches an activity to exactly one lead or opportunity", () => {

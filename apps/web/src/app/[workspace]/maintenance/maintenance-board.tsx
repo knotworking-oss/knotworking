@@ -28,7 +28,7 @@ import {
   TextField,
   useDateTime,
   frequencyBody,
-  siteApi,
+  maintenanceApi,
   text,
   type FrequencyState,
 } from "@/components/site-forms";
@@ -56,7 +56,7 @@ type Dialog =
 
 /**
  * Planned maintenance: assets with tasks on intervals, what is due, and records of completed work.
- * Work in a production area needs a hygiene clearance (the area is safe to restart): a sign-off by
+ * Work in a production area needs a return-to-service clearance (the area is safe to restart): a sign-off by
  * a person with manage access.
  */
 export function MaintenanceBoard({
@@ -83,8 +83,8 @@ export function MaintenanceBoard({
 }) {
   const dateTime = useDateTime();
   const { can } = useWorkspace();
-  const canWrite = can("site", "write");
-  const canManage = can("site", "manage");
+  const canWrite = can("maintenance", "write");
+  const canManage = can("maintenance", "manage");
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const activeTasks = tasks.filter((t) => t.status === "active");
 
@@ -138,7 +138,7 @@ export function MaintenanceBoard({
                       {t.title}
                       {t.clearanceRequired && (
                         <Badge variant="outline" className="ml-2">
-                          Hygiene clearance
+                          Return-to-service clearance
                         </Badge>
                       )}
                     </TableCell>
@@ -249,7 +249,7 @@ export function MaintenanceBoard({
                   <TableHead className="pl-4">Done</TableHead>
                   <TableHead>Work</TableHead>
                   <TableHead>By</TableHead>
-                  <TableHead>Hygiene clearance</TableHead>
+                  <TableHead>Return-to-service clearance</TableHead>
                   <TableHead className="pr-4" />
                 </TableRow>
               </TableHeader>
@@ -303,7 +303,7 @@ export function MaintenanceBoard({
           kinds={assetKinds.filter((k) => k !== "area")}
           defaultKind="equipment"
           title="Add asset"
-          description="An asset of the register that is maintained. Give it an area if work on it needs a hygiene clearance."
+          description="An asset of the register that is maintained. Give it an area if work on it needs a return-to-service clearance."
           onClose={() => setDialog(null)}
         />
       )}
@@ -356,7 +356,7 @@ function LinkInstrumentDialog({
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance.assets[":id"].$patch({
+          maintenanceApi().assets[":id"].$patch({
             param: { slug, id: asset.id },
             json: { calibrationInstrumentId: instrument === NONE ? null : instrument },
           }),
@@ -404,7 +404,7 @@ function TaskDialog({
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance.tasks.$post({
+          maintenanceApi().tasks.$post({
             param: { slug },
             json: {
               assetId: asset,
@@ -439,9 +439,7 @@ function TaskDialog({
       />
       <Field orientation="horizontal">
         <Checkbox id="tk-clear" checked={clearance} onCheckedChange={(v) => setClearance(v === true)} />
-        <FieldLabel htmlFor="tk-clear">
-          Work in a production area: needs a hygiene clearance afterwards
-        </FieldLabel>
+        <FieldLabel htmlFor="tk-clear">Require clearance before returning the asset to use</FieldLabel>
       </Field>
     </SiteDialog>
   );
@@ -454,12 +452,12 @@ function RecordDialog({ slug, task, onClose }: { slug: string; task: Maintenance
   return (
     <SiteDialog
       title="Record maintenance"
-      description={`${task.asset?.name}: ${task.title}. You are recording that the work was done${task.clearanceRequired ? "; a person with manage access then gives the hygiene clearance" : ""}.`}
+      description={`${task.asset?.name}: ${task.title}. You are recording that the work was done${task.clearanceRequired ? "; a person with manage access then gives the return-to-service clearance" : ""}.`}
       submitLabel="Record"
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance.records.$post({
+          maintenanceApi().records.$post({
             param: { slug },
             json: {
               taskId: task.id,
@@ -504,13 +502,13 @@ function ClearDialog({
   const [note, setNote] = useState("");
   return (
     <SiteDialog
-      title="Hygiene clearance"
+      title="Return-to-service clearance"
       description={`${record.area?.name ?? "The area"} is safe to restart after: ${record.task?.title}. This is your sign-off.`}
       submitLabel="Clear area"
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance.records[":id"].clearance.$post({
+          maintenanceApi().records[":id"].clearance.$post({
             param: { slug, id: record.id },
             json: { ...(text(note) ? { note: text(note)! } : {}) },
           }),

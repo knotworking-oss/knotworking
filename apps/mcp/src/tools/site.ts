@@ -9,8 +9,6 @@ import {
   maintenanceTaskUpdateSchema,
   pestActivityLevels,
   pestTrendGroupings,
-  workOrderKinds,
-  workOrderPriorities,
   pestDeviceCreateSchema,
   pestDeviceUpdateSchema,
   siteAssetUpdateSchema,
@@ -20,7 +18,7 @@ import {
 } from "@knotworking/core";
 import { z } from "zod";
 import { ToolError, type Api } from "../api";
-import type { ToolContext } from "./shared";
+import { pickReference, type ToolContext } from "./shared";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const CREATE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
@@ -87,26 +85,8 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
     );
   }
 
-  /** A reference to a row of a register: an id, or an exact code or name. */
-  function pick<T extends { id: string }>(
-    rows: T[],
-    ref: string,
-    names: (row: T) => (string | null | undefined)[],
-    what: string,
-    hint: string,
-  ) {
-    const wanted = ref.trim();
-    if (UUID.test(wanted)) return wanted;
-    const match = rows.filter((r) => names(r).some((n) => n && n.toLowerCase() === wanted.toLowerCase()));
-    if (match.length === 1) return match[0]!.id;
-    throw new ToolError(
-      match.length === 0 ? "not_found" : "ambiguous",
-      `${match.length === 0 ? "No" : "More than one"} ${what} matches "${wanted}". ${hint}`,
-    );
-  }
-
   const unitRef = async (api: Api, slug: string, ref: string) =>
-    pick(
+    pickReference(
       (await api.call(ws(api).site.storage.units.$get({ param: { slug }, query: { status: "all" } }))).units,
       ref,
       (u) => [u.code, u.name],
@@ -114,7 +94,7 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
       "Use list_site_registers with kind storage_units.",
     );
   const deviceRef = async (api: Api, slug: string, ref: string) =>
-    pick(
+    pickReference(
       (await api.call(ws(api).site.pest.devices.$get({ param: { slug }, query: { status: "all" } }))).devices,
       ref,
       (d) => [d.code],
@@ -122,7 +102,7 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
       "Use list_site_registers with kind pest_devices.",
     );
   const assetRef = async (api: Api, slug: string, ref: string) =>
-    pick(
+    pickReference(
       (await api.call(ws(api).site.maintenance.assets.$get({ param: { slug }, query: { status: "all" } })))
         .assets,
       ref,
@@ -137,7 +117,7 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
       module: "site",
       title: "What's due (site programmes)",
       description:
-        "Everything scheduled across the site programmes that is overdue or due today, most urgent first: the pest control contractor's next visit (still listed as due, with reason `no_next_visit` or `no_visit_recorded`, when no next date is set or no visit has been recorded), glass and brittle plastics checks (one line per area), planned maintenance tasks, storage temperature readings (by each unit's frequency) and pre-start checks. `include: all` also returns what is due soon or up to date. `programme` narrows to one of: " +
+        "Everything scheduled across the site programmes that is overdue or due today, most urgent first: the pest control contractor's next visit (still listed as due, with reason `no_next_visit` or `no_visit_recorded`, when no next date is set or no visit has been recorded), glass and brittle plastics checks (one line per area), planned maintenance tasks when Maintenance is readable, storage temperature readings (by each unit's frequency) and pre-start checks. `include: all` also returns what is due soon or up to date. `programme` narrows to one of: " +
         siteProgrammes.join(", ") +
         ". `counts` says what waits for a person: storage readings to review, checks to sign off, hygiene clearances to give, open glass breakages, open corrective actions, open breakdowns and work orders, damaged or missing glass, and moderate or high pest activity on the last visit. Computed from the registers and the last records; nothing is recorded.",
       annotations: READ,
@@ -988,86 +968,6 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
             ...(a.to ? { to: a.to } : {}),
           },
         }),
-      );
-    },
-  );
-
-  define(
-    "report_breakdown",
-    {
-      module: "site",
-      title: "Report a breakdown or request maintenance work",
-      description:
-        "Raise a breakdown (equipment that has stopped working) or a work request on a maintained asset, or (with `work_order`, its id) change an open one: start it (`status: in_progress`), assign it, or add the spares used and costs so far. Give the `asset` (id, code or name; see list_site_registers, kind maintenance_assets), a `title`, and say whether the equipment `stops_production`. Recorded as coming from the API. Completing or cancelling a work order is a person's act in the app: there is no tool for it. " +
-        PERSON_ONLY,
-      annotations: CREATE,
-      input: {
-        workspace: workspaceParam,
-        work_order: z.string().uuid().optional().describe("Id of an open work order to update."),
-        asset: z.string().min(1).max(200).optional().describe("Asset id, code or name (new ones)."),
-        kind: z.enum(workOrderKinds).optional().describe("breakdown (default) or request."),
-        title: z.string().min(1).max(200).optional().describe("Required for a new one."),
-        description: z.string().max(4000).optional(),
-        priority: z.enum(workOrderPriorities).optional(),
-        stops_production: z.boolean().optional(),
-        status: z.enum(["requested", "in_progress"]).optional().describe("Update only: start the work."),
-        spares_used: z.string().max(2000).optional(),
-        parts_cost: z.number().min(0).max(10_000_000).optional(),
-        labour_cost: z.number().min(0).max(10_000_000).optional(),
-        contractor_cost: z.number().min(0).max(10_000_000).optional(),
-        contractor: z.string().max(200).optional(),
-      },
-    },
-    async (a, api) => {
-      const slug = await slugOf(api, a.workspace);
-      const view = (w: { id: string; title: string; status: string; priority: string; kind: string }) => ({
-        id: w.id,
-        title: w.title,
-        kind: w.kind,
-        priority: w.priority,
-        status: w.status,
-        note: "A person completes the work order in the app once the work is done.",
-      });
-      if (a.work_order) {
-        if (a.asset || a.kind) {
-          throw new ToolError("invalid_input", "The asset and kind are fixed when a work order is raised.");
-        }
-        return view(
-          await api.call(
-            ws(api).site.maintenance["work-orders"][":id"].$patch({
-              param: { slug, id: a.work_order },
-              json: {
-                ...(a.title ? { title: a.title } : {}),
-                ...(a.description !== undefined ? { description: a.description } : {}),
-                ...(a.priority ? { priority: a.priority } : {}),
-                ...(a.stops_production !== undefined ? { stopsProduction: a.stops_production } : {}),
-                ...(a.status ? { status: a.status } : {}),
-                ...(a.spares_used !== undefined ? { sparesUsed: a.spares_used } : {}),
-                ...(a.parts_cost !== undefined ? { partsCost: a.parts_cost } : {}),
-                ...(a.labour_cost !== undefined ? { labourCost: a.labour_cost } : {}),
-                ...(a.contractor_cost !== undefined ? { contractorCost: a.contractor_cost } : {}),
-                ...(a.contractor !== undefined ? { contractor: a.contractor } : {}),
-              },
-            }),
-          ),
-        );
-      }
-      if (!a.asset || !a.title) throw new ToolError("invalid_input", "Give the `asset` and a `title`.");
-      return view(
-        await api.call(
-          ws(api).site.maintenance["work-orders"].$post({
-            param: { slug },
-            json: {
-              assetId: await assetRef(api, slug, a.asset),
-              title: a.title,
-              ...(a.kind ? { kind: a.kind } : {}),
-              ...(a.description ? { description: a.description } : {}),
-              ...(a.priority ? { priority: a.priority } : {}),
-              ...(a.stops_production !== undefined ? { stopsProduction: a.stops_production } : {}),
-              ...(a.contractor ? { contractor: a.contractor } : {}),
-            },
-          }),
-        ),
       );
     },
   );

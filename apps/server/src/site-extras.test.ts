@@ -63,6 +63,7 @@ describe("site programmes: later additions", () => {
     ).token as string;
     for (const id of DEPENDENCIES) await grant(id, "read");
     await grant("site", "write");
+    await grant("maintenance", "write");
 
     const area = async (name: string, code?: string) =>
       (await addHaccpAsset(as(ada).send, { kind: "area", name, code })).id as string;
@@ -157,7 +158,7 @@ describe("site programmes: later additions", () => {
     });
 
     it("applies the same rule to the hygiene clearance after maintenance", async () => {
-      await grant("site", "manage");
+      await grant("maintenance", "manage");
       const asset = await ok(
         await as(ada).send("POST", "/assets", { kind: "equipment", name: "Oven", parentAreaId: packing }),
         201,
@@ -179,7 +180,7 @@ describe("site programmes: later additions", () => {
         as(cookie).send("POST", `/site/maintenance/records/${record.id}/clearance`, {});
       expect(await error(await clear(ada), 403)).toBe("four_eyes");
       expect(await ok(await clear(marcus.cookie))).toMatchObject({ awaitingClearance: false });
-      await grant("site", "write");
+      await grant("maintenance", "write");
     });
   });
 

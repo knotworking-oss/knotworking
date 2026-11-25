@@ -8,6 +8,7 @@ import {
   checklistTemplateUpdateSchema,
   checkSignOffSchema,
   csvImportSchema,
+  type SiteSource,
   glassBreakageCreateSchema,
   glassBreakageListQuerySchema,
   glassBreakageReleaseSchema,
@@ -19,13 +20,6 @@ import {
   glassItemListQuerySchema,
   glassItemUpdateSchema,
   hasModuleLevel,
-  hygieneClearanceSchema,
-  maintenanceRecordCorrectSchema,
-  maintenanceRecordCreateSchema,
-  maintenanceRecordListQuerySchema,
-  maintenanceTaskCreateSchema,
-  maintenanceTaskListQuerySchema,
-  maintenanceTaskUpdateSchema,
   pestDeviceCreateSchema,
   pestDeviceListQuerySchema,
   pestDeviceUpdateSchema,
@@ -37,8 +31,6 @@ import {
   siteActionCreateSchema,
   siteActionListQuerySchema,
   siteActionUpdateSchema,
-  siteAssetListQuerySchema,
-  siteAssetUpdateSchema,
   siteDueQuerySchema,
   storageReadingBulkReviewSchema,
   storageReadingCorrectSchema,
@@ -48,12 +40,6 @@ import {
   storageUnitCreateSchema,
   storageUnitListQuerySchema,
   storageUnitUpdateSchema,
-  workOrderCancelSchema,
-  workOrderCompleteSchema,
-  workOrderCreateSchema,
-  workOrderListQuerySchema,
-  workOrderUpdateSchema,
-  type SiteSource,
 } from "@knotworking/core";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -61,6 +47,7 @@ import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
 import { forbidTokens } from "../middleware/auth";
 import { canRead, requireModuleLevel } from "../middleware/modules";
+import { listCalibrationInstruments } from "../services/maintenance";
 import * as site from "../services/site";
 import { importGlassCsv } from "../services/site-import";
 import { validate } from "../validate";
@@ -78,26 +65,29 @@ const sourceOf = (c: Context<WorkspaceEnv>): SiteSource =>
  * Site programmes module (`site`). Mounted at `/v1/workspaces/:slug`; the module guard has already
  * required `read` for safe methods and `write` for the rest.
  *
- * Agents (API tokens) may read everything, keep the registers (devices, glass items, assets and
- * tasks, storage units, checklists), enter pest control visits, record storage readings (held
+ * Agents (API tokens) may read everything, keep the registers (devices, glass items, storage units, checklists), enter pest control visits, record storage readings (held
  * `pending` until a person reviews them; an out-of-limit one opens its corrective action at once),
  * raise and fill in a glass breakage, and raise or fill in corrective actions. Sign-offs need
  * `manage` and a signed-in person and can never be opened to tokens: reviewing readings, signing
- * off a check, releasing an area after a breakage, the hygiene clearance after maintenance, and
+ * off a check, releasing an area after a breakage, and
  * closing a corrective action. Records that attest a person did something (glass checks,
- * maintenance, pre-start and changeover checks) and every correction are a person's too.
+ * pre-start and changeover checks) and every correction are a person's too.
  * Records are append-only: no route deletes one.
  */
 export const siteRoutes = new Hono<WorkspaceEnv>()
   // ── Areas (the asset register) and what's due ──
   .get("/site/areas", async (c) => c.json(await site.listAreas(c.var.db, c.var.workspace.id)))
   .get("/site/due", validate("query", siteDueQuerySchema), async (c) =>
-    c.json(await site.getSiteDue(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+    c.json(
+      await site.getSiteDue(c.var.db, c.var.workspace.id, c.req.valid("query"), {
+        withMaintenance: canRead(c, "maintenance"),
+      }),
+    ),
   )
   // Equipment of the HACCP calibration register a maintained asset can be linked to (read-only).
   // HACCP is a soft dependency: inactive is 404 `module_inactive`, unreadable 403 `module_forbidden`.
   .get("/site/calibration-instruments", requireModuleLevel("haccp", "read"), async (c) =>
-    c.json(await site.listCalibrationInstruments(c.var.db, c.var.workspace.id)),
+    c.json(await listCalibrationInstruments(c.var.db, c.var.workspace.id)),
   )
 
   // ── Pest control ──
@@ -261,175 +251,6 @@ export const siteRoutes = new Hono<WorkspaceEnv>()
           c.var.workspace.id,
           c.var.user.id,
           c.var.activeModules,
-          c.req.valid("param").id,
-          c.req.valid("json"),
-        ),
-      ),
-  )
-
-  // ── Planned maintenance ──
-  .get("/site/maintenance/assets", validate("query", siteAssetListQuerySchema), async (c) =>
-    c.json(
-      await site.listSiteAssets(c.var.db, c.var.workspace.id, c.req.valid("query"), {
-        withCalibration: canRead(c, "haccp"),
-      }),
-    ),
-  )
-  // Assets themselves are added and changed in the asset register (`/assets`); Site only links a
-  // maintained asset to its HACCP calibration instrument, which needs HACCP.
-  .patch(
-    "/site/maintenance/assets/:id",
-    requireModuleLevel("haccp", "read"),
-    validate("param", idParam),
-    validate("json", siteAssetUpdateSchema),
-    async (c) =>
-      c.json(
-        await site.updateSiteAsset(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
-        ),
-      ),
-  )
-  .get("/site/maintenance/tasks", validate("query", maintenanceTaskListQuerySchema), async (c) =>
-    c.json(await site.listMaintenanceTasks(c.var.db, c.var.workspace.id, c.req.valid("query"))),
-  )
-  .post("/site/maintenance/tasks", validate("json", maintenanceTaskCreateSchema), async (c) =>
-    c.json(
-      await site.createMaintenanceTask(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")),
-      201,
-    ),
-  )
-  .patch(
-    "/site/maintenance/tasks/:id",
-    validate("param", idParam),
-    validate("json", maintenanceTaskUpdateSchema),
-    async (c) =>
-      c.json(
-        await site.updateMaintenanceTask(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
-        ),
-      ),
-  )
-  .get("/site/maintenance/records", validate("query", maintenanceRecordListQuerySchema), async (c) =>
-    c.json(await site.listMaintenanceRecords(c.var.db, c.var.workspace.id, c.req.valid("query"))),
-  )
-  .get("/site/maintenance/records/:id", validate("param", idParam), async (c) =>
-    c.json(await site.getMaintenanceRecord(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
-  )
-  // Completed maintenance attests that a person did the work: tokens are refused.
-  .post(
-    "/site/maintenance/records",
-    forbidTokens,
-    validate("json", maintenanceRecordCreateSchema),
-    async (c) =>
-      c.json(
-        await site.recordMaintenance(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")),
-        201,
-      ),
-  )
-  .post(
-    "/site/maintenance/records/:id/correct",
-    forbidTokens,
-    validate("param", idParam),
-    validate("json", maintenanceRecordCorrectSchema),
-    async (c) =>
-      c.json(
-        await site.correctMaintenance(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
-        ),
-        201,
-      ),
-  )
-  // The hygiene clearance after maintenance in a production area is a sign-off.
-  .post(
-    "/site/maintenance/records/:id/clearance",
-    forbidTokens,
-    requireModuleLevel("site", "manage"),
-    validate("param", idParam),
-    validate("json", hygieneClearanceSchema),
-    async (c) =>
-      c.json(
-        await site.clearMaintenance(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.var.activeModules,
-          c.req.valid("param").id,
-          c.req.valid("json"),
-        ),
-      ),
-  )
-
-  // ── Breakdowns and work orders ──
-  .get("/site/maintenance/work-orders", validate("query", workOrderListQuerySchema), async (c) =>
-    c.json(await site.listWorkOrders(c.var.db, c.var.workspace.id, c.req.valid("query"))),
-  )
-  .get("/site/maintenance/work-orders/:id", validate("param", idParam), async (c) =>
-    c.json(await site.getWorkOrder(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
-  )
-  // Raising one is data entry: an agent may report a breakdown.
-  .post("/site/maintenance/work-orders", validate("json", workOrderCreateSchema), async (c) =>
-    c.json(
-      await site.createWorkOrder(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"), {
-        source: sourceOf(c),
-      }),
-      201,
-    ),
-  )
-  .patch(
-    "/site/maintenance/work-orders/:id",
-    validate("param", idParam),
-    validate("json", workOrderUpdateSchema),
-    async (c) =>
-      c.json(
-        await site.updateWorkOrder(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
-        ),
-      ),
-  )
-  // Completing attests that a person did the work; cancelling is a person's decision: tokens refused.
-  .post(
-    "/site/maintenance/work-orders/:id/complete",
-    forbidTokens,
-    validate("param", idParam),
-    validate("json", workOrderCompleteSchema),
-    async (c) =>
-      c.json(
-        await site.completeWorkOrder(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
-        ),
-      ),
-  )
-  .post(
-    "/site/maintenance/work-orders/:id/cancel",
-    forbidTokens,
-    validate("param", idParam),
-    validate("json", workOrderCancelSchema),
-    async (c) =>
-      c.json(
-        await site.cancelWorkOrder(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json"),
         ),

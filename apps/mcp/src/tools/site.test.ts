@@ -22,12 +22,11 @@ const TOOLS = [
   "save_site_register_entry",
   "report_glass_breakage",
   "get_pest_trends",
-  "report_breakdown",
   "propose_site_action",
 ];
 
 describe("site programme tools", () => {
-  it("are tagged with the site module, and offer nothing for sign-offs or corrections", async () => {
+  it("offer nothing for sign-offs or corrections", async () => {
     const { client } = await session();
     const tools = (await client.listTools()).tools;
     expect(tools.filter((t) => TOOLS.includes(t.name)).map((t) => t.name)).toEqual(TOOLS);

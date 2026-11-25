@@ -23,6 +23,7 @@ export const moduleIds = [
   "time",
   "calendar",
   "assets",
+  "maintenance",
   "items",
   "recipes",
   "sops",
@@ -207,6 +208,18 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["asset"],
+  },
+  maintenance: {
+    id: "maintenance",
+    name: "Maintenance",
+    description:
+      "Recurring asset maintenance, completed work records and work orders for breakdowns and requests.",
+    dependsOn: ["assets"],
+    enhancedBy: ["haccp"],
+    defaultActive: true,
+    defaultAccess: "none",
+    // Keep the existing entity IDs so earlier sync log entries retain their owner.
+    syncEntities: ["site_asset", "site_maintenance_task", "site_maintenance_record", "site_work_order"],
   },
   items: {
     id: "items",
@@ -445,11 +458,9 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     id: "site",
     name: "Site programmes",
     description:
-      "Prerequisite programmes: pest control, the glass and brittle plastics register, planned maintenance, storage temperature logging, and pre-start and allergen changeover checks, with what is due across them.",
-    // Areas and maintained equipment are rows of the asset register. HACCP only adds the link
-    // between a maintained asset and its calibration instrument.
+      "Prerequisite programmes: pest control, the glass and brittle plastics register, storage temperature logging, and pre-start and allergen changeover checks, with what is due across them.",
     dependsOn: ["assets"],
-    enhancedBy: ["haccp"],
+    enhancedBy: ["maintenance"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -459,10 +470,6 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
       "site_glass_item",
       "site_glass_check",
       "site_glass_breakage",
-      "site_asset",
-      "site_maintenance_task",
-      "site_maintenance_record",
-      "site_work_order",
       "site_storage_unit",
       "site_storage_reading",
       "site_corrective_action",

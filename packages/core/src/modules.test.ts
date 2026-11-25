@@ -35,9 +35,11 @@ describe("module manifest", () => {
     // HACCP needs the asset register (its cleaning and calibration schedule is of assets), nothing else.
     expect(modules.haccp.dependsOn).toEqual(["assets"]);
     expect(modules.haccp.enhancedBy).toEqual(expect.arrayContaining(["items", "production"]));
-    // Site needs areas from the asset register; HACCP (calibration instruments) is only soft.
+    // Site and Maintenance each need the asset register.
     expect(modules.site.dependsOn).toEqual(["assets"]);
-    expect(modules.site.enhancedBy).toContain("haccp");
+    expect(modules.site.enhancedBy).toContain("maintenance");
+    expect(modules.maintenance.dependsOn).toEqual(["assets"]);
+    expect(modules.maintenance.enhancedBy).toContain("haccp");
     expect(modules.hse.enhancedBy).toContain("assets");
     expect(modules.production.dependsOn).toEqual(["recipes", "stock"]);
     expect(modules.production.enhancedBy).toContain("demand");
@@ -189,6 +191,7 @@ describe("resolveModuleAccess", () => {
       time: "none",
       calendar: "none",
       assets: "none",
+      maintenance: "none",
       items: "none",
       recipes: "none",
       sops: "none",

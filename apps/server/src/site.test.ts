@@ -116,6 +116,7 @@ describe("site programmes module", () => {
     it("is opt-in and needs the asset register to be readable, not haccp", async () => {
       expect((await as(marcus.cookie).get("/site/due")).status).toBe(403);
       await grant("site", "write");
+      await grant("maintenance", "write");
       expect((await as(marcus.cookie).get("/site/due")).status).toBe(403);
       for (const id of DEPENDENCIES) await grant(id, "read");
       expect((await as(marcus.cookie).get("/site/due")).status).toBe(200);
@@ -1496,6 +1497,8 @@ describe("site programmes module", () => {
         expect(entities.has(e), e).toBe(true);
       }
       await grant("site", null);
+      expect(new Set(await changes(marcus.cookie))).toContain("site_maintenance_record");
+      await grant("maintenance", null);
       const hidden = (await changes(marcus.cookie)).filter((e) => e.startsWith("site_"));
       expect(hidden).toEqual([]);
     });

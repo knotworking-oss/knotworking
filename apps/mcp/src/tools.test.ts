@@ -17,6 +17,11 @@ afterEach(async () => {
 });
 
 const READ_TOOLS = [
+  "list_maintenance_tasks",
+  "list_maintenance_records",
+  "get_maintenance_record",
+  "list_maintenance_work_orders",
+  "get_maintenance_work_order",
   // The reusable reads, listed in every mode.
   "list_modules",
   "find_records",
@@ -277,8 +282,10 @@ const WRITE_TOOLS = [
   "record_storage_readings",
   "save_site_register_entry",
   "report_glass_breakage",
-  "report_breakdown",
   "propose_site_action",
+  "save_maintenance_task",
+  "link_maintenance_calibration",
+  "report_breakdown",
   "set_item_nutrition",
   "import_item_nutrition_csv",
   "draft_product_label",

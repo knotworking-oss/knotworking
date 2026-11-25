@@ -1,12 +1,11 @@
 /**
- * Site programmes module (`site`): pest control, the glass and brittle plastics register, planned
- * maintenance, storage temperature logging, and pre-start and allergen changeover checks.
+ * Site programmes module (`site`): pest control, the glass and brittle plastics register,
+ * storage temperature logging, and pre-start and allergen changeover checks.
  * See docs/modules.md and `@knotworking/core` site.ts.
  *
- * Records (visits, checks, maintenance records, storage readings, check results) are append-only:
- * no route updates or deletes them, except one-time stamps (a storage reading's review, a
- * maintenance record's hygiene clearance, a check's sign-off). A correction is a new row that
- * points at the one it corrects. Areas and maintained equipment are rows of the asset register
+ * Records (visits, checks, storage readings, check results) are append-only:
+ * no route updates or deletes them, except one-time stamps (a storage reading's review or a check's sign-off). A correction is a new row that
+ * points at the one it corrects. Areas are rows of the asset register
  * (`assets`; areas are kind `area`), which is why the module needs `assets`.
  */
 import type {
@@ -51,7 +50,6 @@ import { pk, timestamps, ts, workspaceRef } from "./helpers";
 import { productionBatches } from "./production";
 
 const value = (name: string) => numeric(name, { precision: 14, scale: 4, mode: "number" });
-const money = (name: string) => numeric(name, { precision: 12, scale: 2, mode: "number" });
 const userRef = (name: string) => uuid(name).references(() => users.id, { onDelete: "set null" });
 const areaRef = (name = "area_id") => uuid(name).references(() => assets.id);
 
@@ -222,140 +220,6 @@ export const siteGlassBreakages = pgTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [index("site_glass_breakages_workspace_idx").on(t.workspaceId, t.status, t.occurredAt)],
-);
-
-// ─── Planned maintenance ─────────────────────────────────────────────────────
-
-/**
- * Site's part of an asset of the register: the instrument of the HACCP calibration register this
- * maintained asset is, if any (a reference only: HACCP's records are read, never written, from
- * here). One row per asset, keyed by the asset's id; an asset without a row has no link. Maintenance
- * tasks, records and work orders point at the asset itself (`assets`).
- */
-export const siteAssets = pgTable("site_assets", {
-  id: uuid("id")
-    .primaryKey()
-    .references(() => assets.id),
-  workspaceId: workspaceRef(),
-  calibrationInstrumentId: uuid("calibration_instrument_id").references(() => assets.id),
-  createdAt: ts("created_at").notNull().defaultNow(),
-  updatedAt: ts("updated_at")
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
-
-/** A recurring maintenance task on an asset. Archived, never deleted. */
-export const siteMaintenanceTasks = pgTable(
-  "site_maintenance_tasks",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    assetId: uuid("asset_id")
-      .notNull()
-      .references(() => assets.id),
-    title: text("title").notNull(),
-    description: text("description"),
-    frequencyEvery: integer("frequency_every").notNull(),
-    frequencyUnit: text("frequency_unit").$type<ScheduleFrequencyUnit>().notNull(),
-    startOn: date("start_on"),
-    /** Work in a production area: the area needs a hygiene clearance before it restarts. */
-    clearanceRequired: boolean("clearance_required").notNull().default(false),
-    status: text("status").$type<SiteStatus>().notNull().default("active"),
-    ...timestamps(),
-  },
-  (t) => [index("site_maintenance_tasks_asset_idx").on(t.assetId)],
-);
-
-/**
- * Maintenance done. **Append-only**, except the one-time hygiene clearance stamp. `clearance_required`
- * is copied from the task when written; a correction is a new row that needs its own clearance.
- */
-export const siteMaintenanceRecords = pgTable(
-  "site_maintenance_records",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    taskId: uuid("task_id")
-      .notNull()
-      .references(() => siteMaintenanceTasks.id),
-    assetId: uuid("asset_id")
-      .notNull()
-      .references(() => assets.id),
-    /** The asset's area when the work was done. */
-    areaId: areaRef(),
-    completedAt: ts("completed_at").notNull(),
-    doneBy: userRef("done_by"),
-    contractor: text("contractor"),
-    workDone: text("work_done"),
-    nextDueOn: date("next_due_on").notNull(),
-    note: text("note"),
-    clearanceRequired: boolean("clearance_required").notNull().default(false),
-    /** The sign-off: the area is safe to restart. */
-    clearedAt: ts("cleared_at"),
-    clearedBy: userRef("cleared_by"),
-    clearanceNote: text("clearance_note"),
-    recordedBy: userRef("recorded_by"),
-    correctsRecordId: uuid("corrects_record_id").references((): AnyPgColumn => siteMaintenanceRecords.id),
-    correctionReason: text("correction_reason"),
-    createdAt: ts("created_at").notNull().defaultNow(),
-  },
-  (t) => [
-    index("site_maintenance_records_task_idx").on(t.taskId, t.completedAt),
-    index("site_maintenance_records_workspace_idx").on(t.workspaceId, t.completedAt),
-    uniqueIndex("site_maintenance_records_corrects_key")
-      .on(t.correctsRecordId)
-      .where(sql`${t.correctsRecordId} is not null`),
-  ],
-);
-
-/**
- * A breakdown or work request on a maintained asset. Open (requested, in progress) it can change;
- * completed or cancelled it never does. The completion is a person's attestation.
- */
-export const siteWorkOrders = pgTable(
-  "site_work_orders",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    assetId: uuid("asset_id")
-      .notNull()
-      .references(() => assets.id),
-    /** The planned task this is about, if any. */
-    taskId: uuid("task_id").references(() => siteMaintenanceTasks.id),
-    /** The asset's area when raised. */
-    areaId: areaRef(),
-    kind: text("kind").$type<WorkOrderKind>().notNull().default("breakdown"),
-    title: text("title").notNull(),
-    description: text("description"),
-    priority: text("priority").$type<WorkOrderPriority>().notNull().default("medium"),
-    stopsProduction: boolean("stops_production").notNull().default(false),
-    status: text("status").$type<WorkOrderStatus>().notNull().default("requested"),
-    source: text("source").$type<SiteSource>().notNull().default("manual"),
-    requestedBy: userRef("requested_by"),
-    assignedTo: userRef("assigned_to"),
-    contractor: text("contractor"),
-    startedAt: ts("started_at"),
-    /** Completion: what was done, by whom, spares and costs. */
-    completedAt: ts("completed_at"),
-    completedBy: userRef("completed_by"),
-    doneBy: userRef("done_by"),
-    workDone: text("work_done"),
-    downtimeMinutes: integer("downtime_minutes"),
-    sparesUsed: text("spares_used"),
-    partsCost: money("parts_cost"),
-    labourCost: money("labour_cost"),
-    contractorCost: money("contractor_cost"),
-    cancelledAt: ts("cancelled_at"),
-    cancelledBy: userRef("cancelled_by"),
-    cancelReason: text("cancel_reason"),
-    updatedBy: userRef("updated_by"),
-    ...timestamps(),
-  },
-  (t) => [
-    index("site_work_orders_workspace_idx").on(t.workspaceId, t.status, t.createdAt),
-    index("site_work_orders_asset_idx").on(t.assetId),
-  ],
 );
 
 // ─── Storage temperatures ────────────────────────────────────────────────────

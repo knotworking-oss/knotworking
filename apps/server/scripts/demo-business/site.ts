@@ -222,7 +222,7 @@ export async function site(ctx: Ctx) {
   }
 
   // ── Maintenance ──
-  const mAssets = (await api.get("/site/maintenance/assets?status=all")).assets as any[];
+  const mAssets = (await api.get("/maintenance/assets?status=all")).assets as any[];
   const mIds: Record<string, string> = {};
   const assetDefs: [string, string, string, string][] = [
     ["EQ-PAST", "HTST plate pasteuriser", "Production hall", "AR-PROD"],
@@ -238,14 +238,20 @@ export async function site(ctx: Ctx) {
     let hit = mAssets.find((x) => x.code === code);
     if (!hit) {
       hit = pick(
-        await api.post("/site/maintenance/assets", { code, name, location, areaId: area[a] }),
+        await api.post("/assets", {
+          kind: code === "EQ-VAN1" ? "vehicle" : "equipment",
+          code,
+          name,
+          location,
+          parentAreaId: area[a],
+        }),
         "asset",
       );
       made++;
     }
     mIds[code] = hit.id;
   }
-  const tasks = (await api.get("/site/maintenance/tasks")).tasks as any[];
+  const tasks = (await api.get("/maintenance/tasks")).tasks as any[];
   const taskIds: Record<string, string> = {};
   const taskDefs: [string, string, string, { every: number; unit: string }, boolean][] = [
     [
@@ -302,7 +308,7 @@ export async function site(ctx: Ctx) {
     let hit = tasks.find((t) => t.title === title);
     if (!hit) {
       hit = pick(
-        await api.post("/site/maintenance/tasks", {
+        await api.post("/maintenance/tasks", {
           assetId: mIds[a],
           title,
           description,
@@ -316,13 +322,13 @@ export async function site(ctx: Ctx) {
     }
     taskIds[title] = hit.id;
   }
-  if (!((await api.get("/site/maintenance/records?limit=1")).records as any[]).length) {
+  if (!((await api.get("/maintenance/records?limit=1")).records as any[]).length) {
     for (const [title, id] of Object.entries(taskIds)) {
       const t = taskDefs.find((x) => x[1] === title)!;
       const gapDays = t[3].unit === "week" ? 7 : t[3].unit === "month" ? 30 * t[3].every : 30 * t[3].every;
       for (let ago = -Math.min(110, gapDays * 3); ago < 0; ago += gapDays) {
         const completedOn = addDays(today, Math.max(-110, ago + (hash(title) % 4)));
-        const r = await api.post("/site/maintenance/records", {
+        const r = await api.post("/maintenance/records", {
           taskId: id,
           completedAt: `${completedOn}T13:00:00.000Z`,
           doneBy: eng,
@@ -333,7 +339,7 @@ export async function site(ctx: Ctx) {
         const rec = pick(r, "record");
         if (t[4] && rec.id)
           await reviewer
-            .post(`/site/maintenance/records/${rec.id}/clearance`, {
+            .post(`/maintenance/records/${rec.id}/clearance`, {
               note: "Hygiene clearance after maintenance: area cleaned and swabbed.",
             })
             .catch(() => {});
@@ -390,7 +396,7 @@ export async function site(ctx: Ctx) {
     ];
     for (const [a, kind, title, description, priority, stops, complete] of wos) {
       const w = pick(
-        await api.post("/site/maintenance/work-orders", {
+        await api.post("/maintenance/work-orders", {
           assetId: mIds[a],
           kind,
           title,
@@ -402,7 +408,7 @@ export async function site(ctx: Ctx) {
         "workOrder",
       );
       if (complete)
-        await api.post(`/site/maintenance/work-orders/${w.id}/complete`, {
+        await api.post(`/maintenance/work-orders/${w.id}/complete`, {
           workDone: "Fault traced and repaired; tested under load.",
           downtimeMinutes: stops ? 95 : null,
           partsCost: 86.5,

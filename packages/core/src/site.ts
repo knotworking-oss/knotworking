@@ -883,10 +883,8 @@ export type GlassBreakageListQuery = z.infer<typeof glassBreakageListQuerySchema
 // Planned maintenance --------------------------------------------------------
 
 /**
- * Site's part of an asset of the register: the instrument of the HACCP calibration register
- * (equipment) this maintained asset is, when it is one. A reference only, so the asset shows its
- * calibration status and the register is not changed. Needs HACCP. The asset itself (code, name,
- * area, status) is changed in the asset register.
+ * Maintenance's optional link to a HACCP calibration instrument. The asset itself is edited in
+ * the asset register.
  */
 export const siteAssetUpdateSchema = z.object({ calibrationInstrumentId: z.uuid().nullable() });
 export type SiteAssetUpdateInput = z.infer<typeof siteAssetUpdateSchema>;
@@ -903,7 +901,7 @@ const taskFields = {
   frequency: scheduleFrequencySchema,
   /** The first due date for a task never done. Without one a task never done is due now. */
   startOn: isoDate.nullable(),
-  /** Work in a production area: the area needs a hygiene clearance before it restarts. */
+  /** Require clearance before the asset returns to use. */
   clearanceRequired: z.boolean(),
 };
 

@@ -316,11 +316,11 @@ describe("checklists", () => {
 });
 
 describe("the site module's place in the manifest", () => {
-  it("needs the asset register; HACCP only enhances it", () => {
+  it("needs the asset register and integrates with Maintenance", () => {
     expect(() => parseActiveModules("site")).toThrow(/assets/);
     expect(parseActiveModules("assets,site")).toEqual(["assets", "site"]);
     expect(modules.site.dependsOn).toEqual(["assets"]);
-    expect(modules.site.enhancedBy).toContain("haccp");
+    expect(modules.site.enhancedBy).toContain("maintenance");
   });
   it("is none unless the member can read the asset register, whatever HACCP is", () => {
     const active = parseActiveModules(null);

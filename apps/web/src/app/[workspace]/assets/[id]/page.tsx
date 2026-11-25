@@ -17,13 +17,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export default async function AssetPage({ params }: { params: Promise<{ workspace: string; id: string }> }) {
   const { workspace: slug, id } = await params;
   if (!UUID.test(id)) notFound();
-  const [asset, { assets: areas }, { members }, currency, haccp, site] = await Promise.all([
+  const [asset, { assets: areas }, { members }, currency, haccp, maintenance] = await Promise.all([
     getAsset(slug, id),
     getAssets(slug, { kind: "area", status: "all", limit: "500" }),
     getMembers(slug),
     getWorkspaceCurrency(slug),
     canReadModule(slug, "haccp"),
-    canReadModule(slug, "site"),
+    canReadModule(slug, "maintenance"),
   ]);
   const inside =
     asset.kind === "area" ? (await getAssets(slug, { areaId: id, status: "all", limit: "200" })).assets : [];
@@ -87,16 +87,16 @@ export default async function AssetPage({ params }: { params: Promise<{ workspac
             {row("Looked after by", asset.custodianName)}
             {row("Notes", asset.notes ? <span className="whitespace-pre-wrap">{asset.notes}</span> : null)}
           </dl>
-          {(haccp || site) && (
+          {(haccp || maintenance) && (
             <div className="flex flex-wrap gap-2 text-sm">
               {haccp && (asset.kind === "area" || asset.kind === "equipment") && (
                 <Button size="sm" variant="outline" asChild>
                   <Link href={`/${slug}/haccp/records`}>Cleaning & calibration</Link>
                 </Button>
               )}
-              {site && asset.kind !== "area" && (
+              {maintenance && asset.kind !== "area" && (
                 <Button size="sm" variant="outline" asChild>
-                  <Link href={`/${slug}/site/maintenance`}>Planned maintenance</Link>
+                  <Link href={`/${slug}/maintenance`}>Planned maintenance</Link>
                 </Button>
               )}
             </div>

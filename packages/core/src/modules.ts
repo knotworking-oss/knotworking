@@ -719,12 +719,29 @@ export const moduleOfEntity = (entity: SyncEntityType): ModuleId | null => entit
 export class ModuleConfigError extends Error {}
 
 /**
+ * Modules that once lived inside another and were split out, with the modules that now depend on
+ * them. A list written before the split names the dependant but not the new module; it is added
+ * for them (with a deprecation warning) rather than refusing to start. `food_items` came out of
+ * `items`: Labels, Specifications and Product development need it.
+ */
+const legacySplitModules: { id: ModuleId; neededBy: readonly ModuleId[] }[] = [
+  { id: "food_items", neededBy: ["labels", "specifications", "npd"] },
+];
+
+/**
  * Parses `KNOTWORKING_MODULES`. Unset or blank means every module that is on by default
  * (`defaultActive`; a flagged module such as `calendar` must be named); `all` means every module
  * including flagged ones; `none` means the platform alone. Unknown ids and missing dependencies are configuration errors (the API refuses to
  * start), so a typo can't silently switch a module off.
+ *
+ * One exception keeps lists written before a module was split out working: a list that names, say,
+ * `labels` but not `food_items` (which Labels needs since it left Items) gets `food_items` added,
+ * and `onWarning` (default `console.warn`) is told to add it to the list.
  */
-export function parseActiveModules(value: string | undefined | null): ModuleId[] {
+export function parseActiveModules(
+  value: string | undefined | null,
+  onWarning: (message: string) => void = (message) => console.warn(message),
+): ModuleId[] {
   const raw = (value ?? "").trim();
   if (!raw) return moduleIds.filter((id) => modules[id].defaultActive);
   if (raw.toLowerCase() === "all") return [...moduleIds];
@@ -740,6 +757,15 @@ export function parseActiveModules(value: string | undefined | null): ModuleId[]
     );
   }
   const active = new Set(ids as ModuleId[]);
+  for (const legacy of legacySplitModules) {
+    if (active.has(legacy.id)) continue;
+    const named = legacy.neededBy.filter((id) => active.has(id));
+    if (!named.length) continue;
+    active.add(legacy.id);
+    onWarning(
+      `KNOTWORKING_MODULES: ${named.map((m) => `"${m}"`).join(", ")} ${named.length === 1 ? "needs" : "need"} "${legacy.id}", which is now its own module; it has been switched on. Add "${legacy.id}" to KNOTWORKING_MODULES: a later release will refuse to start without it.`,
+    );
+  }
   for (const id of active) {
     const missing = modules[id].dependsOn.filter((dep) => !active.has(dep));
     if (missing.length) {

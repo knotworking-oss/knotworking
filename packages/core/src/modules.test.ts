@@ -104,6 +104,28 @@ describe("parseActiveModules", () => {
     expect(() => parseActiveModules("stock")).toThrow(/needs "items"/);
     expect(() => parseActiveModules("tasks,demand")).toThrow(/needs "items"/);
   });
+
+  it("adds Food items to a list written before it left Items, with a warning", () => {
+    const warnings: string[] = [];
+    const warn = (m: string) => warnings.push(m);
+    expect(parseActiveModules("items,recipes,labels", warn)).toEqual([
+      "items",
+      "food_items",
+      "recipes",
+      "labels",
+    ]);
+    expect(parseActiveModules("items,specifications", warn)).toContain("food_items");
+    expect(parseActiveModules("items,recipes,npd,labels", warn)).toContain("food_items");
+    expect(warnings).toHaveLength(3);
+    expect(warnings[0]).toContain('"labels" needs "food_items"');
+    expect(warnings[2]).toContain('"labels", "npd" need "food_items"');
+    // A list that names it, or needs nothing from it, is left alone and silent.
+    expect(parseActiveModules("items,food_items,recipes,labels", warn)).toContain("food_items");
+    expect(parseActiveModules("items,recipes", warn)).toEqual(["items", "recipes"]);
+    expect(warnings).toHaveLength(3);
+    // Food items still needs Items: a list without it is refused as before.
+    expect(() => parseActiveModules("recipes,labels", warn)).toThrow(/needs "items"/);
+  });
 });
 
 describe("resolveModuleAccess", () => {

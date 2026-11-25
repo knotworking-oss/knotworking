@@ -1058,6 +1058,46 @@ describe("connected Xero accounting against a fake HTTP provider", () => {
     });
     expect(remote.Url).toBe(`${APP_URL}/acme/invoicing/${invoice.id}?accountingPosting=${posting.id}`);
     expect(xero.state.postCalls).toBe(count);
+
+    const credit = await ok(
+      decision(
+        await ok(
+          send("POST", "/invoicing", {
+            kind: "credit",
+            sourceId: invoice.id,
+            commandId: newId(),
+            date: today,
+            reason: "Withdraw the fictional service charge",
+            lineIds: [invoice.lines[0].id],
+          }),
+          201,
+        ),
+      ),
+    );
+    const creditPosting = await prepareCustomer(credit);
+    xero.state.loseReply = true;
+    const interrupted = (await ok(send("POST", `${creditPosting.path}/send`))).posting;
+    xero.state.loseReply = false;
+    expect(interrupted).toMatchObject({ state: "unknown", attempts: 1 });
+    const verified = (
+      await ok(
+        send("POST", `${creditPosting.path}/read-back`, {
+          attemptId: interrupted.attemptId,
+          reason: "Read the existing on-account credit back",
+        }),
+      )
+    ).posting;
+    expect(verified).toMatchObject({
+      state: "posted",
+      attempts: 1,
+      receipt: {
+        net: "151.67",
+        tax: "30.33",
+        gross: "182.00",
+      },
+    });
+    expect(xero.credits.get(verified.externalId)?.Allocations).toEqual([]);
+    expect(xero.state.postCalls).toBe(count + 1);
   }, 30_000);
 
   it("drafts, approves and downloads a local invoice with Xero disabled", async () => {

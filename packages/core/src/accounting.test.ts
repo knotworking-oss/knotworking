@@ -97,7 +97,10 @@ describe("currency-aware accounting read-back", () => {
 });
 
 it("retains an explicit due date without inventing one for other adapters", () => {
-  expect(accountingPostingSchema.parse(invoice()).dueDate).toBeUndefined();
-  expect(accountingPostingSchema.parse({ ...invoice(), dueDate: "2026-12-15" }).dueDate).toBe("2026-12-15");
+  expect(accountingPostingSchema.parse(invoice())).not.toHaveProperty("dueDate");
+  expect(accountingPostingSchema.parse({ ...invoice(), dueDate: "2026-12-15" })).toHaveProperty(
+    "dueDate",
+    "2026-12-15",
+  );
   expect(accountingPostingSchema.safeParse({ ...invoice(), dueDate: "2026-02-30" }).success).toBe(false);
 });

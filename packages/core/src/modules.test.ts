@@ -227,6 +227,7 @@ describe("resolveModuleAccess", () => {
       bi: "none",
       purchase_requests: "none",
       client_services: "none",
+      invoicing: "none",
     });
   });
 

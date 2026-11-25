@@ -172,7 +172,28 @@ A module is done when all of this is true. The tests named here fail if a step i
 
 ## General business workflows
 
-- **Project templates.** Open Projects → Use template. Employee onboarding and Client kickoff create an ordinary project and dated tasks together. Choose the team, project lead and start date. Tasks initially go to the project lead and can be reassigned or edited normally. The template action requires Tasks write access.
+- **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:
+
+  | Workflow | Template | For | Milestone date |
+  | --- | --- | --- | --- |
+  | People | Employee onboarding | Any team welcoming a new starter | Employee start date |
+  | Client work | Client kickoff | Teams starting work with a client | Kickoff date |
+  | Client work | Client delivery | Consultancies and agencies | Delivery date |
+  | Field and facilities | Site job | Trades and field teams | Visit date |
+  | Field and facilities | Equipment commissioning | Equipment and facilities teams | Commissioning date |
+  | Supply and retail | Supplier onboarding | Wholesale and distribution | Trial order date |
+  | Supply and retail | Store opening | Retail | Opening date |
+  | Manufacturing | New product build | General manufacturing | Handover date |
+  | Food | Product launch | Food manufacturing | Launch date |
+  | Food | Kitchen opening | Foodservice | Opening date |
+
+  Choose the team, project lead and milestone date. The preview lists the tasks with their due dates (relative to the milestone), the project's start and target dates (the first and last task), and the template's suggested modules with whether each applies to you. Edit task titles and dates, remove tasks or add your own before creating. Tasks go to the project lead and can be reassigned or edited normally. The action requires Tasks write access.
+
+  Every template works with Tasks alone. A template's module steps apply when the workspace has the module enabled and you can read it: a step either replaces a starter task with the module's wording and a link to its page (for example "Register the asset" links to the asset register) or adds a task (for example "Order materials for the job" with Purchasing). Templates use Assets, Maintenance, Checklists, Purchasing, Quality, Items and suppliers, Client services, Recipes, Labels, Production, Stock and Food safety records where they fit. Creating a project only makes an editable project and dated tasks. Approvals, checks, orders and billing are done on the module's own screens.
+
+  Definitions live in `@knotworking/core` (`project-templates.ts`): starter tasks plus `moduleSteps` keyed by module id, so adding steps for a new module is a data-only change. Invoicing and Routings steps will be added there when those modules ship.
+
+  **API.** `POST /projects/from-template` takes `commandId`, `templateId`, `name`, `teamId`, `leadId`, `startDate` (the milestone date) and optionally `tasks`: the edited list, each `{ step?, title, daysFromStart }`. Without `tasks` the server creates the template's plan for the caller's modules. A `step` is a template step key: it gives the task that step's guidance and link, and a step from a module the caller can't use is refused (`403 module_forbidden`). Unknown or repeated steps are a bad request. Retrying with the same `commandId` and input returns the original project; the same `commandId` with different input is a `409`.
 - **Purchase requests (`purchase_requests`).** Open Operations → Purchase requests. A teammate submits a description, estimated amount, reason, optional needed-by date and an approver with Manage access. The requester can withdraw a pending request. The designated approver records approval or rejection and a reason for any rejection. Requests notify the approver on submission and the requester on decision. The requester, designated approver and module managers can read the record. Request details stay out of the workspace replica. An approval is an internal spending decision. Orders, receipts and payment happen separately.
 - **Client services (`client_services`).** Open Operations → Client services and create a fixed-fee or hourly quote for a customer. A manager issues the quote, records the customer's acceptance and creates a linked delivery project. Hourly delivery can approve up to the lesser of the quoted time and finished time logged on that project. Fixed-fee delivery records the milestone and evidence. Sign-off freezes the billing amount and makes a CSV billing draft available. Finance reviews tax and posts or sends the invoice in its accounting system. The module needs Customers and Time, and signs decisions in a session. Its sync records carry an ID and revision only.
 

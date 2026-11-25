@@ -363,6 +363,8 @@ describe("connected Xero purchasing against a fake HTTP provider", () => {
     expect(grant?.ciphertext).toMatch(/^v1\./);
     expect(JSON.stringify(grant)).not.toMatch(/fixture-access|fixture-refresh/);
     expect(await ctx.handle.db.select().from(accountingXeroFlows)).toEqual([]);
+    // The other organisation authorised in the same sign-in is removed from Xero.
+    expect(xero.state.released).toEqual([otherRemoteId]);
   });
 
   it("rotates once under concurrent verification and handles revoked consent without rebinding", async () => {
@@ -574,5 +576,59 @@ describe("connected Xero purchasing against a fake HTTP provider", () => {
     await dispatchQueuedPostings(ctx.handle.db, provider());
     expect((await ok(send("GET", held.path))).posting).toMatchObject({ state: "posted", attempts: 1 });
     expect(xero.state.postCalls).toBe(writes + 1);
+  });
+
+  it("refreshes once when Xero refuses a current access token, without reconnecting", async () => {
+    const prepared = await enqueue("SERVICE-401", false);
+    const refreshes = xero.state.refreshes;
+    xero.state.expireAccess = 1;
+    expect(await dispatchQueuedPostings(ctx.handle.db, provider())).toMatchObject({ posted: 1 });
+    expect(xero.state.expireAccess).toBe(0);
+    expect(xero.state.refreshes - refreshes).toBe(1);
+    expect((await ok(send("GET", prepared.path))).posting).toMatchObject({ state: "posted", attempts: 1 });
+    expect((await ok(send("GET", oauth()))).status).toBe("connected");
+  });
+
+  it("keeps bills queued and holds the organisation for the pass when Xero rate-limits", async () => {
+    const first = await enqueue("SERVICE-429-A", false);
+    const second = await enqueue("SERVICE-429-B", false);
+    const writes = xero.state.postCalls;
+    xero.state.rateLimited = 1;
+    const calls = xero.state.apiCalls;
+    expect(await dispatchQueuedPostings(ctx.handle.db, provider())).toMatchObject({
+      posted: 0,
+      deferred: 1,
+      skipped: 1,
+    });
+    // The second bill makes no request once the first one met the limit.
+    expect(xero.state.apiCalls - calls).toBe(1);
+    expect(xero.state.postCalls).toBe(writes);
+    const held = await ok(send("GET", first.path));
+    expect(held.posting.state).toBe("queued");
+    expect(held.history.at(-1)).toMatchObject({ action: "deferred" });
+    expect((await ok(send("GET", second.path))).posting.state).toBe("queued");
+    expect(await dispatchQueuedPostings(ctx.handle.db, provider())).toMatchObject({ posted: 2 });
+    expect(xero.state.postCalls).toBe(writes + 2);
+  });
+
+  it("asks for a reconnect when the organisation was disconnected in Xero, and sweeps expired sign-ins", async () => {
+    const prepared = await enqueue("SERVICE-403", false);
+    const writes = xero.state.postCalls;
+    xero.state.organisationRemoved = true;
+    expect(await dispatchQueuedPostings(ctx.handle.db, provider())).toMatchObject({ deferred: 1 });
+    const detail = await ok(send("GET", prepared.path));
+    expect(detail.posting.state).toBe("queued");
+    expect(detail.history.at(-1).evidence).toContain("no longer connected");
+    expect((await ok(send("GET", oauth()))).status).toBe("reconnect_required");
+    expect(xero.state.postCalls).toBe(writes);
+    xero.state.organisationRemoved = false;
+    // An abandoned sign-in attempt is deleted, with its unconfirmed credentials, once it expires.
+    await start();
+    await ctx.handle.db.update(accountingXeroFlows).set({ expiresAt: new Date(Date.now() - 1000) });
+    expect(await service.sweepExpiredAttempts()).toBe(1);
+    expect(await ctx.handle.db.select().from(accountingXeroFlows)).toEqual([]);
+    await connect();
+    expect(await dispatchQueuedPostings(ctx.handle.db, provider())).toMatchObject({ posted: 1 });
+    expect((await ok(send("GET", prepared.path))).posting).toMatchObject({ state: "posted", attempts: 2 });
   });
 });

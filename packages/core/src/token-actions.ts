@@ -285,7 +285,7 @@ export const personOnlyActions: readonly PersonOnlyAction[] = [
   personOnly("attendance", "Void clock events", "correction"),
   personOnly("training", "Void training records", "correction"),
   personOnly("quality", "Void recall tests", "correction"),
-  personOnly("purchasing", "Void refused deliveries", "correction"),
+  personOnly("purchasing", "Void refused deliveries and non-stock receipts", "correction"),
   personOnly("purchasing", "Void supplier credit notes", "correction"),
   // Safety and security.
   personOnly("attendance", "Run roll calls", "safety"),

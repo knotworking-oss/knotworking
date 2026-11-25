@@ -397,9 +397,9 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     id: "purchasing",
     name: "Purchasing",
     description:
-      "Purchase orders raised from the material shortfall, goods-in against an order with part, over and under deliveries, supplier invoices with a three-way match against order and delivery, and supplier performance: on time, in full and rejected deliveries.",
-    dependsOn: ["items", "stock"],
-    enhancedBy: [],
+      "Purchase orders for stock items, services, subscriptions and non-stock goods, raised by hand or from the material shortfall; goods-in against an order with part, over and under deliveries; supplier invoices with a three-way match against order and delivery; and supplier performance: on time, in full and rejected deliveries.",
+    dependsOn: ["items"],
+    enhancedBy: ["stock", "production", "quality"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [

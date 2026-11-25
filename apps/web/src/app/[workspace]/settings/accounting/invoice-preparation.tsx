@@ -82,7 +82,9 @@ export function InvoicePreparation({ slug, connectionId }: { slug: string; conne
           next.lines.map((l) => [
             l.id,
             {
-              accountKey: next.accountKeys.length === 1 ? next.accountKeys[0]! : "",
+              // A non-stock order line's nominal code, when it is a mapped account key.
+              accountKey:
+                l.suggestedAccountKey ?? (next.accountKeys.length === 1 ? next.accountKeys[0]! : ""),
               taxKey: next.taxKeys.length === 1 ? next.taxKeys[0]! : "",
               description: l.description.slice(0, 200),
               net: l.suggestedNet,
@@ -301,6 +303,7 @@ export function InvoicePreparation({ slug, connectionId }: { slug: string; conne
                       />
                       <FieldDescription>
                         {l.quantity} {l.unit ?? ""} × {l.unitPrice} = {l.exactValue}
+                        {l.nominalCode ? ` · ordered against ${l.nominalCode}` : ""}
                       </FieldDescription>
                     </Field>
                     <Field>

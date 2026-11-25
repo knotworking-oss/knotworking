@@ -39,6 +39,12 @@ export interface OrderOptions {
   items: PurchasableItem[];
   suppliers: SupplierOption[];
   locations: LocationOption[];
+  /**
+   * Whether the viewer can use stock lines: the stock module is on and readable. Without it only
+   * non-stock lines (services, subscriptions, goods not kept in stock) are offered, and nothing
+   * asks for a location, lot or expiry.
+   */
+  stock: boolean;
 }
 
 /** A number input's text → a number, or null when empty or not a number. */

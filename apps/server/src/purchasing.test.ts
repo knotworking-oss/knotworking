@@ -98,16 +98,16 @@ describe("purchasing module", () => {
   afterAll(() => ctx.handle.close());
 
   describe("access", () => {
-    it("is opt-in: members need a grant, read can't write, and it needs items and stock", async () => {
+    it("is opt-in: members need a grant, read can't write, and it needs items", async () => {
       expect((await error(await as(marcus.cookie).get("/purchasing/orders"), 403)).code).toBe(
         "module_forbidden",
       );
       await grant("purchasing", "read");
-      // Purchasing depends on items and stock.
+      // Purchasing depends on items; stock only enhances it (stock lines).
       expect((await as(marcus.cookie).get("/purchasing/orders")).status).toBe(403);
       await grant("items", "read");
-      await grant("stock", "read");
       await ok(await as(marcus.cookie).get("/purchasing/orders"));
+      await grant("stock", "read");
       const write = await as(marcus.cookie).send("POST", "/purchasing/orders", { supplierId: mill });
       expect((await error(write, 403)).code).toBe("module_forbidden");
       await grant("purchasing", "write");

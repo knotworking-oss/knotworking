@@ -8,7 +8,8 @@ import { PRICE_DECIMALS, VALUE_DECIMALS } from "./purchasing";
  * or Node APIs.
  *
  * An invoice belongs to one supplier. Its lines are either matched to a purchase order line
- * (quantity and unit price per the **order line's unit**) or are non-stock charges (carriage).
+ * (quantity and unit price per the **order line's unit**; a non-stock order line's own unit) or are
+ * charges on no order (carriage).
  * Amounts are plain numbers (there is no currency setting) and VAT is a plain amount.
  *
  * - **Three-way match** (`matchInvoiceLine`): each order line on an invoice is compared with the
@@ -301,13 +302,13 @@ export function matchInvoiceLine(
  * leaves it as it was approved). Costing reads `orderUnitPrice` and `basePerUnit` too.
  */
 export interface ApprovedInvoiceLineMatch {
-  /** The order line's unit then (the invoice line's unit). */
-  orderUnit: UnitCode;
+  /** The order line's unit then (the invoice line's unit); null for a non-stock order line. */
+  orderUnit: UnitCode | null;
   /** The order's price per the invoice line's unit then; null when it had none. */
   orderUnitPrice: number | null;
   /**
    * Base units (g, ml, each) in one of the invoice line's units, by the item's conversion then;
-   * null when it didn't convert.
+   * null when it didn't convert. 1 for a non-stock order line (its quantities are as entered).
    */
   basePerUnit: number | null;
   /** Received, in the line's unit, then (null when it didn't convert). */

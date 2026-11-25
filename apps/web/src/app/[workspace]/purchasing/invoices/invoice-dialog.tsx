@@ -1,7 +1,7 @@
 "use client";
 
 import { useWorkspaceCurrency } from "@/lib/workspace-time";
-import { uninvoicedQuantity, units, type UnitCode } from "@knotworking/core";
+import { uninvoicedQuantity, units } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import { Field, FieldDescription, FieldLabel } from "@knotworking/ui/components/field";
 import { Input } from "@knotworking/ui/components/input";
@@ -19,7 +19,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { HaccpDialog } from "@/components/haccp-forms";
-import { formatPrice } from "@/components/purchasing-badges";
+import { formatPrice, lineUnitLabel } from "@/components/purchasing-badges";
 import type { PurchaseInvoiceDetail } from "@/lib/api";
 import { errorMessage, unwrap } from "@/lib/auth-client";
 import { useWorkspaceToday } from "@/lib/workspace-time";
@@ -32,7 +32,8 @@ type DraftLine =
       kind: "order";
       orderLineId: string;
       label: string;
-      unit: UnitCode;
+      /** The order line's unit as shown: a stock unit's label, a non-stock line's own text, or "". */
+      unit: string;
       orderPrice: number | null;
       received: number | null;
       /** Already on approved invoices (lines brought in from an order; unknown when editing). */
@@ -49,13 +50,13 @@ const key = () => `l${++seq}`;
 
 const fromInvoice = (invoice: PurchaseInvoiceDetail): DraftLine[] =>
   invoice.lines.map((l) =>
-    l.kind === "order" && l.orderLine && l.unit
+    l.kind === "order" && l.orderLine
       ? {
           key: key(),
           kind: "order",
           orderLineId: l.orderLine.id,
-          label: `${l.orderLine.reference} · line ${l.orderLine.lineNo}${l.item ? ` · ${l.item.code} ${l.item.name}` : ""}`,
-          unit: l.unit,
+          label: `${l.orderLine.reference} · line ${l.orderLine.lineNo}${l.item ? ` · ${l.item.code} ${l.item.name}` : l.orderLine.description ? ` · ${l.orderLine.description}` : ""}`,
+          unit: l.unit ? units[l.unit].label : (l.orderLine.unitLabel ?? ""),
           orderPrice: l.orderLine.unitPrice,
           received: l.received,
           quantity: String(l.quantity),
@@ -141,8 +142,8 @@ export function InvoiceDialog({
           key: key(),
           kind: "order",
           orderLineId: l.id,
-          label: `${order.reference} · line ${l.lineNo} · ${l.item.code} ${l.item.name}`,
-          unit: l.unit,
+          label: `${order.reference} · line ${l.lineNo} · ${l.kind === "non_stock" || !l.item ? (l.description ?? "") : `${l.item.code} ${l.item.name}`}`,
+          unit: lineUnitLabel(l),
           orderPrice: l.unitPrice,
           received: l.received.inLineUnit,
           invoiced: l.invoicedQuantity,
@@ -374,11 +375,11 @@ export function InvoiceDialog({
                   <div className="text-sm">
                     <div className="font-medium">{l.label}</div>
                     <div className="text-xs text-muted-foreground">
-                      Received {l.received ?? "—"} {units[l.unit].label}
+                      Received {l.received ?? "—"} {l.unit}
                       {l.invoiced ? ` · ${l.invoiced} already invoiced` : ""} · order price{" "}
                       {l.orderPrice === null
                         ? "none"
-                        : `${formatPrice(l.orderPrice, currency)} / ${units[l.unit].label}`}
+                        : `${formatPrice(l.orderPrice, currency)}${l.unit ? ` / ${l.unit}` : ""}`}
                     </div>
                   </div>
                 ) : (
@@ -396,7 +397,7 @@ export function InvoiceDialog({
                   onChange={(e) => update(l.key, { quantity: e.target.value })}
                 />
                 <Input
-                  aria-label={l.kind === "order" ? `Price per ${units[l.unit].label}` : "Price"}
+                  aria-label={l.kind === "order" && l.unit ? `Price per ${l.unit}` : "Price"}
                   inputMode="decimal"
                   placeholder={l.kind === "charge" ? "Price (negative: discount)" : "Price"}
                   value={l.unitPrice}

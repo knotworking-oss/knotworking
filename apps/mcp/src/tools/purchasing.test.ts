@@ -1,3 +1,4 @@
+import type { ModuleId } from "@knotworking/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { createFakeApi } from "../testing/fake-api";
 import { connect } from "../testing/harness";
@@ -476,6 +477,84 @@ describe("purchasing tools", () => {
     fake.purchasingModule.state.productionAvailable = false;
     expect((await call("suggest_purchase_orders", { workspace: "acme" })).data.error.code).toBe(
       "production_unavailable",
+    );
+  });
+
+  it("drafts and receives non-stock lines: a description, its own unit and a nominal code, no lot", async () => {
+    const { call, fake } = await session();
+    const created = await draft(call, {
+      lines: [
+        {
+          kind: "non_stock",
+          description: "Window cleaning",
+          quantity: 4,
+          unit: "visit",
+          unit_price: 50,
+          nominal_code: "7500",
+        },
+      ],
+    });
+    expect(created.data.orderLines[0]).toMatchObject({
+      kind: "non_stock",
+      item: "Window cleaning",
+      ordered: "4 visit",
+      unit: "visit",
+      nominalCode: "7500",
+      lineValue: 200,
+    });
+    // A non-stock line needs a description; a stock line a unit code.
+    expect((await draft(call, { lines: [{ kind: "non_stock", quantity: 1 }] })).data.error.code).toBe(
+      "invalid_input",
+    );
+    expect(
+      (await draft(call, { lines: [{ item: "FLR-001", quantity: 1, unit: "visit" }] })).data.error.code,
+    ).toBe("invalid_input");
+
+    const order = fake.purchasingModule.orders[0]!;
+    fake.purchasingModule.send(order.id);
+    const lots = fake.stockModule.lots.length;
+    expect(
+      (
+        await call("receive_purchase_order", {
+          workspace: "acme",
+          order_id: "PO-2026-001",
+          received_on: "2026-11-11",
+          lines: [{ line: 1, outcome: "accepted", quantity: 3, location: "DS" }],
+        })
+      ).data.error.code,
+    ).toBe("invalid_input");
+    const res = await call("receive_purchase_order", {
+      workspace: "acme",
+      order_id: "PO-2026-001",
+      received_on: "2026-11-11",
+      lines: [{ line: 1, outcome: "accepted", quantity: 3 }],
+    });
+    expect(res.data).toMatchObject({
+      state: "part_received",
+      received: [{ line: 1, item: "Window cleaning", outcome: "accepted", quantity: "3 visit", lot: null }],
+      outstanding: [{ line: 1, outstanding: "1 visit" }],
+    });
+    expect(fake.stockModule.lots.length).toBe(lots);
+  });
+
+  it("passes on the refusal of stock lines when stock is off", async () => {
+    const { call, fake } = await session();
+    fake.purchasingModule.state.stockActive = false;
+    expect((await draft(call)).data.error.code).toBe("module_inactive");
+    const ok = await draft(call, {
+      lines: [{ kind: "non_stock", description: "Software licence", quantity: 12, unit: "month" }],
+    });
+    expect(ok.data.orderLines[0]).toMatchObject({ kind: "non_stock", ordered: "12 month" });
+  });
+
+  it("offers suggestions only where production is on", async () => {
+    const names = async (modules: readonly ModuleId[]) =>
+      (await (await session({ modules, listMode: "all" })).client.listTools()).tools.map((t) => t.name);
+    const bare = await names(["items", "purchasing"]);
+    expect(bare).toEqual(expect.arrayContaining(["draft_purchase_order", "receive_purchase_order"]));
+    expect(bare).not.toContain("suggest_purchase_orders");
+    expect(await names(["items", "recipes", "stock", "production", "purchasing"])).toContain(
+      "suggest_purchase_orders",
     );
   });
 

@@ -1115,7 +1115,8 @@ const PERSON_ONLY_ROUTES: Record<string, string> = {
   "POST /v1/workspaces/:slug/purchasing/invoices/:id/approve": "Approve supplier invoices for payment",
   "PUT /v1/workspaces/:slug/purchasing/invoice-settings": "Change invoice match tolerances",
   "POST /v1/workspaces/:slug/purchasing/orders/:id/approve": "Approve purchase orders for sending",
-  "POST /v1/workspaces/:slug/purchasing/orders/:id/receipts/:receiptId/void": "Void refused deliveries",
+  "POST /v1/workspaces/:slug/purchasing/orders/:id/receipts/:receiptId/void":
+    "Void refused deliveries and non-stock receipts",
   "PUT /v1/workspaces/:slug/purchasing/settings": "Change purchase order approval and over-delivery settings",
   "POST /v1/workspaces/:slug/purchasing/credit-notes/:id/approve": "Approve supplier credit notes",
   "POST /v1/workspaces/:slug/purchasing/credit-notes/:id/void": "Void supplier credit notes",

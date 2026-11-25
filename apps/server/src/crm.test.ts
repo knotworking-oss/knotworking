@@ -1,4 +1,13 @@
 import { DEFAULT_TIME_ZONE, newId, todayInZone, type ModuleId } from "@knotworking/core";
+import {
+  crmLeads,
+  crmOpportunities,
+  crmStages,
+  customers,
+  salesOrders,
+  workspaces,
+} from "@knotworking/db";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sweepDueNotifications } from "./services/notification-sweep";
 import { makeApp, signIn, type Res, type TestCtx } from "./test-utils";
@@ -529,6 +538,404 @@ describe("CRM pipeline with Sales and Client services", () => {
       workspaceId: s.ids.workspace,
     });
     expect(again.created.filter((n) => n.type === "crm_follow_up_due")).toEqual([]);
+  });
+});
+
+describe("CRM keeps a won deal's quote and handoff consistent", () => {
+  let s: Session;
+  let api: ReturnType<typeof client>;
+  let customer: { id: string };
+  let other: { id: string };
+  let itemId: string;
+  beforeAll(async () => {
+    s = await open();
+    api = client(s);
+    const { body, req } = api;
+    customer = await body(
+      await req("POST", "/customers", { code: "KEEP", name: "Keep Foods", address: "1 Dock Road" }),
+      201,
+    );
+    other = await body(
+      await req("POST", "/customers", { code: "ELSE", name: "Else Foods", address: "2 Dock Road" }),
+      201,
+    );
+    itemId = (
+      await body(
+        await req("POST", "/items", { code: "CRM-KEEP", name: "Pea soup", type: "finished", unit: "kg" }),
+        201,
+      )
+    ).id;
+  }, 60_000);
+  afterAll(() => s?.ctx.handle.close());
+
+  const document = (customerId: string) => ({
+    customerId,
+    currency: "GBP",
+    lines: [{ itemId, quantity: 5, unit: "kg", dueOn: today, unitPrice: 3 }],
+  });
+  const salesQuote = async (issue = true, customerId = customer.id) => {
+    const { body, req } = api;
+    const quote = await body(
+      await req("POST", "/sales/orders", { commandId: newId(), kind: "quote", document: document(customerId) }),
+      201,
+    );
+    if (!issue) return quote;
+    return body(
+      await req("POST", `/sales/orders/${quote.id}/issue`, {
+        commandId: newId(),
+        expectedRevision: quote.revision,
+        reason: "Prices agreed",
+      }),
+    );
+  };
+  const serviceQuote = async (issue = true) => {
+    const { body, req } = api;
+    const quote = await body(
+      await req("POST", "/client-services", {
+        commandId: newId(),
+        customerId: customer.id,
+        title: "Kitchen audit",
+        scope: "Review the line",
+        currency: "GBP",
+        unitPrice: 500,
+        quotedMinutes: null,
+        deliveryDate: "2027-03-01",
+      }),
+      201,
+    );
+    if (!issue) return quote;
+    return body(
+      await req("POST", `/client-services/${quote.id}/decision`, {
+        commandId: newId(),
+        expectedRevision: quote.revision,
+        action: "issue",
+        reason: "Scope checked",
+      }),
+    );
+  };
+  const make = async (title: string, extra: object = {}, status = 201) =>
+    api.body(
+      await api.req("POST", "/crm/opportunities", {
+        commandId: newId(),
+        title,
+        customerId: customer.id,
+        currency: "GBP",
+        ...extra,
+      }),
+      status,
+    );
+  const outcome = async (
+    o: { id: string; revision: number },
+    kind: "won" | "lost" | "reopen",
+    status = 200,
+  ) =>
+    api.body(
+      await api.req("POST", `/crm/opportunities/${o.id}/outcome`, {
+        commandId: newId(),
+        expectedRevision: o.revision,
+        outcome: kind,
+        reason: `Recorded ${kind}`,
+      }),
+      status,
+    );
+  const patch = async (o: { id: string; revision: number }, json: object, status = 200, cookie?: string) =>
+    api.body(
+      await api.req("PATCH", `/crm/opportunities/${o.id}`, { expectedRevision: o.revision, ...json }, cookie),
+      status,
+    );
+  const handoff = async (id: string, json: object, status = 200, cookie?: string) =>
+    api.body(
+      await api.req(
+        "POST",
+        `/crm/opportunities/${id}/handoff`,
+        { commandId: newId(), reason: "Signed", teamId: s.ids.team, leadId: s.ids.ada, ...json },
+        cookie,
+      ),
+      status,
+    );
+
+  it("uses 12-character LD- and OP- references", async () => {
+    const lead = await api.body(
+      await api.req("POST", "/crm/leads", { commandId: newId(), name: "Ref Check" }),
+      201,
+    );
+    expect(lead.reference).toMatch(/^LD-[0-9A-F]{12}$/);
+    expect((await make("Ref check")).reference).toMatch(/^OP-[0-9A-F]{12}$/);
+  });
+
+  it("freezes the quote link once a deal is closed or handed off", async () => {
+    const quote = await salesQuote();
+    const deal = await make("Pea soup supply", { salesQuoteId: quote.id });
+    const won = await outcome(deal, "won");
+    // Closed but not yet handed off: the link can't move or drop.
+    expect((await patch(won, { salesQuoteId: null }, 409)).error.message).toMatch(/Reopen/);
+    const handed = await handoff(deal.id, { kind: "sales_order" });
+    expect(handed.handoff).toMatchObject({ kind: "sales_order" });
+    // Unlinking after the handoff would have let the deal reopen and its quote back a second deal.
+    await patch(handed, { salesQuoteId: null }, 409);
+    await outcome(handed, "reopen", 409);
+    expect((await make("Second deal", { salesQuoteId: quote.id }, 409)).error.code).toBe("quote_handed_off");
+
+    // A lost deal keeps its link too, and can't gain one.
+    const lostQuote = await salesQuote();
+    const lost = await outcome(await make("Lost soup", { salesQuoteId: lostQuote.id }), "lost");
+    await patch(lost, { salesQuoteId: null }, 409);
+    const bare = await outcome(await make("Lost bare"), "lost");
+    await patch(bare, { salesQuoteId: (await salesQuote()).id }, 409);
+    // Notes and the owner still change on a closed deal.
+    expect((await patch(bare, { notes: "Try again in spring" })).notes).toBe("Try again in spring");
+  });
+
+  it("refuses a quote another deal already handed off", async () => {
+    const { body, req } = api;
+    // Converted straight in Sales: the order belongs to the deal that won it, not a new one.
+    const quote = await salesQuote();
+    await body(
+      await req("POST", `/sales/orders/${quote.id}/convert`, {
+        commandId: newId(),
+        expectedRevision: quote.revision,
+        reason: "Ordered by phone",
+      }),
+    );
+    expect((await make("Late deal", { salesQuoteId: quote.id }, 409)).error.code).toBe("quote_handed_off");
+    const open = await make("Late deal");
+    expect((await patch(open, { salesQuoteId: quote.id }, 409)).error.code).toBe("quote_handed_off");
+    // Accepted straight in Client services: it already has its delivery project.
+    const service = await serviceQuote();
+    await body(
+      await req("POST", `/client-services/${service.id}/decision`, {
+        commandId: newId(),
+        expectedRevision: service.revision,
+        action: "accept",
+        reason: "Signed",
+        teamId: s.ids.team,
+        leadId: s.ids.ada,
+      }),
+    );
+    expect((await make("Late service", { serviceQuoteId: service.id }, 409)).error.code).toBe(
+      "quote_handed_off",
+    );
+  });
+
+  it("links one quote at most, so a won deal is handed off once", async () => {
+    const sales = await salesQuote();
+    const service = await serviceQuote();
+    await make("Both", { salesQuoteId: sales.id, serviceQuoteId: service.id }, 400);
+    const deal = await make("One quote", { salesQuoteId: sales.id });
+    // Adding the other kind is refused; swapping in one change is fine.
+    expect((await patch(deal, { serviceQuoteId: service.id }, 400)).error.message).toMatch(/not both/);
+    const swapped = await patch(deal, { salesQuoteId: null, serviceQuoteId: service.id });
+    expect(swapped).toMatchObject({ salesQuoteId: null, serviceQuoteId: service.id });
+    const won = await outcome(swapped, "won");
+    const handed = await handoff(won.id, { kind: "service_project" });
+    expect(handed.handoff).toMatchObject({ kind: "service_project", status: "accepted" });
+    // A retry of the same handoff returns it; another kind is refused.
+    expect((await handoff(won.id, { kind: "service_project" })).handoff.id).toBe(handed.handoff.id);
+    expect((await handoff(won.id, { kind: "sales_order" }, 409)).error.code).toBe("already_handed_off");
+    // The database holds the same rule.
+    await expect(
+      s.ctx.handle.db
+        .update(crmOpportunities)
+        .set({ salesQuoteId: sales.id })
+        .where(eq(crmOpportunities.id, deal.id)),
+    ).rejects.toThrow();
+  });
+
+  it("rechecks the quote's customer at handoff", async () => {
+    const { body, req } = api;
+    const draft = await salesQuote(false);
+    const deal = await make("Moving quote", { salesQuoteId: draft.id });
+    // The draft is re-saved for another customer after it was linked.
+    const moved = await body(
+      await req("PUT", `/sales/orders/${draft.id}`, {
+        commandId: newId(),
+        expectedRevision: draft.revision,
+        document: document(other.id),
+        reason: "Wrong customer",
+      }),
+    );
+    await body(
+      await req("POST", `/sales/orders/${draft.id}/issue`, {
+        commandId: newId(),
+        expectedRevision: moved.revision,
+        reason: "Prices agreed",
+      }),
+    );
+    const won = await outcome(deal, "won");
+    expect((await handoff(won.id, { kind: "sales_order" }, 409)).error.message).toMatch(/another customer/);
+    const orders = await s.ctx.handle.db
+      .select({ id: salesOrders.id })
+      .from(salesOrders)
+      .where(eq(salesOrders.sourceQuoteId, draft.id));
+    expect(orders).toEqual([]);
+  });
+
+  it("reopens a deal whose stage was removed onto the first live stage", async () => {
+    const { body, req } = api;
+    const { stages } = await body(await req("GET", "/crm/stages"));
+    const last = stages.at(-1);
+    const lost = await outcome(await make("Parked", { stageId: last.id }), "lost");
+    await body(
+      await req("PUT", "/crm/stages", {
+        stages: stages
+          .filter((st: { id: string }) => st.id !== last.id)
+          .map(({ id, name, probability }: { id: string; name: string; probability: number }) => ({
+            id,
+            name,
+            probability,
+          })),
+      }),
+    );
+    const reopened = await outcome(lost, "reopen");
+    expect(reopened).toMatchObject({ status: "open", stageId: stages[0].id });
+    const pipeline = await body(await req("GET", "/crm/pipeline"));
+    expect(pipeline.unstaged).toEqual([]);
+  });
+
+  it("keeps links hidden from a member without the quote's module", async () => {
+    const { grant } = api;
+    for (const module of ["customers", "crm"]) await grant(s.ids.marcus, module, "write");
+    const deal = await make("Hidden quote", { salesQuoteId: (await salesQuote()).id });
+    // Marcus can't read Sales: the customer change explains why, and he can't drop the link.
+    expect((await patch(deal, { customerId: other.id }, 409, s.marcus)).error.code).toBe("quote_hidden");
+    expect((await patch(deal, { salesQuoteId: null }, 403, s.marcus)).error.code).toBe("module_forbidden");
+    expect((await patch(deal, { notes: "Called" }, 200, s.marcus)).salesQuote).toBeNull();
+  });
+
+  it("refuses a handoff to a CRM writer without Sales manage", async () => {
+    const { grant } = api;
+    await grant(s.ids.marcus, "sales", "write");
+    const won = await outcome(await make("Not his call", { salesQuoteId: (await salesQuote()).id }), "won");
+    expect((await handoff(won.id, { kind: "sales_order" }, 403, s.marcus)).error.code).toBe(
+      "module_forbidden",
+    );
+    expect((await api.body(await api.req("GET", `/crm/opportunities/${won.id}`))).handoff).toBeNull();
+  });
+
+  it("replays a conversion to a new customer without a second customer", async () => {
+    const { body, req } = api;
+    const lead = await body(
+      await req("POST", "/crm/leads", { commandId: newId(), name: "Rae Lin", company: "Lin Bakery" }),
+      201,
+    );
+    const qualified = await body(
+      await req("PATCH", `/crm/leads/${lead.id}`, { expectedRevision: 1, status: "qualified" }),
+    );
+    const convert = {
+      commandId: newId(),
+      expectedRevision: qualified.revision,
+      customer: { mode: "new", code: "LINB", name: "Lin Bakery", address: "5 Oven Row" },
+    };
+    const first = await body(await req("POST", `/crm/leads/${lead.id}/convert`, convert));
+    expect(await body(await req("POST", `/crm/leads/${lead.id}/convert`, convert))).toEqual(first);
+    const made = await s.ctx.handle.db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(eq(customers.code, "LINB"));
+    expect(made).toEqual([{ id: first.customerId }]);
+    // A new command for the same lead is refused: it is already converted.
+    await body(
+      await req("POST", `/crm/leads/${lead.id}/convert`, { ...convert, commandId: newId() }),
+      409,
+    );
+  });
+
+  it("treats ids from another workspace as missing", async () => {
+    const { body, req } = api;
+    const db = s.ctx.handle.db;
+    const [ws] = await db
+      .insert(workspaces)
+      .values({ slug: `crm-foreign-${newId()}`, name: "Foreign" })
+      .returning();
+    const [foreignCustomer] = await db
+      .insert(customers)
+      .values({ workspaceId: ws!.id, code: "F", name: "Foreign", address: "Far away" })
+      .returning();
+    const [foreignLead] = await db
+      .insert(crmLeads)
+      .values({ workspaceId: ws!.id, reference: "LD-F", name: "Foreign lead", status: "qualified" })
+      .returning();
+    const [foreignStage] = await db
+      .insert(crmStages)
+      .values({ workspaceId: ws!.id, name: "Foreign", position: 0 })
+      .returning();
+    const [foreignQuote] = await db
+      .insert(salesOrders)
+      .values({
+        workspaceId: ws!.id,
+        reference: "F-Q",
+        kind: "quote",
+        customerId: foreignCustomer!.id,
+        currency: "GBP",
+        recipient: {
+          code: "F",
+          name: "Foreign",
+          address: "Far away",
+          deliveryAddress: "Far away",
+          deliverySiteCode: null,
+          deliverySiteName: null,
+        },
+      })
+      .returning();
+    const [foreignDeal] = await db
+      .insert(crmOpportunities)
+      .values({
+        workspaceId: ws!.id,
+        reference: "OP-F",
+        title: "Foreign deal",
+        customerId: foreignCustomer!.id,
+        stageId: foreignStage!.id,
+        currency: "GBP",
+      })
+      .returning();
+
+    await make("Foreign customer", { customerId: foreignCustomer!.id }, 404);
+    await make("Foreign lead", { customerId: null, leadId: foreignLead!.id }, 404);
+    // A stage id is checked against this workspace's live stages.
+    expect((await make("Foreign stage", { stageId: foreignStage!.id }, 400)).error.message).toMatch(
+      /current pipeline stage/,
+    );
+    await make("Foreign quote", { salesQuoteId: foreignQuote!.id }, 404);
+    const local = await make("Local deal");
+    await patch(local, { salesQuoteId: foreignQuote!.id }, 404);
+    await patch(local, { stageId: foreignStage!.id }, 400);
+    await patch(local, { customerId: foreignCustomer!.id }, 404);
+    await body(await req("GET", `/crm/opportunities/${foreignDeal!.id}`), 404);
+    await body(await req("GET", `/crm/leads/${foreignLead!.id}`), 404);
+    await body(
+      await req("POST", `/crm/opportunities/${foreignDeal!.id}/outcome`, {
+        commandId: newId(),
+        expectedRevision: 1,
+        outcome: "won",
+        reason: "Not ours",
+      }),
+      404,
+    );
+    await handoff(foreignDeal!.id, { kind: "sales_order" }, 404);
+    await body(
+      await req("POST", "/crm/activities", {
+        commandId: newId(),
+        opportunityId: foreignDeal!.id,
+        kind: "call",
+        subject: "Not ours",
+      }),
+      404,
+    );
+    const lead = await body(await req("POST", "/crm/leads", { commandId: newId(), name: "Local lead" }), 201);
+    const qualified = await body(
+      await req("PATCH", `/crm/leads/${lead.id}`, { expectedRevision: 1, status: "qualified" }),
+    );
+    await body(
+      await req("POST", `/crm/leads/${lead.id}/convert`, {
+        commandId: newId(),
+        expectedRevision: qualified.revision,
+        customer: { mode: "existing", customerId: foreignCustomer!.id },
+      }),
+      404,
+    );
+    // Nothing in the foreign workspace changed.
+    const [untouched] = await db.select().from(crmOpportunities).where(eq(crmOpportunities.id, foreignDeal!.id));
+    expect(untouched).toMatchObject({ status: "open", revision: 1 });
   });
 });
 

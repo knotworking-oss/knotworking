@@ -518,7 +518,17 @@ describe("connected Xero purchasing against a fake HTTP provider", () => {
     const [grant] = await ctx.handle.db.select().from(accountingXeroCredentials);
     expect(grant).toMatchObject({ ciphertext: null, remoteConnectionId: null, tenantId, organisationId });
     expect((await getConnection()).companyId).toBe(tenantId);
+    // A disconnected setup installs no adapter: queued bills wait and nothing reaches Xero.
+    const held = await enqueue("SERVICE-HELD", false);
+    const writes = xero.state.postCalls;
+    expect((await dispatchQueuedPostings(ctx.handle.db, provider())).skipped).toBeGreaterThan(0);
+    expect((await ok(send("POST", `${held.path}/send`), 409)).error.code).toBe("adapter_not_installed");
+    expect((await ok(send("GET", held.path))).posting.state).toBe("queued");
+    expect(xero.state.postCalls).toBe(writes);
     await connect();
     expect((await ok(send("GET", oauth()))).status).toBe("connected");
+    await dispatchQueuedPostings(ctx.handle.db, provider());
+    expect((await ok(send("GET", held.path))).posting).toMatchObject({ state: "posted", attempts: 1 });
+    expect(xero.state.postCalls).toBe(writes + 1);
   });
 });

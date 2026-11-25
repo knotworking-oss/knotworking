@@ -109,7 +109,7 @@ import { workspaceToday } from "./time-zone";
  *   (`production_batch`, `production_record`), not the bootstrap.
  *
  * - Planning from demand (`getPlanFromDemand`, `planBatches`) reads the demand module's summary
- *   (production depends on demand) and plans through the same `insertBatch` as `createBatch`.
+ *   (a soft dependency: the route asks for Demand read access) and plans through the same `insertBatch` as `createBatch`.
  */
 
 type BatchRow = typeof productionBatches.$inferSelect;
@@ -703,7 +703,7 @@ async function insertBatch(
 
 /**
  * "Plan batches from demand", computed on read: demand per item per ISO week (the demand module's
- * `getDemandSummary`; production depends on demand, so whoever reads this can read demand),
+ * `getDemandSummary`; Demand is a soft dependency, so the route checks the caller can read it),
  * against the batches already planned, in progress or made in each week, with the gap and the
  * whole batches of each item's recipe that cover it (`planFromDemand`). Nothing is stored.
  */

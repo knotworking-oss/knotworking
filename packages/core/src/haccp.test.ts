@@ -73,14 +73,13 @@ const ccp = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("module", () => {
-  it("needs items and production, and is closed unless both are readable", () => {
-    expect(() => parseActiveModules("items,haccp")).toThrow(/needs "production"/);
+  it("needs no other module: items and production only enhance it", () => {
+    expect(parseActiveModules("haccp")).toEqual(["haccp"]);
     expect(parseActiveModules("items,recipes,stock,demand,production,haccp")).toContain("haccp");
-    const grants = { items: "read", recipes: "read", stock: "read", demand: "read", haccp: "write" } as const;
     const active = parseActiveModules("all");
-    expect(resolveModuleAccess({ role: "member", active, grants }).haccp).toBe("none");
+    expect(resolveModuleAccess({ role: "member", active, grants: { haccp: "write" } }).haccp).toBe("write");
     expect(
-      resolveModuleAccess({ role: "member", active, grants: { ...grants, production: "read" } }).haccp,
+      resolveModuleAccess({ role: "member", active, grants: { haccp: "write", production: "read" } }).haccp,
     ).toBe("write");
     expect(resolveModuleAccess({ role: "member", active, grants: {} }).haccp).toBe("none");
   });

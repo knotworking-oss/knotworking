@@ -28,10 +28,10 @@ import {
 const ID = (n: number) => `00000000-0000-7000-8000-${String(n).padStart(12, "0")}`;
 
 describe("module", () => {
-  it("needs recipes, stock and demand, and is closed unless all are readable", () => {
+  it("needs recipes and stock (demand only enhances it), and is closed unless both are readable", () => {
     expect(() => parseActiveModules("items,stock,demand,production")).toThrow(/needs "recipes"/);
     expect(() => parseActiveModules("items,recipes,demand,production")).toThrow(/needs "stock"/);
-    expect(() => parseActiveModules("items,recipes,stock,production")).toThrow(/needs "demand"/);
+    expect(parseActiveModules("items,recipes,stock,production")).toContain("production");
     expect(parseActiveModules("items,recipes,stock,demand,production")).toEqual([
       "items",
       "recipes",
@@ -44,7 +44,7 @@ describe("module", () => {
       resolveModuleAccess({ role: "member", active, grants: grants as never }).production;
     expect(access({ production: "write" })).toBe("none");
     expect(access({ items: "read", recipes: "read", production: "write" })).toBe("none");
-    expect(access({ items: "read", recipes: "read", stock: "read", production: "write" })).toBe("none");
+    expect(access({ items: "read", recipes: "read", stock: "read", production: "write" })).toBe("write");
     expect(
       access({ items: "read", recipes: "read", stock: "read", demand: "read", production: "write" }),
     ).toBe("write");

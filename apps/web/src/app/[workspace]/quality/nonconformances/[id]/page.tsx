@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { getAllItems, getMembers, getNonconformance } from "@/lib/api";
+import { getItemOptions, getMembers, getNonconformance } from "@/lib/api";
 import { NonconformanceDetailView } from "./nonconformance-detail";
 
 export const metadata: Metadata = { title: "Non-conformance" };
@@ -12,9 +12,9 @@ export default async function NonconformancePage({
   params: Promise<{ workspace: string; id: string }>;
 }) {
   const { workspace: slug, id } = await params;
-  const [nc, { items }, { members }] = await Promise.all([
+  const [nc, items, { members }] = await Promise.all([
     getNonconformance(slug, id),
-    getAllItems(slug, { status: "active" }),
+    getItemOptions(slug, { status: "active" }),
     getMembers(slug),
   ]);
   return (

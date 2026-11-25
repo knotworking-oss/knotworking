@@ -34,6 +34,7 @@ import {
   TextRow,
   type ItemOption,
   type MemberOption,
+  useLinkFields,
 } from "../../quality-forms";
 import { useFormatDateTime } from "@/lib/workspace-time";
 
@@ -249,6 +250,7 @@ function EditDialog({
 }) {
   const [category, setCategory] = useState<ComplaintCategory>(c.category);
   const [severity, setSeverity] = useState<QualitySeverity>(c.severity);
+  const linkFields = useLinkFields();
   const [itemId, setItemId] = useState(c.itemId ?? NONE);
   const [lotId, setLotId] = useState(c.lotId ?? NONE);
   const [description, setDescription] = useState(c.description);
@@ -275,8 +277,7 @@ function EditDialog({
             json: {
               category,
               severity,
-              itemId: itemId === NONE ? null : itemId,
-              lotId: lotId === NONE ? null : lotId,
+              ...linkFields(itemId, lotId, true),
               description: description.trim(),
               investigation: orNull(investigation),
               rootCause: orNull(rootCause),

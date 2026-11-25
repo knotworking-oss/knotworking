@@ -188,7 +188,7 @@ async function sweepWorkspace(
     const ctx: Ctx = { db: tx as unknown as Database, workspaceId, now, today, cutoff, access, drafts };
 
     if (active.has("training")) await sweepTraining(ctx);
-    if (active.has("haccp")) await sweepHaccp(ctx);
+    if (active.has("haccp")) await sweepHaccp(ctx, active.has("production"));
     if (active.has("site")) await sweepSite(ctx);
     if (active.has("recipes")) await sweepRecipes(ctx);
     if (active.has("quality")) await sweepQuality(ctx);
@@ -301,10 +301,13 @@ async function sweepTraining(ctx: Ctx) {
 }
 
 /** Cleaning and calibration falling due or overdue, and corrective actions left open: to HACCP managers. */
-async function sweepHaccp(ctx: Ctx) {
+async function sweepHaccp(ctx: Ctx, production: boolean) {
   const managers = audience(ctx.access, "haccp", "manage");
   if (managers.length === 0) return;
-  const due = await getHaccpDue(ctx.db, ctx.workspaceId, { include: "due" }, ctx.now);
+  // Per-batch CCPs only while Production (a soft dependency of HACCP) is on.
+  const due = await getHaccpDue(ctx.db, ctx.workspaceId, { include: "due" }, ctx.now, {
+    batches: production,
+  });
   for (const check of due.checks) {
     if (check.kind === "ccp" || !DUE_STATES.includes(check.state) || tooOld(ctx, check)) continue;
     push(ctx, managers, {

@@ -32,6 +32,11 @@ describe("module read-model invalidation", () => {
     expect(shouldRefreshModulePage("/acme/stock/lots/one", change("despatch"))).toBe(true);
     expect(shouldRefreshModulePage("/acme/despatch/new", change("production_reservation"))).toBe(true);
   });
+  it("refreshes a module's views when a soft dependency (`enhancedBy`) changes", () => {
+    expect(shouldRefreshModulePage("/acme/haccp/deviations", change("production_batch"))).toBe(true);
+    expect(shouldRefreshModulePage("/acme/quality/complaints", change("stock_lot"))).toBe(true);
+    expect(shouldRefreshModulePage("/acme/production/daily-demand", change("demand_line"))).toBe(true);
+  });
   it("leaves unrelated screens and task views alone", () => {
     expect(shouldRefreshModulePage("/acme/tasks", change("task"))).toBe(false);
     expect(shouldRefreshModulePage("/acme/people", change("stock_movement"))).toBe(false);

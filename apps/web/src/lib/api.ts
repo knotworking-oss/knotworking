@@ -253,6 +253,13 @@ export const getAllItems = (
     return { ...first, items: all, limit: all.length };
   });
 
+/**
+ * Every item for a picker on another module's page, or none when the viewer can't read Items
+ * (a soft dependency there: the picker is then hidden).
+ */
+export const getItemOptions = async (slug: string, query: Parameters<typeof getAllItems>[1]) =>
+  (await canReadModule(slug, "items")) ? (await getAllItems(slug, query)).items : [];
+
 /** Recipes module: one page of recipes (see `recipeListQuerySchema`). */
 export const getRecipes = (
   slug: string,

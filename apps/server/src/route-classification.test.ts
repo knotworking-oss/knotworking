@@ -1160,6 +1160,11 @@ const PERSON_ONLY_ROUTES: Record<string, string> = {
  */
 const KNOWN_PATH_MIDDLEWARE = new Set([
   "/v1/workspaces/:slug/quality/incidents",
+  // Quality's item- and stock-centric parts need those soft dependencies readable.
+  "/v1/workspaces/:slug/quality/recall-tests",
+  "/v1/workspaces/:slug/quality/trends",
+  "/v1/workspaces/:slug/quality/sales-volumes",
+  "/v1/workspaces/:slug/quality/authenticity",
   "/v1/workspaces/:slug/calendar",
   "/v1/workspaces/:slug/meetings/import",
 ]);

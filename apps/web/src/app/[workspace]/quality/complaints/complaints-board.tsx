@@ -39,7 +39,15 @@ import { browserApi, unwrap } from "@/lib/auth-client";
 import { collectPages, complaintsCsv } from "@/lib/csv-export";
 import { formatLongDate } from "@/lib/format";
 import { useWorkspace } from "@/lib/workspace-store";
-import { DateField, ItemLotFields, NONE, qualityApi, TextField, type ItemOption } from "../quality-forms";
+import {
+  DateField,
+  ItemLotFields,
+  NONE,
+  qualityApi,
+  TextField,
+  type ItemOption,
+  useLinkFields,
+} from "../quality-forms";
 
 export type ComplaintFilter = "unresolved" | "open" | "investigating" | "closed" | "all";
 
@@ -217,6 +225,7 @@ function LogComplaintDialog({
   const [source, setSource] = useState<ComplaintSource>("consumer");
   const [category, setCategory] = useState<ComplaintCategory>("quality");
   const [severity, setSeverity] = useState<QualitySeverity>("minor");
+  const linkFields = useLinkFields();
   const [itemId, setItemId] = useState(NONE);
   const [lotId, setLotId] = useState(NONE);
   const [reportedLotCode, setReportedLotCode] = useState("");
@@ -244,8 +253,7 @@ function LogComplaintDialog({
               category,
               severity,
               description: description.trim(),
-              ...(itemId !== NONE ? { itemId } : {}),
-              ...(lotId !== NONE ? { lotId } : {}),
+              ...linkFields(itemId, lotId),
               ...(reportedLotCode.trim() ? { reportedLotCode: reportedLotCode.trim() } : {}),
               ...(customer.trim() ? { customer: customer.trim() } : {}),
               ...(name.trim() ? { complainantName: name.trim() } : {}),

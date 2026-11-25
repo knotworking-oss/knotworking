@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
-import { getAllItems, getComplaints } from "@/lib/api";
+import { getItemOptions, getComplaints } from "@/lib/api";
 import { QualityNav } from "@/components/quality-nav";
 import { ComplaintsBoard, type ComplaintFilter } from "./complaints-board";
 
@@ -18,9 +18,9 @@ export default async function ComplaintsPage({
   const [{ workspace: slug }, search] = await Promise.all([params, searchParams]);
   const status = FILTERS.find((f) => f === search.status) ?? "unresolved";
   const q = search.q?.trim() || undefined;
-  const [page, { items }] = await Promise.all([
+  const [page, items] = await Promise.all([
     getComplaints(slug, { status, ...(q ? { q } : {}) }),
-    getAllItems(slug, { status: "active" }),
+    getItemOptions(slug, { status: "active" }),
   ]);
   return (
     <>

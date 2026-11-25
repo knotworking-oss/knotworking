@@ -511,7 +511,7 @@ function VersionCard({
               : [
                   ...scope.items.map((i) => `${i.code} ${i.name}`),
                   ...scope.recipes.map((r) => `Recipe ${r.code}`),
-                ].join(", ")}
+                ].join(", ") || "Products or recipes you can't view"}
           </dd>
           {version.scopeNote && (
             <>

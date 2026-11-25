@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { HaccpHeader } from "@/components/haccp-header";
 import {
+  canReadModule,
   getHaccpLibrary,
   getHaccpPlan,
   getHaccpPlanVersion,
@@ -23,11 +24,19 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function HaccpPlanPage({ params, searchParams }: Props) {
   const [{ workspace: slug, id }, search] = await Promise.all([params, searchParams]);
+  // Items and recipes are soft dependencies of HACCP: scope pickers only for their readers.
+  const [canItems, canRecipes] = await Promise.all([
+    canReadModule(slug, "items"),
+    canReadModule(slug, "recipes"),
+  ]);
+  const none = { items: [] as Awaited<ReturnType<typeof getItems>>["items"] };
   const [plan, finished, wip, { recipes }, { signoffs }, { entries }] = await Promise.all([
     getHaccpPlan(slug, id),
-    getItems(slug, { type: "finished", status: "active" }),
-    getItems(slug, { type: "wip", status: "active" }),
-    getRecipes(slug, { status: "active" }),
+    canItems ? getItems(slug, { type: "finished", status: "active" }) : none,
+    canItems ? getItems(slug, { type: "wip", status: "active" }) : none,
+    canRecipes
+      ? getRecipes(slug, { status: "active" })
+      : { recipes: [] as Awaited<ReturnType<typeof getRecipes>>["recipes"] },
     getHaccpSignoffs(slug, id),
     getHaccpLibrary(slug),
   ]);

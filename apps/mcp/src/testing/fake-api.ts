@@ -417,6 +417,7 @@ export function createFakeApi() {
             name: id,
             description: "",
             dependsOn: [],
+            enhancedBy: [],
             access,
           })),
         }),

@@ -6,6 +6,7 @@ import { Textarea } from "@knotworking/ui/components/textarea";
 import { useEffect, useState, type ReactNode } from "react";
 import { SelectField } from "@/components/haccp-forms";
 import { browserApi, unwrap } from "@/lib/auth-client";
+import { useOptionalWorkspace } from "@/lib/workspace-store";
 
 /** A label and a value in a `<dl>` grid. */
 export function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -152,6 +153,24 @@ export function MemberSelect({
   );
 }
 
+/**
+ * The item and lot links a form sends: only those the viewer can see (Items and Stock are soft
+ * dependencies of Quality), so a link they can't see is left as it is. `clear`: send `null` for an
+ * empty choice (an edit), rather than leaving it out (a new record).
+ */
+export function useLinkFields() {
+  const store = useOptionalWorkspace();
+  const items = store?.can("items") ?? true;
+  const lots = items && (store?.can("stock") ?? true);
+  return (itemId: string, lotId: string, clear = false) => {
+    const value = (id: string) => (id === NONE ? null : id);
+    return {
+      ...(items && (clear || itemId !== NONE) ? { itemId: value(itemId) } : {}),
+      ...(lots && (clear || lotId !== NONE) ? { lotId: value(lotId) } : {}),
+    };
+  };
+}
+
 interface LotOption {
   id: string;
   lotCode: string;
@@ -162,7 +181,8 @@ const LOT_PAGE = 200;
 /**
  * An item, then one of its lots: empty lots included (a complaint is often about stock long gone),
  * latest received first. Older lots are found by typing part of the code. Lots load when the item
- * or the search changes; the lot already chosen (`currentLot`) is always offered.
+ * or the search changes; the lot already chosen (`currentLot`) is always offered. Items and Stock
+ * are soft dependencies of Quality: without Items there is nothing to pick, without Stock no lot.
  */
 export function ItemLotFields({
   slug,
@@ -185,6 +205,9 @@ export function ItemLotFields({
   lotRequired?: boolean;
   currentLot?: LotOption | null | undefined;
 }) {
+  const store = useOptionalWorkspace();
+  const showItems = store?.can("items") ?? true;
+  const showLots = showItems && (store?.can("stock") ?? true);
   const [lots, setLots] = useState<LotOption[] | null>(null);
   const [more, setMore] = useState(false);
   const [search, setSearch] = useState("");
@@ -194,7 +217,7 @@ export function ItemLotFields({
     return () => clearTimeout(timer);
   }, [search]);
   useEffect(() => {
-    if (itemId === NONE) {
+    if (itemId === NONE || !showLots) {
       setLots(null);
       return;
     }
@@ -221,11 +244,12 @@ export function ItemLotFields({
     return () => {
       live = false;
     };
-  }, [slug, itemId, query]);
+  }, [slug, itemId, query, showLots]);
   // The lot chosen stays an option when a later search no longer lists it.
   const [picked, setPicked] = useState<LotOption | null>(currentLot ?? null);
   const chosen = picked && picked.id === lotId ? picked : null;
   const shown = [...(chosen && !lots?.some((l) => l.id === chosen.id) ? [chosen] : []), ...(lots ?? [])];
+  if (!showItems) return null;
   return (
     <>
       <SelectField
@@ -243,39 +267,43 @@ export function ItemLotFields({
           ...items.map((i) => [i.id, `${i.code} ${i.name}`] as const),
         ]}
       />
-      <SelectField
-        id={`${idPrefix}-lot`}
-        label="Lot"
-        value={lotId}
-        onChange={(id) => {
-          setPicked(shown.find((l) => l.id === id) ?? null);
-          onLot(id);
-        }}
-        disabled={itemId === NONE || lots === null}
-        options={[
-          [
-            NONE,
-            itemId === NONE
-              ? "Choose the item first"
-              : lots === null
-                ? "Loading…"
-                : lotRequired
-                  ? "Choose a lot"
-                  : "Not known",
-          ],
-          ...shown.map((l) => [l.id, l.lotCode] as const),
-        ]}
-        description={
-          more || query ? (
-            <Input
-              aria-label="Find a lot by code"
-              placeholder={more ? `Latest ${LOT_PAGE} shown; type a lot code to find older ones` : "Lot code"}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          ) : undefined
-        }
-      />
+      {showLots && (
+        <SelectField
+          id={`${idPrefix}-lot`}
+          label="Lot"
+          value={lotId}
+          onChange={(id) => {
+            setPicked(shown.find((l) => l.id === id) ?? null);
+            onLot(id);
+          }}
+          disabled={itemId === NONE || lots === null}
+          options={[
+            [
+              NONE,
+              itemId === NONE
+                ? "Choose the item first"
+                : lots === null
+                  ? "Loading…"
+                  : lotRequired
+                    ? "Choose a lot"
+                    : "Not known",
+            ],
+            ...shown.map((l) => [l.id, l.lotCode] as const),
+          ]}
+          description={
+            more || query ? (
+              <Input
+                aria-label="Find a lot by code"
+                placeholder={
+                  more ? `Latest ${LOT_PAGE} shown; type a lot code to find older ones` : "Lot code"
+                }
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            ) : undefined
+          }
+        />
+      )}
     </>
   );
 }

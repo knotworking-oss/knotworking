@@ -369,6 +369,8 @@ export function registerProductionTools({ define, slugOf, workspaceParam }: Tool
     "propose_batches_from_demand",
     {
       module: "production",
+      // Demand is a soft dependency of production: no demand, nothing to propose from.
+      requiresModules: ["demand"],
       title: "Propose batches from demand",
       description: `Production planning from demand, per finished or WIP item and ISO week (Monday to Sunday) between \`from\` and \`to\` (dates or weeks like 2026-W46; default 12 weeks from this one): demand, what batches planned in that week already cover (in progress: planned or made, if more; completed: what was made), the gap, and the whole batches of the item's recipe (current approved version) that cover it, with what they make. Quantities are \`{ base, baseUnit, display, displayUnit }\`. \`issue\` flags items that can't be planned: \`no_recipe\`, \`no_approved_version\` (a person must approve one), \`choose_recipe\` (several recipes make it: ask which, then pass it in \`recipes\`), \`no_yield\`. Returns \`plan\`: the suggested batches on each week's Monday, ready for plan_production_batch's \`plan\` after the user agrees (change dates or sizes as they say). Reads only; nothing is reserved or planned.`,
       annotations: READ,

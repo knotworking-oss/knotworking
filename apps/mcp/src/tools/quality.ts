@@ -199,19 +199,20 @@ export function registerQualityTools({ define, slugOf, workspaceParam }: ToolCon
       module: "quality",
       title: "Quality summary",
       description:
-        "What needs attention in quality: open and investigating complaints, complaints by category over 12 months, open, overdue and awaiting-verification non-conformances, overdue and upcoming internal audits, and the yearly mock recall test (last result, when the next is due).",
+        "What needs attention in quality: open and investigating complaints, complaints by category over 12 months, open, overdue and awaiting-verification non-conformances, overdue and upcoming internal audits, and the yearly mock recall test (last result, when the next is due; `recallTest: null` when the Stock module is off or unreadable).",
       annotations: READ,
       input: { workspace: workspaceParam },
     },
     async ({ workspace }, api) => {
       const slug = await slugOf(api, workspace);
-      const [summary, recent] = await Promise.all([
-        api.call(q(api).summary.$get({ param: { slug } })),
-        api.call(q(api)["recall-tests"].$get({ param: { slug }, query: { limit: "5" } })),
-      ]);
+      const summary = await api.call(q(api).summary.$get({ param: { slug } }));
+      // Mock recalls trace stock lots: without Stock (a soft dependency) the summary has none.
+      const recent = summary.recallTest
+        ? await api.call(q(api)["recall-tests"].$get({ param: { slug }, query: { limit: "5" } }))
+        : null;
       return {
         ...summary,
-        recentRecallTests: recent.recallTests.map((r) => ({
+        recentRecallTests: (recent?.recallTests ?? []).map((r) => ({
           reference: r.reference,
           conductedOn: r.conductedOn,
           lot: r.lot ? `${r.lot.lotCode} (${item(r.lot.item)})` : null,
@@ -629,6 +630,7 @@ export function registerQualityTools({ define, slugOf, workspaceParam }: ToolCon
     "get_complaint_trends",
     {
       module: "quality",
+      requiresModules: ["items"],
       title: "Complaint trends per million units",
       description:
         "Complaints per million units sold, per month: overall, per product and per complaint category. Units are the monthly sales volumes people entered per product; a month without units has no rate (null).",
@@ -645,6 +647,7 @@ export function registerQualityTools({ define, slugOf, workspaceParam }: ToolCon
     "get_supplier_quality",
     {
       module: "quality",
+      requiresModules: ["items"],
       title: "A supplier's open non-conformances",
       description:
         "A supplier's open non-conformances beside its approval status, with whether they suggest looking at suspending it. A suggestion only: approving or suspending a supplier is a person's decision.",

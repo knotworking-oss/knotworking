@@ -385,7 +385,7 @@ export const navAreas: readonly NavArea[] = [
       {
         items: [
           { label: "Production", path: "production", icon: Factory, exact: true },
-          { label: "Plan", path: "production/plan", icon: CalendarRange },
+          { label: "Plan", path: "production/plan", icon: CalendarRange, show: needs("demand") },
           { label: "Schedule", path: "production/schedule", icon: CalendarClock },
           { label: "Requirements", path: "production/requirements", icon: ClipboardList },
           { label: "Daily demand", path: "production/daily-demand", icon: TrendingUp },
@@ -472,15 +472,15 @@ export const navAreas: readonly NavArea[] = [
           { label: "Complaints", path: "quality/complaints", icon: ClipboardList },
           { label: "Non-conformances", path: "quality/nonconformances", icon: Bug },
           { label: "Audits", path: "quality/audits", icon: FileCheck },
-          { label: "Authenticity", path: "quality/authenticity", icon: ShieldCheck },
-          { label: "Recall tests", path: "quality/recall-tests", icon: Truck },
+          { label: "Authenticity", path: "quality/authenticity", icon: ShieldCheck, show: needs("items") },
+          { label: "Recall tests", path: "quality/recall-tests", icon: Truck, show: needs("stock") },
           {
             label: "Live cases",
             path: "quality/incidents",
             icon: Network,
             show: (a) => a.can("despatch") && a.can("production"),
           },
-          { label: "Trends", path: "quality/trends", icon: TrendingUp },
+          { label: "Trends", path: "quality/trends", icon: TrendingUp, show: needs("items") },
           { label: "Audit records", path: "quality/records", icon: FileText },
         ],
       },

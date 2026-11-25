@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
-import { getAllItems, getMembers, getNonconformances } from "@/lib/api";
+import { getItemOptions, getMembers, getNonconformances } from "@/lib/api";
 import { QualityNav } from "@/components/quality-nav";
 import { NonconformancesBoard, type NcFilter } from "./nonconformances-board";
 
@@ -20,9 +20,9 @@ export default async function NonconformancesPage({
   // An audit's findings: all of them unless a status is chosen.
   const status = FILTERS.find((f) => f === search.status) ?? (auditId ? "all" : "unresolved");
   const q = search.q?.trim() || undefined;
-  const [page, { items }, { members }] = await Promise.all([
+  const [page, items, { members }] = await Promise.all([
     getNonconformances(slug, { status, ...(q ? { q } : {}), ...(auditId ? { auditId } : {}) }),
-    getAllItems(slug, { status: "active" }),
+    getItemOptions(slug, { status: "active" }),
     getMembers(slug),
   ]);
   return (

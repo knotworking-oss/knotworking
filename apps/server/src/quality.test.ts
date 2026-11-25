@@ -84,14 +84,15 @@ describe("quality module", () => {
   afterAll(() => ctx.handle.close());
 
   describe("access", () => {
-    it("is opt-in: members need a grant, and the module depends on items and stock", async () => {
+    it("is opt-in: members need a grant; items and stock only enhance it", async () => {
       expect(await code(await as(marcus.cookie).get("/quality/summary"))).toBe("module_forbidden");
       await grant("quality", "write");
-      // Quality needs items and stock to be readable.
-      expect(await code(await as(marcus.cookie).get("/quality/summary"))).toBe("module_forbidden");
+      // Items and stock are soft dependencies: the summary opens, without the mock recall.
+      expect((await ok(await as(marcus.cookie).get("/quality/summary"))).recallTest).toBeNull();
+      expect(await code(await as(marcus.cookie).get("/quality/recall-tests"))).toBe("module_forbidden");
       await grant("items", "read");
       await grant("stock", "read");
-      await ok(await as(marcus.cookie).get("/quality/summary"));
+      expect((await ok(await as(marcus.cookie).get("/quality/summary"))).recallTest).not.toBeNull();
     });
   });
 

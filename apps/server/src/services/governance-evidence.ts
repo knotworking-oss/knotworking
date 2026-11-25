@@ -92,8 +92,8 @@ const evaluators: Record<EvidenceCheckId, Evaluator> = {
         )
       : met("Every current HACCP plan's review is in date");
   },
-  async ccp_monitoring(db, ws) {
-    return dueChecks(db, ws, "ccp", "CCP check", "No CCPs on a schedule");
+  async ccp_monitoring(db, ws, _today, run) {
+    return dueChecks(db, ws, "ccp", "CCP check", "No CCPs on a schedule", run.access.readable("production"));
   },
   async cleaning_schedule(db, ws) {
     return dueChecks(db, ws, "cleaning", "cleaning", "Nothing on the cleaning schedule");
@@ -288,8 +288,10 @@ async function dueChecks(
   kind: "ccp" | "cleaning" | "calibration",
   what: string,
   none: string,
+  /** Per-batch CCPs count only for readers of Production (a soft dependency of HACCP). */
+  batches = true,
 ) {
-  const all = await getDue(db, ws, { include: "all", kind });
+  const all = await getDue(db, ws, { include: "all", kind }, new Date(), { batches });
   if (!all.checks.length) return noData(none);
   // Never done is a gap too (getDue calls it "due"), except a per-batch CCP on a batch still in
   // progress: that one is simply due on today's batch.

@@ -1,3 +1,4 @@
+import type { ModuleId } from "@knotworking/core";
 import { d, newId, tokenActionIds } from "@knotworking/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFakeApi, READ_TOKEN, WRITE_TOKEN } from "./testing/fake-api";
@@ -322,6 +323,29 @@ describe("tool catalogue", () => {
     const productLabelTools = /^(get_label_facts|list_product_labels|get_product_label|draft_product_label)$/;
     expect(names.filter((n) => !productLabelTools.test(n)).join(" ")).not.toMatch(
       /label|team|invite|member|calendar|meeting|admin|upload|download|state/,
+    );
+  });
+
+  it("leaves out tools that need a soft dependency (`requiresModules`) the connection doesn't offer", async () => {
+    const names = async (modules: readonly ModuleId[]) =>
+      (await (await session({ modules, listMode: "all" })).client.listTools()).tools.map((t) => t.name);
+    const without = await names(["tasks", "quality", "haccp", "items", "recipes", "stock", "production"]);
+    expect(without).toEqual(
+      expect.arrayContaining(["log_complaint", "get_quality_summary", "record_ccp_readings"]),
+    );
+    expect(without).toEqual(
+      expect.arrayContaining(["get_complaint_trends", "list_authenticity_assessments"]),
+    );
+    expect(without).not.toContain("propose_batches_from_demand");
+    const bare = await names(["tasks", "quality", "haccp"]);
+    expect(bare).toEqual(
+      expect.arrayContaining(["log_complaint", "raise_nonconformance", "record_ccp_readings"]),
+    );
+    for (const tool of ["get_complaint_trends", "get_supplier_quality", "list_authenticity_assessments"]) {
+      expect(bare).not.toContain(tool);
+    }
+    expect(await names(["items", "recipes", "stock", "demand", "production"])).toContain(
+      "propose_batches_from_demand",
     );
   });
 

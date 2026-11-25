@@ -126,28 +126,32 @@ export default async function QualityPage({ params }: { params: Promise<{ worksp
                 )}
               </p>
             </Section>
-            <Section
-              title="Mock recall"
-              description={`A lot traced and fully reconciled within ${RECALL_TARGET_MINUTES / 60} hours, at least once a year`}
-            >
-              <div className="flex flex-col gap-2 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <RecallScheduleBadge state={s.recallTest.state} />
-                  {s.recallTest.dueOn && <span>Next due {formatLongDate(s.recallTest.dueOn)}</span>}
+            {/* Mock recalls trace stock lots: null without the Stock module. */}
+            {s.recallTest && (
+              <Section
+                title="Mock recall"
+                description={`A lot traced and fully reconciled within ${RECALL_TARGET_MINUTES / 60} hours, at least once a year`}
+              >
+                <div className="flex flex-col gap-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <RecallScheduleBadge state={s.recallTest.state} />
+                    {s.recallTest.dueOn && <span>Next due {formatLongDate(s.recallTest.dueOn)}</span>}
+                  </div>
+                  {s.recallTest.last ? (
+                    <p className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                      Last test {s.recallTest.last.reference} on{" "}
+                      {formatLongDate(s.recallTest.last.conductedOn)}
+                      <RecallResultBadge passed={s.recallTest.last.passed} />
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground">No recall test on record.</p>
+                  )}
+                  <Link href={`${base}/recall-tests`} className="text-sm underline-offset-4 hover:underline">
+                    Recall tests
+                  </Link>
                 </div>
-                {s.recallTest.last ? (
-                  <p className="flex flex-wrap items-center gap-2 text-muted-foreground">
-                    Last test {s.recallTest.last.reference} on {formatLongDate(s.recallTest.last.conductedOn)}
-                    <RecallResultBadge passed={s.recallTest.last.passed} />
-                  </p>
-                ) : (
-                  <p className="text-muted-foreground">No recall test on record.</p>
-                )}
-                <Link href={`${base}/recall-tests`} className="text-sm underline-offset-4 hover:underline">
-                  Recall tests
-                </Link>
-              </div>
-            </Section>
+              </Section>
+            )}
           </div>
         </div>
       </div>

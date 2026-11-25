@@ -30,7 +30,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
 import { forbidTokens } from "../middleware/auth";
-import { requireModuleLevel } from "../middleware/modules";
+import { assertModule, canRead, hideUnreadableLinks, requireModuleLevel } from "../middleware/modules";
 import {
   cancelAudit,
   closeComplaint,
@@ -83,6 +83,25 @@ const forViewer = <T extends { complainantContact: string | null }>(
 ): T => (c.var.credential.kind === "token" ? { ...complaint, complainantContact: null } : complaint);
 
 /**
+ * Items and stock enhance Quality (`enhancedBy`); neither is required. Complaints and
+ * non-conformances may name an item, lot or supplier: shown only to readers of their module, and
+ * linking one needs that module (`404 module_inactive` / `403 module_forbidden` otherwise).
+ */
+const links = { item: "items", supplier: "items", lot: "stock" } as const;
+const view = <T>(c: Context<WorkspaceEnv>, value: T) => hideUnreadableLinks(c, value, links);
+const assertLinkModules = (
+  c: Context<WorkspaceEnv>,
+  input: {
+    itemId?: string | null | undefined;
+    lotId?: string | null | undefined;
+    supplierId?: string | null | undefined;
+  },
+) => {
+  if (input.itemId || input.supplierId) assertModule(c, "items", "read");
+  if (input.lotId) assertModule(c, "stock", "read");
+};
+
+/**
  * Quality module (`quality`). Mounted at `/v1/workspaces/:slug`; the module guard has already
  * required `read` for safe methods and `write` for the rest.
  *
@@ -92,41 +111,61 @@ const forViewer = <T extends { complainantContact: string | null }>(
  *   (`canCompleteAudit`); recording a recall test needs `write` (attestations).
  * - `manage` and a signed-in person: close or reopen a complaint, verify (close) or reopen a
  *   non-conformance, void a recall test.
+ * - Item- and stock-centric parts need those modules too: mock recall tests (Stock), complaint
+ *   trends per product, sales volumes and supplier standing (Items). Without them they answer
+ *   `404 module_inactive` or `403 module_forbidden`, and the summary's `recallTest` is `null`.
  */
 export const qualityRoutes = new Hono<WorkspaceEnv>()
-  .get("/quality/summary", async (c) => c.json(await qualitySummary(c.var.db, c.var.workspace.id)))
+  .use("/quality/recall-tests", requireModuleLevel("stock", "read"))
+  .use("/quality/recall-tests/*", requireModuleLevel("stock", "read"))
+  .use("/quality/trends", requireModuleLevel("items", "read"))
+  .use("/quality/sales-volumes", requireModuleLevel("items", "read"))
+  .use("/quality/suppliers/*", requireModuleLevel("items", "read"))
+  .get("/quality/summary", async (c) => {
+    const summary = await qualitySummary(c.var.db, c.var.workspace.id);
+    return c.json({ ...summary, recallTest: canRead(c, "stock") ? summary.recallTest : null });
+  })
 
   // ── Complaints ──
   .get("/quality/complaints", validate("query", complaintListQuerySchema), async (c) => {
     const page = await listComplaints(c.var.db, c.var.workspace.id, c.req.valid("query"));
-    return c.json({ ...page, complaints: page.complaints.map((x) => forViewer(c, x)) });
+    return c.json(view(c, { ...page, complaints: page.complaints.map((x) => forViewer(c, x)) }));
   })
   .get("/quality/complaints/:id", validate("param", idParam), async (c) =>
-    c.json(forViewer(c, await getComplaint(c.var.db, c.var.workspace.id, c.req.valid("param").id))),
+    c.json(view(c, forViewer(c, await getComplaint(c.var.db, c.var.workspace.id, c.req.valid("param").id)))),
   )
-  .post("/quality/complaints", validate("json", complaintCreateSchema), async (c) =>
-    c.json(
-      forViewer(c, await createComplaint(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"))),
+  .post("/quality/complaints", validate("json", complaintCreateSchema), async (c) => {
+    assertLinkModules(c, c.req.valid("json"));
+    return c.json(
+      view(
+        c,
+        forViewer(c, await createComplaint(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"))),
+      ),
       201,
-    ),
-  )
+    );
+  })
   .patch(
     "/quality/complaints/:id",
     validate("param", idParam),
     validate("json", complaintUpdateSchema),
-    async (c) =>
-      c.json(
-        forViewer(
+    async (c) => {
+      assertLinkModules(c, c.req.valid("json"));
+      return c.json(
+        view(
           c,
-          await updateComplaint(
-            c.var.db,
-            c.var.workspace.id,
-            c.var.user.id,
-            c.req.valid("param").id,
-            c.req.valid("json"),
+          forViewer(
+            c,
+            await updateComplaint(
+              c.var.db,
+              c.var.workspace.id,
+              c.var.user.id,
+              c.req.valid("param").id,
+              c.req.valid("json"),
+            ),
           ),
         ),
-      ),
+      );
+    },
   )
   .post(
     "/quality/complaints/:id/close",
@@ -136,12 +175,15 @@ export const qualityRoutes = new Hono<WorkspaceEnv>()
     validate("json", complaintCloseSchema),
     async (c) =>
       c.json(
-        await closeComplaint(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        view(
+          c,
+          await closeComplaint(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
       ),
   )
@@ -153,40 +195,52 @@ export const qualityRoutes = new Hono<WorkspaceEnv>()
     validate("json", qualityReopenSchema),
     async (c) =>
       c.json(
-        await reopenComplaint(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json").reason,
+        view(
+          c,
+          await reopenComplaint(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json").reason,
+          ),
         ),
       ),
   )
 
   // ── Non-conformances ──
   .get("/quality/nonconformances", validate("query", nonconformanceListQuerySchema), async (c) =>
-    c.json(await listNonconformances(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+    c.json(view(c, await listNonconformances(c.var.db, c.var.workspace.id, c.req.valid("query")))),
   )
   .get("/quality/nonconformances/:id", validate("param", idParam), async (c) =>
-    c.json(await getNonconformance(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+    c.json(view(c, await getNonconformance(c.var.db, c.var.workspace.id, c.req.valid("param").id))),
   )
-  .post("/quality/nonconformances", validate("json", nonconformanceCreateSchema), async (c) =>
-    c.json(await createNonconformance(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
-  )
+  .post("/quality/nonconformances", validate("json", nonconformanceCreateSchema), async (c) => {
+    assertLinkModules(c, c.req.valid("json"));
+    return c.json(
+      view(c, await createNonconformance(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"))),
+      201,
+    );
+  })
   .patch(
     "/quality/nonconformances/:id",
     validate("param", idParam),
     validate("json", nonconformanceUpdateSchema),
-    async (c) =>
-      c.json(
-        await updateNonconformance(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+    async (c) => {
+      assertLinkModules(c, c.req.valid("json"));
+      return c.json(
+        view(
+          c,
+          await updateNonconformance(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
-      ),
+      );
+    },
   )
   .post(
     "/quality/nonconformances/:id/close",
@@ -196,13 +250,16 @@ export const qualityRoutes = new Hono<WorkspaceEnv>()
     validate("json", nonconformanceCloseSchema),
     async (c) =>
       c.json(
-        await closeNonconformance(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.var.activeModules,
-          c.req.valid("param").id,
-          c.req.valid("json").verificationNote,
+        view(
+          c,
+          await closeNonconformance(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.var.activeModules,
+            c.req.valid("param").id,
+            c.req.valid("json").verificationNote,
+          ),
         ),
       ),
   )
@@ -214,12 +271,15 @@ export const qualityRoutes = new Hono<WorkspaceEnv>()
     validate("json", qualityReopenSchema),
     async (c) =>
       c.json(
-        await reopenNonconformance(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json").reason,
+        view(
+          c,
+          await reopenNonconformance(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json").reason,
+          ),
         ),
       ),
   )
@@ -229,7 +289,7 @@ export const qualityRoutes = new Hono<WorkspaceEnv>()
     c.json(await listAudits(c.var.db, c.var.workspace.id, c.req.valid("query"))),
   )
   .get("/quality/audits/:id", validate("param", idParam), async (c) =>
-    c.json(await getAudit(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+    c.json(view(c, await getAudit(c.var.db, c.var.workspace.id, c.req.valid("param").id))),
   )
   .post("/quality/audits", validate("json", auditCreateSchema), async (c) =>
     c.json(await createAudit(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
@@ -256,12 +316,15 @@ export const qualityRoutes = new Hono<WorkspaceEnv>()
     validate("json", auditCompleteSchema),
     async (c) =>
       c.json(
-        await completeAudit(
-          c.var.db,
-          c.var.workspace.id,
-          { userId: c.var.user.id, level: c.var.workspace.modules.quality },
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        view(
+          c,
+          await completeAudit(
+            c.var.db,
+            c.var.workspace.id,
+            { userId: c.var.user.id, level: c.var.workspace.modules.quality },
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
       ),
   )

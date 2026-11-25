@@ -42,6 +42,7 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { SelectField } from "@/components/haccp-forms";
 import type { HaccpLibraryEntry, HaccpPlanVersion } from "@/lib/api";
+import { useWorkspace } from "@/lib/workspace-store";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 
 export type Option = { id: string; code: string; name: string };
@@ -265,6 +266,9 @@ export function PlanDraftEditor({
   onClose: () => void;
 }) {
   const router = useRouter();
+  // Items and recipes are soft dependencies of HACCP: their pickers only for readers. A scope the
+  // viewer can't see is kept as it is.
+  const { can } = useWorkspace();
   const [pending, setPending] = useState(false);
   const [itemIds, setItemIds] = useState<string[]>(base?.scope.itemIds ?? []);
   const [recipeIds, setRecipeIds] = useState<string[]>(base?.scope.recipeIds ?? []);
@@ -358,18 +362,22 @@ export function PlanDraftEditor({
               due on each batch in progress that the plan covers.
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
-              <ScopeList
-                title="Products"
-                options={products}
-                selected={itemIds}
-                onToggle={(id, on) => setItemIds((l) => toggle(l, id, on))}
-              />
-              <ScopeList
-                title="Recipes"
-                options={recipes}
-                selected={recipeIds}
-                onToggle={(id, on) => setRecipeIds((l) => toggle(l, id, on))}
-              />
+              {can("items") && (
+                <ScopeList
+                  title="Products"
+                  options={products}
+                  selected={itemIds}
+                  onToggle={(id, on) => setItemIds((l) => toggle(l, id, on))}
+                />
+              )}
+              {can("recipes") && (
+                <ScopeList
+                  title="Recipes"
+                  options={recipes}
+                  selected={recipeIds}
+                  onToggle={(id, on) => setRecipeIds((l) => toggle(l, id, on))}
+                />
+              )}
             </div>
             <Field>
               <FieldLabel htmlFor="draft-scope-note">Process, prerequisites and HACCP team</FieldLabel>

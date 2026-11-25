@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeWorkspaceModules,
   ModuleConfigError,
   moduleIds,
+  modules,
   moduleList,
   moduleOfEntity,
   parseActiveModules,
@@ -15,6 +17,27 @@ describe("module manifest", () => {
     moduleList.forEach((m, index) => {
       for (const dep of m.dependsOn) expect(moduleIds.indexOf(dep), `${m.id} → ${dep}`).toBeLessThan(index);
     });
+  });
+
+  it("declares soft dependencies (`enhancedBy`) on known modules, never itself or a hard dependency", () => {
+    for (const m of moduleList) {
+      expect(Array.isArray(m.enhancedBy), m.id).toBe(true);
+      expect(new Set(m.enhancedBy).size, `${m.id} lists a soft dependency twice`).toBe(m.enhancedBy.length);
+      for (const id of m.enhancedBy) {
+        expect(moduleIds, `${m.id} → ${id}`).toContain(id);
+        expect(id, `${m.id} is enhanced by itself`).not.toBe(m.id);
+        expect(m.dependsOn, `${m.id} lists ${id} as both hard and soft`).not.toContain(id);
+      }
+    }
+  });
+
+  it("keeps the loosened modules' integrations soft", () => {
+    expect(modules.haccp.dependsOn).toEqual([]);
+    expect(modules.haccp.enhancedBy).toEqual(expect.arrayContaining(["items", "production"]));
+    expect(modules.production.dependsOn).toEqual(["recipes", "stock"]);
+    expect(modules.production.enhancedBy).toContain("demand");
+    expect(modules.quality.dependsOn).toEqual([]);
+    expect(modules.quality.enhancedBy).toEqual(expect.arrayContaining(["items", "stock"]));
   });
 
   it("gives every sync entity at most one owner, and only known entity types", () => {
@@ -43,6 +66,21 @@ describe("parseActiveModules", () => {
   it("accepts a list in any order and case, and `none`", () => {
     expect(parseActiveModules("Docs, tasks")).toEqual(["tasks", "docs"]);
     expect(parseActiveModules("none")).toEqual([]);
+  });
+
+  it("never requires a soft dependency", () => {
+    expect(parseActiveModules("haccp")).toEqual(["haccp"]);
+    expect(parseActiveModules("quality")).toEqual(["quality"]);
+    expect(parseActiveModules("items,recipes,stock,production")).toEqual([
+      "items",
+      "recipes",
+      "stock",
+      "production",
+    ]);
+    expect(activeWorkspaceModules([...moduleIds], ["haccp", "quality"])).toEqual(["haccp", "quality"]);
+    expect(activeWorkspaceModules([...moduleIds], ["items", "recipes", "stock", "production"])).toContain(
+      "production",
+    );
   });
 
   it("refuses unknown modules and missing dependencies", () => {
@@ -100,6 +138,35 @@ describe("resolveModuleAccess", () => {
     ).toBe("write");
   });
 
+  it("leaves a module open when only a soft dependency is closed", () => {
+    const access = resolveModuleAccess({
+      role: "member",
+      active,
+      grants: {
+        quality: "write",
+        haccp: "write",
+        items: "read",
+        recipes: "read",
+        stock: "read",
+        production: "read",
+      },
+    });
+    expect(access.quality).toBe("write");
+    expect(access.haccp).toBe("write");
+    expect(access.production).toBe("read");
+    // Demand is a soft dependency of production: closed demand leaves production open.
+    expect(access.demand).toBe("none");
+    // Items closed: quality and haccp stay open (soft), production closes (hard, through recipes).
+    const noItems = resolveModuleAccess({
+      role: "member",
+      active,
+      grants: { quality: "write", haccp: "write", production: "write" },
+    });
+    expect(noItems.quality).toBe("write");
+    expect(noItems.haccp).toBe("write");
+    expect(noItems.production).toBe("none");
+  });
+
   it("lets a token allowlist take modules away, even from an owner", () => {
     const access = resolveModuleAccess({ role: "owner", active, grants: {}, allow: ["docs", "time"] });
     expect(access).toEqual({
@@ -146,5 +213,11 @@ describe("resolveModuleAccess", () => {
     const access = resolveModuleAccess({ role: "owner", active: ["docs"], grants: {} });
     expect(access).toEqual({ docs: "manage" });
     expect(summarizeModules(access).map((m) => m.id)).toEqual(["docs"]);
+  });
+
+  it("summarises each module's hard and soft dependencies", () => {
+    const [quality] = summarizeModules({ quality: "read" });
+    expect(quality).toMatchObject({ id: "quality", dependsOn: [], access: "read" });
+    expect(quality!.enhancedBy).toEqual(modules.quality.enhancedBy);
   });
 });

@@ -1,6 +1,9 @@
 import { moduleList, moduleOfEntity, type ModuleId, type SyncChange } from "@knotworking/core";
 
-/** Optional read-model integrations, beyond the hard dependencies in the module manifest. */
+/**
+ * Optional read-model integrations, beyond the hard dependencies (`dependsOn`) and soft ones
+ * (`enhancedBy`) in the module manifest: `x: [y]` means y's pages show x's data.
+ */
 const optionalReaders: Partial<Record<ModuleId, readonly ModuleId[]>> = {
   production: ["stock", "purchasing", "quality", "despatch"],
   despatch: ["stock", "sales"],
@@ -22,7 +25,8 @@ export function affectedModules(changes: readonly SyncChange[]): Set<ModuleId> {
     changed = false;
     for (const m of moduleList) {
       const optional = [...affected].some((id) => optionalReaders[id]?.includes(m.id));
-      if (!affected.has(m.id) && (m.dependsOn.some((id) => affected.has(id)) || optional)) {
+      const reads = [...m.dependsOn, ...m.enhancedBy].some((id) => affected.has(id));
+      if (!affected.has(m.id) && (reads || optional)) {
         affected.add(m.id);
         changed = true;
       }

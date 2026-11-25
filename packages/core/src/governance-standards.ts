@@ -333,7 +333,8 @@ export const evidenceChecks: Record<EvidenceCheckId, EvidenceCheckDefinition> = 
     label: "Traceability test in the last 12 months",
     description:
       "A passing traceability (recall) test within the last 12 months. Gap: none on record, or the last passing one is over a year old.",
-    modules: ["quality"],
+    // Mock recalls trace stock lots: Stock is a soft dependency of Quality.
+    modules: ["quality", "stock"],
     topics: ["traceability", "recall", "withdrawal"],
   },
   internal_audits: {

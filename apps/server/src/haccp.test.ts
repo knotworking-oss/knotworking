@@ -149,22 +149,22 @@ describe("haccp module", () => {
   afterAll(() => ctx.handle.close());
 
   describe("access", () => {
-    it("is opt-in, and needs items and production (with what production needs)", async () => {
+    it("is opt-in; items and production only enhance it", async () => {
       expect((await as(marcus.cookie).get("/haccp/plans")).status).toBe(403);
       await grant("haccp", "write");
-      expect((await as(marcus.cookie).get("/haccp/plans")).status).toBe(403);
+      expect((await as(marcus.cookie).get("/haccp/plans")).status).toBe(200);
       for (const id of DEPENDENCIES) await grant(id, "read");
       expect((await as(marcus.cookie).get("/haccp/plans")).status).toBe(200);
     });
 
-    it("is switched off with the module, and can't be on without production", async () => {
+    it("is switched off with the module, and can be on without production", async () => {
       const off = await makeApp({ seed: true, activeModules: ["tasks", "docs", ...DEPENDENCIES] });
       const cookie = (await signIn(off, "ada@knotworking.dev")).cookie;
       const res = await off.req(`${WS}/haccp/due`, { cookie });
       expect(res.status).toBe(404);
       expect((await res.json()).error.code).toBe("module_inactive");
       await off.handle.close();
-      expect(() => parseActiveModules("items,haccp")).toThrow(/needs "production"/);
+      expect(parseActiveModules("haccp")).toEqual(["haccp"]);
     }, 60_000);
   });
 

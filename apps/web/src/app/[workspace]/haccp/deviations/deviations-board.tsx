@@ -269,6 +269,7 @@ function EditDialog({
     rootCause: action.rootCause ?? "",
     preventiveAction: action.preventiveAction ?? "",
   });
+  const linksBatches = useWorkspace().can("production");
   const [batchId, setBatchId] = useState(action.batchId ?? NONE);
   const options = [
     [NONE, "No batch"] as const,
@@ -292,7 +293,8 @@ function EditDialog({
               actionTaken: values.actionTaken.trim() || null,
               rootCause: values.rootCause.trim() || null,
               preventiveAction: values.preventiveAction.trim() || null,
-              batchId: batchId === NONE ? null : batchId,
+              // Without Production the batch link is left as it is.
+              ...(linksBatches ? { batchId: batchId === NONE ? null : batchId } : {}),
             },
           }),
         );
@@ -303,7 +305,9 @@ function EditDialog({
         values={values}
         onChange={(field, value) => setValues((v) => ({ ...v, [field]: value }))}
       />
-      <SelectField id="ca-batch" label="Batch" value={batchId} onChange={setBatchId} options={options} />
+      {linksBatches && (
+        <SelectField id="ca-batch" label="Batch" value={batchId} onChange={setBatchId} options={options} />
+      )}
     </HaccpDialog>
   );
 }
@@ -351,6 +355,7 @@ function CloseDialog({
 }
 
 function RaiseDialog({ slug, batches, onClose }: { slug: string; batches: Batch[]; onClose: () => void }) {
+  const linksBatches = useWorkspace().can("production");
   const [title, setTitle] = useState("");
   const [batchId, setBatchId] = useState(NONE);
   const [values, setValues] = useState({ actionTaken: "", rootCause: "", preventiveAction: "" });
@@ -390,13 +395,15 @@ function RaiseDialog({ slug, batches, onClose }: { slug: string; batches: Batch[
           To link a stock lot, put it into quarantine on its lot page and mention it here.
         </FieldDescription>
       </Field>
-      <SelectField
-        id="raise-batch"
-        label="Batch"
-        value={batchId}
-        onChange={setBatchId}
-        options={[[NONE, "No batch"], ...batches.map((b) => [b.id, b.batchCode] as const)]}
-      />
+      {linksBatches && (
+        <SelectField
+          id="raise-batch"
+          label="Batch"
+          value={batchId}
+          onChange={setBatchId}
+          options={[[NONE, "No batch"], ...batches.map((b) => [b.id, b.batchCode] as const)]}
+        />
+      )}
       <ActionFields
         values={values}
         onChange={(field, value) => setValues((v) => ({ ...v, [field]: value }))}

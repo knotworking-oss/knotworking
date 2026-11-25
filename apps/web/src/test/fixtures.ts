@@ -70,6 +70,7 @@ export function makeBootstrap(tasks: TaskSummary[] = [], overrides: Partial<Boot
       name: id,
       description: "",
       dependsOn: [],
+      enhancedBy: [],
       access: "write" as const,
     })),
     workspace: { id: "ws", slug: "acme", name: "Acme" },

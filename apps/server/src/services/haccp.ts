@@ -478,6 +478,28 @@ export async function getPlanVersion(db: Executor, workspaceId: string, id: stri
   );
 }
 
+/**
+ * Every item and recipe a plan's versions already name in their scope. A draft that keeps them
+ * needs no access to Items or Recipes (soft dependencies); only adding new ones does.
+ */
+export async function planScopeIds(db: Executor, workspaceId: string, planId: string) {
+  const rows = await db
+    .select({ itemIds: haccpPlanVersions.scopeItemIds, recipeIds: haccpPlanVersions.scopeRecipeIds })
+    .from(haccpPlanVersions)
+    .innerJoin(haccpPlans, eq(haccpPlans.id, haccpPlanVersions.planId))
+    .where(
+      and(
+        eq(haccpPlans.workspaceId, workspaceId),
+        eq(haccpPlanVersions.planId, planId),
+        isNull(haccpPlanVersions.deletedAt),
+      ),
+    );
+  return {
+    itemIds: new Set(rows.flatMap((r) => r.itemIds)),
+    recipeIds: new Set(rows.flatMap((r) => r.recipeIds)),
+  };
+}
+
 // ─── Plans: writing ──────────────────────────────────────────────────────────
 
 async function assertPlanCodeFree(tx: Executor, workspaceId: string, code: string, exceptId?: string) {
@@ -2412,6 +2434,13 @@ export async function getDue(
   workspaceId: string,
   query: HaccpDueQuery,
   now: Date = new Date(),
+  options: {
+    /**
+     * Whether production batches count (Production is a soft dependency): without them a per-batch
+     * CCP is never due, as when nothing is in progress.
+     */
+    batches?: boolean;
+  } = {},
 ) {
   const timeZone = await workspaceTimeZone(db, workspaceId);
   const today = todayInZone(timeZone, now);
@@ -2420,7 +2449,7 @@ export async function getDue(
 
   const [plans, batches] = await Promise.all([
     currentPlans(db, workspaceId, today),
-    batchesInProgress(db, workspaceId),
+    options.batches === false ? Promise.resolve([] as DueBatch[]) : batchesInProgress(db, workspaceId),
   ]);
   if (wants("ccp") && plans.length) {
     const lastRows = await db

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { HaccpHeader } from "@/components/haccp-header";
-import { getCorrectiveActions, getProductionBatches } from "@/lib/api";
+import { canReadModule, getCorrectiveActions, getProductionBatches } from "@/lib/api";
 import { DeviationsBoard } from "./deviations-board";
 
 export const metadata: Metadata = { title: "Deviations and corrective actions" };
@@ -16,9 +16,12 @@ export default async function DeviationsPage({
 }) {
   const [{ workspace: slug }, search] = await Promise.all([params, searchParams]);
   const status = STATUSES.find((s) => s === search.status) ?? "open";
-  const [page, { batches }] = await Promise.all([
+  // Production is a soft dependency of HACCP: batches to link only for its readers.
+  const [page, batches] = await Promise.all([
     getCorrectiveActions(slug, status),
-    getProductionBatches(slug, { status: "all" }),
+    canReadModule(slug, "production").then(async (can) =>
+      can ? (await getProductionBatches(slug, { status: "all" })).batches : [],
+    ),
   ]);
   return (
     <>

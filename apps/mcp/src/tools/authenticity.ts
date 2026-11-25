@@ -13,6 +13,8 @@ export function registerAuthenticityTools({ define, slugOf, workspaceParam }: To
     "list_authenticity_assessments",
     {
       module: "quality",
+      // Assessments are of an item: Items is a soft dependency of Quality.
+      requiresModules: ["items"],
       resource: { name: "authenticity_assessments", op: "list" },
       title: "List food authenticity assessments",
       description:
@@ -34,6 +36,8 @@ export function registerAuthenticityTools({ define, slugOf, workspaceParam }: To
     "get_authenticity_assessment",
     {
       module: "quality",
+      // Assessments are of an item: Items is a soft dependency of Quality.
+      requiresModules: ["items"],
       resource: { name: "authenticity_assessments", op: "get" },
       title: "Read authenticity assessment evidence",
       description:
@@ -52,6 +56,8 @@ export function registerAuthenticityTools({ define, slugOf, workspaceParam }: To
     "create_authenticity_draft",
     {
       module: "quality",
+      // Assessments are of an item: Items is a soft dependency of Quality.
+      requiresModules: ["items"],
       title: "Create food authenticity assessment draft",
       description:
         "Create an editable item/supplier-scope assessment. One active assessment per scope; search first. Incomplete drafts are allowed. Use a stable commandId for retries. Linking a test requires Testing read access. This does not approve a supplier, sign the assessment, verify controls or change stock.",
@@ -69,6 +75,8 @@ export function registerAuthenticityTools({ define, slugOf, workspaceParam }: To
     "start_authenticity_review",
     {
       module: "quality",
+      // Assessments are of an item: Items is a soft dependency of Quality.
+      requiresModules: ["items"],
       title: "Start the next authenticity review draft",
       description:
         "Copy the current signed assessment into the next editable revision while the current control plan continues to apply. Send expectedUpdatedAt from a fresh get and retain commandId on retries. Earlier signed content and its verification records remain immutable.",
@@ -89,6 +97,8 @@ export function registerAuthenticityTools({ define, slugOf, workspaceParam }: To
     "save_authenticity_draft",
     {
       module: "quality",
+      // Assessments are of an item: Items is a soft dependency of Quality.
+      requiresModules: ["items"],
       title: "Save authenticity review draft",
       description:
         "Replace the complete draft body, retaining all existing evidence and controls intended to remain. Send expectedUpdatedAt from a fresh get and a stable commandId. Stale drafts are refused, including when new evidence or triggers arrived. Linked test samples require Testing read access and must belong to the same item. This tool cannot change a signed version.",
@@ -109,6 +119,8 @@ export function registerAuthenticityTools({ define, slugOf, workspaceParam }: To
     "raise_authenticity_review_trigger",
     {
       module: "quality",
+      // Assessments are of an item: Items is a soft dependency of Quality.
+      requiresModules: ["items"],
       title: "Record authenticity intelligence or review trigger",
       description:
         "Record a source-backed alert, source/supplier/origin change or other reason to review a material's fraud vulnerability. A manager must explicitly review all open triggers when signing a later assessment revision. This records evidence only and sends no messages; use the incident/stock workflows for containment where needed.",

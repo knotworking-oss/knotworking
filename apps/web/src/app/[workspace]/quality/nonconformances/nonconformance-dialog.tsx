@@ -24,6 +24,7 @@ import {
   TextField,
   type ItemOption,
   type MemberOption,
+  useLinkFields,
 } from "../quality-forms";
 
 /** Sources a person picks; complaint and audit ones are raised from the complaint or audit. */
@@ -58,6 +59,7 @@ export function NonconformanceDialog({
   const [severity, setSeverity] = useState<QualitySeverity>(from?.severity ?? "minor");
   const [title, setTitle] = useState(from?.title ?? "");
   const [description, setDescription] = useState(from?.description ?? "");
+  const linkFields = useLinkFields();
   const [itemId, setItemId] = useState(from?.itemId ?? NONE);
   const [lotId, setLotId] = useState(from?.lotId ?? NONE);
   const [containment, setContainment] = useState("");
@@ -84,8 +86,7 @@ export function NonconformanceDialog({
               title: title.trim(),
               description: description.trim(),
               ...(from ? { complaintId: from.complaintId } : {}),
-              ...(itemId !== NONE ? { itemId } : {}),
-              ...(lotId !== NONE ? { lotId } : {}),
+              ...linkFields(itemId, lotId),
               ...(orNull(containment) ? { containment: containment.trim() } : {}),
               ...(ownerUserId !== NONE ? { ownerUserId } : {}),
               ...(dueOn ? { dueOn } : {}),

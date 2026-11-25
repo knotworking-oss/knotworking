@@ -33,6 +33,7 @@ import {
   TextRow,
   type ItemOption,
   type MemberOption,
+  useLinkFields,
 } from "../../quality-forms";
 import { useFormatDateTime } from "@/lib/workspace-time";
 
@@ -244,6 +245,7 @@ function EditDialog({
   const [severity, setSeverity] = useState<QualitySeverity>(nc.severity);
   const [title, setTitle] = useState(nc.title);
   const [description, setDescription] = useState(nc.description);
+  const linkFields = useLinkFields();
   const [itemId, setItemId] = useState(nc.itemId ?? NONE);
   const [lotId, setLotId] = useState(nc.lotId ?? NONE);
   const [ownerUserId, setOwnerUserId] = useState(nc.ownerUserId ?? NONE);
@@ -279,8 +281,7 @@ function EditDialog({
               severity,
               title: title.trim(),
               description: description.trim(),
-              itemId: itemId === NONE ? null : itemId,
-              lotId: lotId === NONE ? null : lotId,
+              ...linkFields(itemId, lotId, true),
               ownerUserId: ownerUserId === NONE ? null : ownerUserId,
               ...(dueOn ? { dueOn } : {}),
               containment: orNull(fields.containment),

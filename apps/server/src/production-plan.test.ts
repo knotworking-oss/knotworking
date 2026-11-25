@@ -290,7 +290,8 @@ describe("production: planning batches from demand", () => {
       expect((await create()).status).toBe(201);
       await grant("demand", "none");
       expect((await as(marcus.cookie).get("/production/plan-from-demand")).status).toBe(403);
-      expect((await create()).status).toBe(403);
+      // Demand is a soft dependency: planning batches reads nothing from it.
+      expect((await create()).status).toBe(201);
     });
 
     it("lets write tokens read and plan, and read tokens only read: planning is not a sign-off", async () => {

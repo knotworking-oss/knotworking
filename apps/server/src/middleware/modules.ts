@@ -45,6 +45,33 @@ export const canRead = (c: Context<WorkspaceEnv>, moduleId: ModuleId) =>
   hasModuleLevel(c.var.workspace.modules[moduleId], "read");
 
 /**
+ * Soft dependencies (`enhancedBy`) in a response: linked records owned by a module the caller can't
+ * read (inactive, or no access) become `null` (a list becomes `[]`), at any depth. The link's own id
+ * stays: it is the record's data. `links` maps a response key to the module that owns it, e.g.
+ * `{ batch: "production", lot: "stock" }`. Returns the value untouched when every module is readable.
+ */
+export function hideUnreadableLinks<T>(
+  c: Context<WorkspaceEnv>,
+  value: T,
+  links: Readonly<Record<string, ModuleId>>,
+): T {
+  const hidden = new Set(Object.keys(links).filter((key) => !canRead(c, links[key]!)));
+  if (hidden.size === 0) return value;
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v === null || typeof v !== "object" || Object.getPrototypeOf(v) !== Object.prototype) return v;
+    return Object.fromEntries(
+      Object.entries(v).map(([key, inner]) =>
+        hidden.has(key) && inner !== null && inner !== undefined
+          ? [key, Array.isArray(inner) ? [] : null]
+          : [key, walk(inner)],
+      ),
+    );
+  };
+  return walk(value) as T;
+}
+
+/**
  * After `workspaceAccess`: gates every workspace route by the module that owns it
  * (`modules/routes.ts`). Safe methods need `read`, everything else `write`; routes that need
  * more call `requireModuleLevel`. Applies to sessions and API tokens alike: a token acts with

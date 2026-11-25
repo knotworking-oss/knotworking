@@ -42,7 +42,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
 import { forbidTokens } from "../middleware/auth";
-import { requireModuleLevel } from "../middleware/modules";
+import { assertModule, hideUnreadableLinks, requireModuleLevel } from "../middleware/modules";
 import {
   approvePlanDraft,
   closeCorrectiveAction,
@@ -76,6 +76,7 @@ import {
   listPlanTemplates,
   listSignoffs,
   listPlans,
+  planScopeIds,
   recordCalibration,
   recordCleaning,
   recordLog,
@@ -107,6 +108,32 @@ const sourceOf = (c: Context<WorkspaceEnv>): HaccpSource =>
   c.var.credential.kind === "token" ? "api" : "manual";
 
 /**
+ * Items, recipes, stock and production enhance HACCP (`enhancedBy`); none is required. A plan's
+ * scope and a record's batch or lot are shown only to callers who can read their module, and
+ * linking one needs that module too (`404 module_inactive` / `403 module_forbidden` otherwise).
+ */
+const links = { items: "items", recipes: "recipes", batch: "production", lot: "stock" } as const;
+const view = <T>(c: Context<WorkspaceEnv>, value: T) => hideUnreadableLinks(c, value, links);
+const assertScopeModules = (
+  c: Context<WorkspaceEnv>,
+  scope: { itemIds: string[]; recipeIds: string[] } | undefined,
+  /** What the plan's versions already name: keeping it needs no access. */
+  kept: { itemIds: Set<string>; recipeIds: Set<string> } = { itemIds: new Set(), recipeIds: new Set() },
+) => {
+  if (scope?.itemIds.some((id) => !kept.itemIds.has(id))) assertModule(c, "items", "read");
+  if (scope?.recipeIds.some((id) => !kept.recipeIds.has(id))) assertModule(c, "recipes", "read");
+};
+const assertRecordLinks = (
+  c: Context<WorkspaceEnv>,
+  input: { batchId?: string | null | undefined; lotId?: string | null | undefined },
+) => {
+  if (input.batchId) assertModule(c, "production", "read");
+  if (input.lotId) assertModule(c, "stock", "read");
+};
+const readProduction = (c: Context<WorkspaceEnv>) =>
+  hasModuleLevel(c.var.workspace.modules.production, "read");
+
+/**
  * Food safety records module (`haccp`). Mounted at `/v1/workspaces/:slug`; the module guard has
  * already required `read` for safe methods and `write` for the rest.
  *
@@ -127,23 +154,30 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
     c.json(await listPlans(c.var.db, c.var.workspace.id, c.req.valid("query"))),
   )
   .get("/haccp/plans/:id", validate("param", idParam), async (c) =>
-    c.json(await getPlan(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+    c.json(view(c, await getPlan(c.var.db, c.var.workspace.id, c.req.valid("param").id))),
   )
   .get("/haccp/plans/:id/versions/:versionId", validate("param", versionParam), async (c) => {
     const { id, versionId } = c.req.valid("param");
-    return c.json(await getPlanVersion(c.var.db, c.var.workspace.id, id, versionId));
+    return c.json(view(c, await getPlanVersion(c.var.db, c.var.workspace.id, id, versionId)));
   })
-  .post("/haccp/plans", validate("json", haccpPlanCreateSchema), async (c) =>
-    c.json(await createPlan(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
-  )
+  .post("/haccp/plans", validate("json", haccpPlanCreateSchema), async (c) => {
+    assertScopeModules(c, c.req.valid("json").draft?.scope);
+    return c.json(
+      view(c, await createPlan(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"))),
+      201,
+    );
+  })
   .patch("/haccp/plans/:id", validate("param", idParam), validate("json", haccpPlanUpdateSchema), async (c) =>
     c.json(
-      await updatePlan(
-        c.var.db,
-        c.var.workspace.id,
-        c.var.user.id,
-        c.req.valid("param").id,
-        c.req.valid("json"),
+      view(
+        c,
+        await updatePlan(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          c.req.valid("param").id,
+          c.req.valid("json"),
+        ),
       ),
     ),
   )
@@ -156,12 +190,15 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
     validate("json", haccpPlanStatusSchema),
     async (c) =>
       c.json(
-        await setPlanStatus(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        view(
+          c,
+          await setPlanStatus(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
       ),
   )
@@ -169,16 +206,25 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
     "/haccp/plans/:id/draft",
     validate("param", idParam),
     validate("json", haccpPlanDraftSchema),
-    async (c) =>
-      c.json(
-        await savePlanDraft(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+    async (c) => {
+      assertScopeModules(
+        c,
+        c.req.valid("json").scope,
+        await planScopeIds(c.var.db, c.var.workspace.id, c.req.valid("param").id),
+      );
+      return c.json(
+        view(
+          c,
+          await savePlanDraft(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
-      ),
+      );
+    },
   )
   .delete("/haccp/plans/:id/draft", validate("param", idParam), async (c) => {
     await discardPlanDraft(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("param").id);
@@ -193,12 +239,15 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
     validate("json", haccpPlanApproveSchema),
     async (c) =>
       c.json(
-        await approvePlanDraft(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        view(
+          c,
+          await approvePlanDraft(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
       ),
   )
@@ -211,12 +260,15 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
     validate("json", haccpHazardReviewSchema),
     async (c) =>
       c.json(
-        await reviewHazardAnalysis(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        view(
+          c,
+          await reviewHazardAnalysis(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
       ),
   )
@@ -287,35 +339,52 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
   })
 
   // ── What's due, and a batch's record ──
+  // Per-batch CCPs are due only on batches the caller can see: none without Production.
   .get("/haccp/due", validate("query", haccpDueQuerySchema), async (c) =>
-    c.json(await getDue(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+    c.json(
+      view(
+        c,
+        await getDue(c.var.db, c.var.workspace.id, c.req.valid("query"), new Date(), {
+          batches: readProduction(c),
+        }),
+      ),
+    ),
   )
-  .get("/haccp/batches/:batchId", validate("param", batchParam), async (c) =>
-    c.json(await getBatchRecord(c.var.db, c.var.workspace.id, c.req.valid("param").batchId)),
+  // A production batch's HACCP record: only with Production.
+  .get(
+    "/haccp/batches/:batchId",
+    requireModuleLevel("production", "read"),
+    validate("param", batchParam),
+    async (c) => c.json(await getBatchRecord(c.var.db, c.var.workspace.id, c.req.valid("param").batchId)),
   )
 
   // ── CCP monitoring logs (append-only) ──
   .get("/haccp/logs", validate("query", ccpLogListQuerySchema), async (c) =>
-    c.json(await listLogs(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+    c.json(view(c, await listLogs(c.var.db, c.var.workspace.id, c.req.valid("query")))),
   )
   .get("/haccp/logs/:id", validate("param", idParam), async (c) =>
-    c.json(await getLog(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+    c.json(view(c, await getLog(c.var.db, c.var.workspace.id, c.req.valid("param").id))),
   )
-  .post("/haccp/logs", validate("json", ccpLogCreateSchema), async (c) =>
-    c.json(
-      await recordLog(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"), {
-        source: sourceOf(c),
-      }),
+  .post("/haccp/logs", validate("json", ccpLogCreateSchema), async (c) => {
+    assertRecordLinks(c, c.req.valid("json"));
+    return c.json(
+      view(
+        c,
+        await recordLog(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"), {
+          source: sourceOf(c),
+        }),
+      ),
       201,
-    ),
-  )
+    );
+  })
   // Reviewing readings an API token recorded is a sign-off: a person with `manage`.
   .post(
     "/haccp/logs/review",
     forbidTokens,
     requireModuleLevel("haccp", "manage"),
     validate("json", ccpLogBulkReviewSchema),
-    async (c) => c.json(await reviewLogs(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"))),
+    async (c) =>
+      c.json(view(c, await reviewLogs(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")))),
   )
   .post(
     "/haccp/logs/:id/review",
@@ -325,12 +394,15 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
     validate("json", ccpLogReviewSchema),
     async (c) =>
       c.json(
-        await reviewLog(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        view(
+          c,
+          await reviewLog(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
       ),
   )
@@ -342,15 +414,18 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
     validate("json", ccpLogCorrectSchema),
     async (c) =>
       c.json(
-        await correctLog(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
-          {
-            canManage: hasModuleLevel(c.var.workspace.modules.haccp, "manage"),
-          },
+        view(
+          c,
+          await correctLog(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+            {
+              canManage: hasModuleLevel(c.var.workspace.modules.haccp, "manage"),
+            },
+          ),
         ),
         201,
       ),
@@ -358,36 +433,45 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
 
   // ── Deviations and corrective actions ──
   .get("/haccp/deviations", validate("query", deviationListQuerySchema), async (c) =>
-    c.json(await listDeviations(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+    c.json(view(c, await listDeviations(c.var.db, c.var.workspace.id, c.req.valid("query")))),
   )
   .get("/haccp/corrective-actions", validate("query", correctiveActionListQuerySchema), async (c) =>
-    c.json(await listCorrectiveActions(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+    c.json(view(c, await listCorrectiveActions(c.var.db, c.var.workspace.id, c.req.valid("query")))),
   )
   .get("/haccp/corrective-actions/:id", validate("param", idParam), async (c) =>
-    c.json(await getCorrectiveAction(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+    c.json(view(c, await getCorrectiveAction(c.var.db, c.var.workspace.id, c.req.valid("param").id))),
   )
-  .post("/haccp/corrective-actions", validate("json", correctiveActionCreateSchema), async (c) =>
-    c.json(
-      await createCorrectiveAction(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"), {
-        source: sourceOf(c),
-      }),
+  .post("/haccp/corrective-actions", validate("json", correctiveActionCreateSchema), async (c) => {
+    assertRecordLinks(c, c.req.valid("json"));
+    return c.json(
+      view(
+        c,
+        await createCorrectiveAction(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"), {
+          source: sourceOf(c),
+        }),
+      ),
       201,
-    ),
-  )
+    );
+  })
   .patch(
     "/haccp/corrective-actions/:id",
     validate("param", idParam),
     validate("json", correctiveActionUpdateSchema),
-    async (c) =>
-      c.json(
-        await updateCorrectiveAction(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+    async (c) => {
+      assertRecordLinks(c, c.req.valid("json"));
+      return c.json(
+        view(
+          c,
+          await updateCorrectiveAction(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
-      ),
+      );
+    },
   )
   // The sign-off that closes a corrective action.
   .post(
@@ -398,12 +482,15 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
     validate("json", correctiveActionCloseSchema),
     async (c) =>
       c.json(
-        await closeCorrectiveAction(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        view(
+          c,
+          await closeCorrectiveAction(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
       ),
   )

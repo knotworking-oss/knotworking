@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { getAllItems, getComplaint, getMembers } from "@/lib/api";
+import { getItemOptions, getComplaint, getMembers } from "@/lib/api";
 import { ComplaintDetailView } from "./complaint-detail";
 
 export const metadata: Metadata = { title: "Complaint" };
@@ -12,9 +12,9 @@ export default async function ComplaintPage({
   params: Promise<{ workspace: string; id: string }>;
 }) {
   const { workspace: slug, id } = await params;
-  const [complaint, { items }, { members }] = await Promise.all([
+  const [complaint, items, { members }] = await Promise.all([
     getComplaint(slug, id),
-    getAllItems(slug, { status: "active" }),
+    getItemOptions(slug, { status: "active" }),
     getMembers(slug),
   ]);
   return (

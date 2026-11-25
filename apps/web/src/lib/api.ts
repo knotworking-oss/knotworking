@@ -15,6 +15,7 @@ import {
   type PurchaseCreditNoteListStatus,
   type PurchaseInvoiceListStatus,
   type PurchaseOrderListStatus,
+  type PurchaseRequestListQuery,
   type NutritionSource,
   type ProductLabelStatus,
   type SpecificationKind,
@@ -109,6 +110,24 @@ export const getAuthConfig = cache(async () => unwrap((await client()).v1.public
 export const getBootstrap = cache((slug: string) =>
   load((api) => unwrap(ws(api).bootstrap.$get({ param: { slug } }))),
 );
+
+export const getWorkspaceModuleSettings = cache((slug: string) =>
+  load((api) => unwrap(ws(api)["module-settings"].$get({ param: { slug } }))),
+);
+
+export const getPurchaseRequests = (slug: string, query: PurchaseRequestListQuery) =>
+  load((api) => unwrap(ws(api)["purchase-requests"].$get({ param: { slug }, query })));
+
+export const getPurchaseRequest = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api)["purchase-requests"][":id"].$get({ param: { slug, id } })));
+
+export const getServiceQuotes = (slug: string, query: { before?: string }) =>
+  load((api) => unwrap(ws(api)["client-services"].$get({ param: { slug }, query })));
+
+export const getServiceQuote = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api)["client-services"][":id"].$get({ param: { slug, id } })));
+
+export type ServiceQuote = Awaited<ReturnType<typeof getServiceQuote>>;
 
 /**
  * The workspace's time zone (from the bootstrap): server components decide business dates in it

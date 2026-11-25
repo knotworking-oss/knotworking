@@ -42,6 +42,7 @@ import {
   type KioskContext,
 } from "../services/attendance-kiosk";
 import { changeOwnStaffPin } from "../services/people";
+import { getActiveWorkspaceModules } from "../services/workspace-modules";
 import { validate } from "../validate";
 
 /**
@@ -65,6 +66,11 @@ export const requireDevice = createMiddleware<KioskEnv>(async (c, next) => {
   const device = token ? await authenticateDevice(c.var.db, token) : null;
   if (!device)
     throw new ApiError(401, "device_required", "This kiosk isn't paired, or its pairing was removed");
+  const active = await getActiveWorkspaceModules(c.var.db, device.workspaceId, c.var.activeModules);
+  if (!active.includes("attendance")) {
+    throw new ApiError(404, "module_inactive", "The attendance module is not enabled in this workspace");
+  }
+  c.set("activeModules", active);
   c.set("device", device);
   await next();
 });
@@ -170,7 +176,7 @@ export const kioskPairRoutes = new Hono<AppEnv>().post(
     if (!c.var.activeModules.includes("attendance")) {
       throw new ApiError(404, "module_inactive", "The attendance module is not enabled on this server");
     }
-    return c.json(await pairDevice(c.var.db, c.req.valid("json").code));
+    return c.json(await pairDevice(c.var.db, c.req.valid("json").code, c.var.activeModules));
   },
 );
 

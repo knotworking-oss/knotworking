@@ -22,6 +22,9 @@ import { z } from "zod";
 
 export const syncEntityTypes = [
   "workspace",
+  /** Enabled modules changed. Clients fetch a new snapshot under the new scope. */
+  "workspace_modules",
+  "service_quote",
   "workspace_member",
   /** A member's level in one module (`member_module_access`). Clients refetch when their own changes. */
   "module_access",

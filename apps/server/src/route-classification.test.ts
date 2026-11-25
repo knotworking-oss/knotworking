@@ -277,8 +277,20 @@ const ROUTES: Record<string, Classification> = {
   "GET /v1/workspaces/:slug/search": "token-ok",
   // The active modules and the caller's own level in each: what an agent needs to pick its tools.
   "GET /v1/workspaces/:slug/modules": "token-ok",
+  "GET /v1/workspaces/:slug/module-settings": "token-forbidden",
+  "PATCH /v1/workspaces/:slug/module-settings": "token-forbidden",
   // The workspace time zone: agents need it to read and send dates. Changing it is admin-only.
   "GET /v1/workspaces/:slug/settings": "token-ok",
+  "GET /v1/workspaces/:slug/purchase-requests": "token-ok",
+  "GET /v1/workspaces/:slug/purchase-requests/:id": "token-ok",
+  "POST /v1/workspaces/:slug/purchase-requests": "token-ok",
+  "POST /v1/workspaces/:slug/purchase-requests/:id/decision": "token-forbidden",
+  "GET /v1/workspaces/:slug/client-services": "token-ok",
+  "POST /v1/workspaces/:slug/client-services": "token-ok",
+  "GET /v1/workspaces/:slug/client-services/:id": "token-ok",
+  "PATCH /v1/workspaces/:slug/client-services/:id": "token-ok",
+  "POST /v1/workspaces/:slug/client-services/:id/decision": "token-forbidden",
+  "GET /v1/workspaces/:slug/client-services/:id/billing-draft.csv": "token-ok",
   "PATCH /v1/workspaces/:slug/settings": "token-forbidden",
   "GET /v1/workspaces/:slug/tasks": "token-ok",
   "GET /v1/workspaces/:slug/tasks/:id": "token-ok",
@@ -318,6 +330,7 @@ const ROUTES: Record<string, Classification> = {
   "GET /v1/workspaces/:slug/time-report.csv": "token-ok",
   "GET /v1/workspaces/:slug/projects": "token-ok",
   "POST /v1/workspaces/:slug/projects": "token-ok",
+  "POST /v1/workspaces/:slug/projects/from-template": "token-ok",
   "PATCH /v1/workspaces/:slug/projects/:id": "token-ok",
   "DELETE /v1/workspaces/:slug/projects/:id": "token-ok",
   "GET /v1/workspaces/:slug/documents": "token-ok",
@@ -954,6 +967,9 @@ const TOKEN_ACTION_ROUTES: Record<string, TokenActionId> = {
  * `forbidTokens` route fails the accounting test until it is listed here or made a token action.
  */
 const PERSON_ONLY_ROUTES: Record<string, string> = {
+  "POST /v1/workspaces/:slug/purchase-requests/:id/decision": "Decide or withdraw purchase requests",
+  "POST /v1/workspaces/:slug/client-services/:id/decision":
+    "Sign client service quote and delivery decisions",
   "GET /v1/workspaces/:slug/workforce/me": "Manage personal leave and sickness requests",
   "POST /v1/workspaces/:slug/workforce/me/absences": "Manage personal leave and sickness requests",
   "POST /v1/workspaces/:slug/workforce/me/absences/:id/withdraw":

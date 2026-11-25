@@ -2,7 +2,7 @@ import { z } from "zod";
 import { attachmentRefSchema } from "./attachments";
 import { docContentSchema, docToPlainText } from "./content";
 import { isValidSortKey } from "./ordering";
-import { moduleAccessLevels, moduleIds } from "./modules";
+import { moduleAccessLevels, moduleIds, workspacePresets } from "./modules";
 import {
   apiTokenScopes,
   priorities,
@@ -339,6 +339,10 @@ export const workspaceSettingsUpdateSchema = workspaceSettingsSchema
   .refine((patch) => Object.keys(patch).length > 0, "Nothing to update");
 export type WorkspaceSettingsUpdateInput = z.infer<typeof workspaceSettingsUpdateSchema>;
 
+export const workspaceModuleSettingsSchema = z.object({
+  modules: z.array(z.enum(moduleIds)).max(moduleIds.length).nullable(),
+});
+
 // ─── Access management ───────────────────────────────────────────────────────
 
 const password = z.string().min(10, "Use at least 10 characters").max(256);
@@ -347,6 +351,7 @@ export const setupSchema = z.object({
   /** One-time code printed in the API log on a fresh install. */
   token: z.string().trim().min(1, "Enter the setup code from the API log"),
   workspaceName: z.string().trim().min(1).max(80),
+  preset: z.enum(workspacePresets).optional(),
   name: z.string().trim().min(1).max(120),
   email: z.email(),
   password,

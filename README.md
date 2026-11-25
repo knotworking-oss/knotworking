@@ -12,6 +12,7 @@ Use Knotworking in a browser or through the [Tauri desktop app](#desktop-app). T
 | **Docs**          | Nested wiki pages with block-based rich content                                                                                                                                                                     |
 | **Manufacturing** | Opt-in modules: items and suppliers, recipes, SOPs, stock, demand, production, HACCP, quality, purchasing and invoices, costing, site programmes, and labels and nutrition (see [docs/modules.md](docs/modules.md)) |
 | **Workforce**     | Opt-in modules: the staff register, training matrix and sign-off, and attendance with a tablet kiosk, payroll export and roll calls                                                                                 |
+| **Business operations** | Projects from onboarding and client kickoff templates, internal purchase approvals, and fixed-fee or hourly service quotes with delivery projects and draft billing exports |
 | **UI**            | [shadcn/ui](https://ui.shadcn.com) (Radix + Tailwind) with ⌘K search (titles and doc and task text), dark mode — browse it at `/design`                                                                             |
 
 ## Quick start

@@ -7,11 +7,12 @@ import {
   recordChanges,
   users,
   workspaceMembers,
+  workspaces,
   type ChangeInput,
   type Database,
   type Transaction,
 } from "@knotworking/db";
-import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, arrayContains, eq, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { ProviderError, type CalendarProviderClient, type EventInput, type ExternalEvent } from "./types";
 
 export interface CalendarDeps {
@@ -209,17 +210,20 @@ export async function pushPendingMeetings(
 ): Promise<number> {
   const { db } = deps;
   const pending = await db
-    .select()
+    .select({ meeting: meetings })
     .from(meetings)
+    .innerJoin(workspaces, eq(workspaces.id, meetings.workspaceId))
     .where(
       and(
         eq(meetings.connectionId, conn.id),
         inArray(meetings.syncState, UNPUSHED),
+        isNull(workspaces.deletedAt),
+        or(isNull(workspaces.enabledModules), arrayContains(workspaces.enabledModules, ["calendar"])),
         onlyMeetingId ? eq(meetings.id, onlyMeetingId) : undefined,
       ),
     );
   let pushed = 0;
-  for (const m of pending) {
+  for (const { meeting: m } of pending) {
     try {
       if (m.status === "cancelled" || m.deletedAt) {
         if (m.externalEventId) await provider.cancelEvent(token, m.externalEventId);

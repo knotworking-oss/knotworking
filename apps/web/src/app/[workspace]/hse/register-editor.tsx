@@ -204,7 +204,7 @@ export function RegisterEditor({ slug, today, record }: { slug: string; today: s
             />
           </label>
         )}
-        {["contractor", "waste"].includes(kind) && (
+        {["contractor", "waste"].includes(kind) && can("items") && (
           <HsePicker
             slug={slug}
             kind="supplier"

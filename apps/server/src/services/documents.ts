@@ -4,7 +4,7 @@ import {
   type DocumentRestoreInput,
   type DocumentUpdateInput,
 } from "@knotworking/core";
-import { documents, recordChanges, type Database, type Transaction } from "@knotworking/db";
+import { documents, recordChanges, type Database, type Executor, type Transaction } from "@knotworking/db";
 import { and, asc, eq, inArray, isNull, max, sql, type SQL } from "drizzle-orm";
 import { ApiError, notFound } from "../errors";
 import { assertCoverImage } from "./attachments";
@@ -26,7 +26,7 @@ export function serializeDocumentMeta(row: DocumentRow) {
   return meta;
 }
 
-export async function listDocuments(db: Database, workspaceId: string) {
+export async function listDocuments(db: Executor, workspaceId: string) {
   const rows = await db
     .select()
     .from(documents)

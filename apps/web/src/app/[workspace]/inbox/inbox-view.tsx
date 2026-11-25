@@ -62,6 +62,8 @@ const ACTOR_TYPES: readonly string[] = [
   "sop_version_approved",
   "sop_targeted",
   "purchase_order_approval_needed",
+  "purchase_request_submitted",
+  "purchase_request_decided",
 ];
 
 function summary(n: Notification) {

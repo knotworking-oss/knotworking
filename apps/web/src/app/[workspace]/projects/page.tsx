@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
 import { NewProjectButton } from "@/components/project-actions";
+import { ProjectTemplateButton } from "@/components/project-template-button";
 import { ProjectsView } from "@/components/projects-view";
 
 export const metadata: Metadata = { title: "Projects" };
@@ -8,7 +9,14 @@ export const metadata: Metadata = { title: "Projects" };
 export default function ProjectsPage() {
   return (
     <>
-      <PageHeader actions={<NewProjectButton />}>
+      <PageHeader
+        actions={
+          <>
+            <ProjectTemplateButton />
+            <NewProjectButton />
+          </>
+        }
+      >
         <h1 className="font-medium">Projects</h1>
       </PageHeader>
 

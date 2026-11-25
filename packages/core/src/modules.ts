@@ -52,6 +52,8 @@ export const moduleIds = [
   "workforce",
   "workforce_hr",
   "bi",
+  "purchase_requests",
+  "client_services",
 ] as const;
 export type ModuleId = (typeof moduleIds)[number];
 
@@ -84,6 +86,24 @@ export interface ModuleDefinition {
 }
 
 export const modules: Record<ModuleId, ModuleDefinition> = {
+  client_services: {
+    id: "client_services",
+    name: "Client services",
+    description: "Fixed-fee and hourly quotes, project delivery, and draft billing exports.",
+    dependsOn: ["customers", "time"],
+    defaultAccess: "none",
+    defaultActive: true,
+    syncEntities: ["service_quote"],
+  },
+  purchase_requests: {
+    id: "purchase_requests",
+    name: "Purchase requests",
+    description: "Submit spending requests and record a designated approver's decision.",
+    dependsOn: [],
+    defaultAccess: "role",
+    defaultActive: true,
+    syncEntities: [],
+  },
   workforce: {
     id: "workforce",
     name: "Workforce planning",
@@ -488,7 +508,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     id: "hse",
     name: "Health, safety and environment",
     description: "Assessments, COSHH, contractor permits, inspections, waste and utilities.",
-    dependsOn: ["site", "training"],
+    dependsOn: ["training"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["hse_record", "hse_entry", "hse_permit"],
@@ -528,6 +548,60 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
 };
 
 export const moduleList: readonly ModuleDefinition[] = moduleIds.map((id) => modules[id]);
+
+export const workspacePresets = ["general_business", "food_manufacturing"] as const;
+export type WorkspacePreset = (typeof workspacePresets)[number];
+
+export const workspacePresetDetails = {
+  general_business: {
+    label: "General Business",
+    description: "Projects, docs, people operations, purchase approvals and client services.",
+  },
+  food_manufacturing: {
+    label: "Food Manufacturing",
+    description: "Adds production, stock, purchasing, traceability and food safety.",
+  },
+} satisfies Record<WorkspacePreset, { label: string; description: string }>;
+
+const generalBusinessModules: readonly ModuleId[] = [
+  "tasks",
+  "docs",
+  "calendar",
+  "time",
+  "sops",
+  "customers",
+  "people",
+  "training",
+  "workforce",
+  "workforce_hr",
+  "bi",
+  "assistant",
+  "purchase_requests",
+  "client_services",
+  "hse",
+  "hse_incidents",
+];
+
+/** Null keeps a workspace on the installation's module list, including after an upgrade. */
+export function activeWorkspaceModules(
+  available: readonly ModuleId[],
+  selection: readonly ModuleId[] | null,
+): readonly ModuleId[] {
+  if (selection === null) return available;
+  const requested = new Set(selection);
+  const installed = new Set(available);
+  const active = new Set<ModuleId>();
+  for (const id of moduleIds) {
+    if (requested.has(id) && installed.has(id) && modules[id].dependsOn.every((dep) => active.has(dep))) {
+      active.add(id);
+    }
+  }
+  return [...active];
+}
+
+export function workspacePresetModules(preset: WorkspacePreset): readonly ModuleId[] | null {
+  return preset === "general_business" ? generalBusinessModules : null;
+}
 
 export const isModuleId = (value: string): value is ModuleId =>
   (moduleIds as readonly string[]).includes(value);

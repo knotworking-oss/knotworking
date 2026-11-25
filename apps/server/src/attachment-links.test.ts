@@ -154,6 +154,15 @@ describe("attachment download links and replacing files", () => {
       expect((await redeem(link.url)).status).toBe(404);
       await level("items", "write");
       expect((await redeem(link.url)).status).toBe(200);
+      const setModules = (modules: string[] | null) =>
+        ctx.req(`${base}/module-settings`, { method: "PATCH", cookie: ada, json: { modules } });
+      try {
+        expect((await setModules(["tasks", "docs"])).status).toBe(200);
+        expect((await redeem(link.url)).status).toBe(404);
+      } finally {
+        expect((await setModules(null)).status).toBe(200);
+      }
+      expect((await redeem(link.url)).status).toBe(200);
       // So does a deleted file.
       expect(
         (await ctx.req(`${base}/attachments/${file.id}`, { method: "DELETE", cookie: ada })).status,

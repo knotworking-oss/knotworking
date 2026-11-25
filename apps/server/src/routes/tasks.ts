@@ -1,5 +1,6 @@
 import {
   projectCreateSchema,
+  projectFromTemplateSchema,
   projectUpdateSchema,
   taskCreateSchema,
   taskListQuerySchema,
@@ -13,6 +14,7 @@ import { canRead } from "../middleware/modules";
 import { requireWriter } from "../middleware/roles";
 import { listBacklinks } from "../services/backlinks";
 import { emailNotifier } from "../services/notifications";
+import { createProjectFromTemplate } from "../services/project-templates";
 import { createProject, deleteProject, listProjects, updateProject } from "../services/projects";
 import { createTaskRelation, deleteTaskRelation } from "../services/task-relations";
 import { createTask, deleteTask, getTask, listTasks, updateTask } from "../services/tasks";
@@ -94,6 +96,18 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
   .get("/projects", async (c) => c.json({ projects: await listProjects(c.var.db, c.var.workspace.id) }))
   .post("/projects", requireWriter, validate("json", projectCreateSchema), async (c) =>
     c.json(await createProject(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
+  )
+  .post("/projects/from-template", requireWriter, validate("json", projectFromTemplateSchema), async (c) =>
+    c.json(
+      await createProjectFromTemplate(
+        c.var.db,
+        c.var.workspace.id,
+        c.var.user.id,
+        c.req.valid("json"),
+        emailNotifier(c.var),
+      ),
+      201,
+    ),
   )
   .patch(
     "/projects/:id",

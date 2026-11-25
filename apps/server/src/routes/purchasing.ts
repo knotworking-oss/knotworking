@@ -227,7 +227,7 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
           // A token may carry a cap on the value of an order it sends.
           c.var.credential.kind === "token" ? (c.var.credential.maxOrderValue ?? null) : null,
           {
-            active: c.var.activeModules,
+            active: c.var.workspace.availableModules,
             // Overriding supplier control issues is a food-safety judgement: a person with Items manage.
             mayOverride:
               c.var.credential.kind !== "token" && hasModuleLevel(c.var.workspace.modules.items, "manage"),

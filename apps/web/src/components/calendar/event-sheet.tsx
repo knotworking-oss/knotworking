@@ -34,6 +34,7 @@ import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 import { formatSpan } from "@/lib/calendar-dates";
+import { useWorkspace } from "@/lib/workspace-store";
 import { providerName, type CalendarItem, type Meeting } from "./types";
 
 const responseIcon = {
@@ -65,6 +66,7 @@ export function EventSheet({
   onEdit: (m: Meeting) => void;
 }) {
   const router = useRouter();
+  const { can } = useWorkspace();
   const [busy, setBusy] = useState(false);
   const api = () => browserApi().v1.workspaces[":slug"];
 
@@ -149,7 +151,7 @@ export function EventSheet({
                   <TriangleAlert className="size-4 shrink-0" /> {m.syncError}
                 </p>
               )}
-              {m && (
+              {m && (notesDoc || can("docs", "write")) && (
                 <>
                   <Separator />
                   {notesDoc ? (

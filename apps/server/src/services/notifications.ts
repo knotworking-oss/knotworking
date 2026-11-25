@@ -51,6 +51,7 @@ import { getTableConfig, type AnyPgTable } from "drizzle-orm/pg-core";
 import { notFound } from "../errors";
 import type { Mailer } from "../mailer";
 import { sopTargetUserIds } from "./sop-audience";
+import { getActiveWorkspaceModules } from "./workspace-modules";
 
 /**
  * Per-user notifications. They are personal data, so (like `calendar_events`)
@@ -973,9 +974,9 @@ export async function sendNotificationEmails(
             eq(notificationPreferences.type, n.type),
           ),
         );
-      const access = (
-        await memberAccess(db, n.workspaceId, delivery.get(db)?.activeModules ?? moduleIds)
-      ).get(n.userId);
+      const available = delivery.get(db)?.activeModules ?? moduleIds;
+      const active = await getActiveWorkspaceModules(db, n.workspaceId, available);
+      const access = (await memberAccess(db, n.workspaceId, active)).get(n.userId);
       const owner = n.module ?? (n.taskId ? "tasks" : n.data.documentId ? "docs" : null);
       if (
         !recipient?.enabled ||

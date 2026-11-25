@@ -133,6 +133,8 @@ export const attachmentKindLabels: Record<AttachmentKind, string> = {
 
 export interface AttachmentTargetDefinition {
   module: ModuleId;
+  /** Additional read access needed for records spanning modules. */
+  requiresModules?: readonly ModuleId[];
   /** Singular, for the panel ("Attachments on this supplier"). */
   label: string;
   /** The kinds a file can be filed as; the first is the default. */
@@ -142,7 +144,12 @@ export interface AttachmentTargetDefinition {
 export const attachmentTargets = {
   hse_record: { module: "hse", label: "HSE register", kinds: ["document", "certificate"] },
   hse_entry: { module: "hse", label: "HSE verification", kinds: ["document", "certificate", "photo"] },
-  hse_permit: { module: "hse", label: "HSE permit", kinds: ["document", "certificate"] },
+  hse_permit: {
+    module: "hse",
+    requiresModules: ["site"],
+    label: "HSE permit",
+    kinds: ["document", "certificate"],
+  },
   training_record: { module: "training", label: "training record", kinds: ["certificate"] },
   supplier: { module: "items", label: "supplier", kinds: ["certificate", "specification"] },
   item: { module: "items", label: "item", kinds: ["specification"] },
@@ -183,6 +190,11 @@ export const attachmentTargets = {
   defence_exercise: { module: "defence", label: "exercise", kinds: ["document", "photo"] },
 } as const satisfies Record<string, AttachmentTargetDefinition>;
 export type AttachmentTargetType = keyof typeof attachmentTargets;
+
+export function attachmentTargetScope(type: AttachmentTargetType) {
+  const target: AttachmentTargetDefinition = attachmentTargets[type];
+  return { module: target.module, requiresModules: target.requiresModules ?? [] };
+}
 export const attachmentTargetTypes = Object.keys(attachmentTargets) as [
   AttachmentTargetType,
   ...AttachmentTargetType[],

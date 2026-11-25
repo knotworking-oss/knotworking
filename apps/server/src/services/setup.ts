@@ -1,4 +1,4 @@
-import { d, safeWorkspaceSlug } from "@knotworking/core";
+import { d, safeWorkspaceSlug, workspacePresetModules, type SetupInput } from "@knotworking/core";
 import {
   addWorkspaceMember,
   createPasswordUser,
@@ -38,11 +38,7 @@ export const slugify = (name: string) =>
  * First run on a fresh install: creates the workspace, its owner account, a
  * starter team and a welcome doc. Only allowed while there are no users.
  */
-export async function runSetup(
-  db: Database,
-  input: { workspaceName: string; name: string; email: string; password: string; token: string },
-  setupToken: string | undefined,
-) {
+export async function runSetup(db: Database, input: SetupInput, setupToken: string | undefined) {
   if (!setupToken) {
     throw new ApiError(
       403,
@@ -65,9 +61,15 @@ export async function runSetup(
       throw new ApiError(409, "already_set_up", "Knotworking is already set up — sign in instead");
 
     const owner = await createPasswordUser(tx, input);
+    const selected = workspacePresetModules(input.preset ?? "food_manufacturing");
     const [workspace] = await tx
       .insert(workspaces)
-      .values({ name: input.workspaceName.trim(), slug: slugify(input.workspaceName), icon: "🚀" })
+      .values({
+        name: input.workspaceName.trim(),
+        slug: slugify(input.workspaceName),
+        icon: "🚀",
+        enabledModules: selected === null ? null : [...selected],
+      })
       .returning();
     await addWorkspaceMember(tx, workspace!.id, owner.id, "owner");
     await createTeamWithWorkflow(tx, {

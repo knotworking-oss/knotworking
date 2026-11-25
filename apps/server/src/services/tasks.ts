@@ -62,7 +62,7 @@ async function labelIdsFor(db: Executor, taskIds: string[]) {
   return map;
 }
 
-export async function listTasks(db: Database, workspaceId: string, f: TaskFilters) {
+export async function listTasks(db: Executor, workspaceId: string, f: TaskFilters) {
   const where: SQL[] = [eq(tasks.workspaceId, workspaceId), isNull(tasks.deletedAt)];
   if (f.teamId) where.push(eq(tasks.teamId, f.teamId));
   if (f.projectId) where.push(eq(tasks.projectId, f.projectId));
@@ -156,7 +156,7 @@ async function assertLabels(tx: Transaction, workspaceId: string, labelIds: stri
  * the same transaction as the task.
  */
 export async function createTask(
-  db: Database,
+  db: Executor,
   workspaceId: string,
   actorId: string,
   input: TaskCreateInput,

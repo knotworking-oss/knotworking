@@ -187,11 +187,12 @@ export async function contentReferences(
   db: Executor,
   ws: string,
   contents: (HseContent | null | undefined)[],
+  readProviders = true,
 ) {
   const supplierIds = [...new Set(contents.map((c) => c?.supplierId).filter((v): v is string => !!v))];
   const courseIds = [...new Set(contents.flatMap((c) => c?.courseIds ?? []))];
   const [providerRows, courseRows] = await Promise.all([
-    supplierIds.length
+    readProviders && supplierIds.length
       ? db
           .select({ id: suppliers.id, name: suppliers.name, code: suppliers.code })
           .from(suppliers)
@@ -209,7 +210,7 @@ export async function contentReferences(
     courses: Object.fromEntries(courseRows.map((c) => [c.id, `${c.code} · ${c.title}`])),
   };
 }
-export async function getHseRecord(db: Database, ws: string, id: string) {
+export async function getHseRecord(db: Database, ws: string, id: string, readProviders: boolean) {
   return db.transaction(
     async (tx) => {
       const record = await recordOf(tx, ws, id);
@@ -222,7 +223,7 @@ export async function getHseRecord(db: Database, ws: string, id: string) {
         draft: draft ? hsePublic(draft) : null,
         approved: approved ? hsePublic(approved) : null,
         attention: await attention(tx, ws, record, approved, await workspaceToday(tx, ws)),
-        references: await contentReferences(tx, ws, [draft?.content, approved?.content]),
+        references: await contentReferences(tx, ws, [draft?.content, approved?.content], readProviders),
       };
     },
     { isolationLevel: "repeatable read", accessMode: "read only" },
@@ -305,6 +306,7 @@ export async function actHseRecord(
   id: string,
   input: HseAction,
   action: "approve" | "review" | "archive",
+  readProviders = true,
 ) {
   return executeLedgerCommand(db, ws, actor, `hse.${action}`, input, { id, ...input }, async (tx) => {
     const r = await recordOf(tx, ws, id);
@@ -316,6 +318,13 @@ export async function actHseRecord(
     ]);
     if (action === "approve") {
       if (!draft) throw conflict("No draft to approve");
+      if (draft.content.supplierId && !readProviders) {
+        throw new ApiError(
+          403,
+          "module_forbidden",
+          "Items read access is required to review this service provider",
+        );
+      }
       const blockers = hseApprovalBlockers(r.kind, draft.content, await workspaceToday(tx, ws));
       if (blockers.length) throw new ApiError(409, "hse_incomplete", blockers.join("; "));
       await validateContent(tx, ws, id, draft.content, true);
@@ -364,7 +373,7 @@ export async function actHseRecord(
     return { id, revision: r.revision + 1 };
   });
 }
-export async function hseHistory(db: Database, ws: string, id: string, q: HsePage) {
+export async function hseHistory(db: Database, ws: string, id: string, q: HsePage, readProviders: boolean) {
   await recordOf(db, ws, id);
   const where = and(eq(versions.workspaceId, ws), eq(versions.recordId, id));
   const [rows, [total]] = await Promise.all([
@@ -377,6 +386,7 @@ export async function hseHistory(db: Database, ws: string, id: string, q: HsePag
       db,
       ws,
       rows.map((r) => r.content),
+      readProviders,
     ),
     total: total!.n,
     ...q,

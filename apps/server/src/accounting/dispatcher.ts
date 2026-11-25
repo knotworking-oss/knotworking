@@ -4,7 +4,7 @@ import {
   workspaces,
   type Database,
 } from "@knotworking/db";
-import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { and, arrayContains, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { dispatchAccountingPosting } from "./outbox";
 import type { AccountingAdapterRegistry, AccountingBinding, InstalledAccountingAdapter } from "./registry";
 
@@ -52,6 +52,8 @@ export async function dispatchQueuedPostings(
         eq(postings.state, "queued"),
         eq(connections.disabled, false),
         ne(connections.companyId, ""),
+        isNull(workspaces.deletedAt),
+        or(isNull(workspaces.enabledModules), arrayContains(workspaces.enabledModules, ["accounting"])),
         inArray(connections.provider, [...registry.providers]),
       ),
     )

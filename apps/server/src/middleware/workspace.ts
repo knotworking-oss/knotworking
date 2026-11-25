@@ -1,6 +1,6 @@
 import { workspaceMembers, workspaces } from "@knotworking/db";
 import { and, eq, isNull } from "drizzle-orm";
-import { effectiveCurrency, effectiveTimeZone, todayInZone } from "@knotworking/core";
+import { activeWorkspaceModules, effectiveCurrency, effectiveTimeZone, todayInZone } from "@knotworking/core";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { WorkspaceEnv } from "../env";
@@ -12,13 +12,14 @@ import { withTimeZoneScope } from "../services/time-zone";
 export const workspaceAccess = createMiddleware<WorkspaceEnv>(async (c, next) => {
   const slug = c.req.param("slug");
   if (!slug) throw notFound("Workspace");
-  const [row] = await c.var.db
+  const [membership] = await c.var.db
     .select({
       id: workspaces.id,
       slug: workspaces.slug,
       name: workspaces.name,
       timeZone: workspaces.timeZone,
       currency: workspaces.currency,
+      enabledModules: workspaces.enabledModules,
       role: workspaceMembers.role,
     })
     .from(workspaces)
@@ -32,17 +33,27 @@ export const workspaceAccess = createMiddleware<WorkspaceEnv>(async (c, next) =>
       ),
     );
   // 404 (not 403) so workspace slugs can't be probed.
-  if (!row) throw notFound("Workspace");
+  if (!membership) throw notFound("Workspace");
+  const { enabledModules, ...row } = membership;
+  const availableModules = c.var.activeModules;
+  const activeModules = activeWorkspaceModules(availableModules, enabledModules);
   const modules = await memberModuleLevels(
     c.var.db,
     row.id,
     { userId: c.var.user.id, role: row.role },
-    c.var.activeModules,
+    activeModules,
     c.var.credential.kind === "token" ? c.var.credential.modules : null,
   );
   // A stored zone the schema refuses (old free-text attendance values) falls back to the default.
   const { timeZone } = effectiveTimeZone(row.timeZone);
-  c.set("workspace", { ...row, timeZone, currency: effectiveCurrency(row.currency), modules });
+  c.set("activeModules", activeModules);
+  c.set("workspace", {
+    ...row,
+    timeZone,
+    currency: effectiveCurrency(row.currency),
+    availableModules,
+    modules,
+  });
   // The request's zone lookups (services' `workspaceTimeZone`) start from this one, not a SELECT each.
   await withTimeZoneScope(next, { workspaceId: row.id, timeZone });
 });

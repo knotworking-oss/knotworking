@@ -48,7 +48,7 @@ export function ProjectActions({
   className,
 }: {
   project: ProjectRow;
-  /** Called as soon as deletion starts (it is optimistic), e.g. to leave the project's page. */
+  /** Called when the server accepts deletion, e.g. to leave the project's page. */
   onDeleted?: () => void;
   className?: string;
 }) {
@@ -103,9 +103,10 @@ export function ProjectActions({
               variant="destructive"
               onClick={async () => {
                 setConfirming(false);
-                onDeleted?.();
-                if (await deleteProject(project.id))
+                if (await deleteProject(project.id)) {
+                  onDeleted?.();
                   toast.success("Project deleted", { description: project.name });
+                }
               }}
             >
               Delete

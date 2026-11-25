@@ -24,6 +24,7 @@ export class WorkspaceSync {
   private listeners = new Set<() => void>();
   private changeListeners = new Set<(changes: readonly SyncChange[]) => void>();
   private refetching: Promise<void> | null = null;
+  private refetchRequested = false;
   status: PushStatus = "connecting";
 
   constructor(
@@ -40,7 +41,10 @@ export class WorkspaceSync {
         for (const listener of this.changeListeners) listener(changes);
         // Module access also shapes server-rendered pages (navigation, guards), and an API access toggle
         // is in no snapshot at all (only Settings → API access shows it): both re-render those pages.
-        const rerender = changes.some((c) => c.entity === "module_access" || c.entity === "token_action");
+        const rerender = changes.some(
+          (c) =>
+            c.entity === "module_access" || c.entity === "workspace_modules" || c.entity === "token_action",
+        );
         if (changes.some((c) => refetchOn.has(c.entity)))
           void this.refetch().then(() => rerender && this.onLostAccess());
         else if (rerender) this.onLostAccess();
@@ -99,14 +103,18 @@ export class WorkspaceSync {
 
   /** Reloads the full snapshot (e.g. members changed). A fresh snapshot always replaces ours. */
   refetch(): Promise<void> {
+    this.refetchRequested = true;
     this.refetching ??= (async () => {
       try {
-        const boot = await unwrap(
-          browserApi().v1.workspaces[":slug"].bootstrap.$get({ param: { slug: this.slug } }),
-        );
-        this.base = boot;
-        this.store.reset(seedTables(boot), boot.cursor);
-        await this.store.pull();
+        do {
+          this.refetchRequested = false;
+          const boot = await unwrap(
+            browserApi().v1.workspaces[":slug"].bootstrap.$get({ param: { slug: this.slug } }),
+          );
+          this.base = boot;
+          this.store.reset(seedTables(boot), boot.cursor);
+          await this.store.pull();
+        } while (this.refetchRequested);
       } catch (err) {
         this.failed(err);
       } finally {

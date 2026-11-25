@@ -66,6 +66,8 @@ Prepared postings stay `queued` until the [dispatcher](#dispatch-and-the-finance
 
 **The dispatcher** (`accounting/dispatcher.ts`) runs every `ACCOUNTING_DISPATCH_INTERVAL_SECONDS` (default 300; `0` turns it off), and only when the `accounting` module is on and at least one adapter is installed. Each pass sends up to 25 queued postings, oldest first, for enabled connections that have a company and an installed adapter. Every send goes through the outbox, which commits `unknown` before calling the adapter, so overlapping passes or several API processes can't send the same posting twice. A refused destination or capability leaves the posting queued. Unsendable postings still count towards a pass's 25, so many of them can delay newer ones; disable the connection or install its adapter.
 
+Each posting's claim checks whether Accounting is still enabled in the workspace. Turning Accounting off leaves unclaimed work queued. Attempts already claimed can record their outcome.
+
 **The queue** sits under **Manage → Accounting queue** for signed-in administrators (personal tokens are refused). It has four tabs:
 
 - **Queued:** prepared and waiting. **Send now** dispatches one immediately when an adapter is installed.

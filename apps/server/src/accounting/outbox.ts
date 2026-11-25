@@ -11,6 +11,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { ApiError, notFound } from "../errors";
 import { assertAccountingConnection } from "../services/accounting";
+import { getActiveWorkspaceModules } from "../services/workspace-modules";
 import type { AccountingAdapter } from "./adapter";
 
 const conflict = (message: string) => new ApiError(409, "accounting_conflict", message);
@@ -144,6 +145,9 @@ export async function claimAccountingPosting(
         throw conflict("Adapter does not support this document kind or currency");
     }
     if (row.state !== "queued") return null;
+    // Settings changes commit under the same workspace lock. A posting scanned or resolved
+    // before Accounting was switched off is still queued if the switch committed first.
+    if (!(await getActiveWorkspaceModules(tx, ws, ["accounting"])).includes("accounting")) return null;
     const attemptId = newId();
     const [claimed] = await tx
       .update(postings)

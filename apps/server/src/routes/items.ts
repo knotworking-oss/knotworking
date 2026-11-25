@@ -96,7 +96,7 @@ export const itemRoutes = new Hono<WorkspaceEnv>()
       await listSupplierCompliance(
         c.var.db,
         c.var.workspace.id,
-        c.var.activeModules,
+        c.var.workspace.availableModules,
         await workspaceToday(c.var.db, c.var.workspace.id),
       ),
     ),
@@ -153,7 +153,7 @@ export const itemRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json"),
-          { active: c.var.activeModules },
+          { active: c.var.workspace.availableModules },
         ),
       ),
   )
@@ -164,7 +164,7 @@ export const itemRoutes = new Hono<WorkspaceEnv>()
         c.var.db,
         c.var.workspace.id,
         c.req.valid("param").id,
-        c.var.activeModules,
+        c.var.workspace.availableModules,
         await workspaceToday(c.var.db, c.var.workspace.id),
       ),
     ),
@@ -181,7 +181,7 @@ export const itemRoutes = new Hono<WorkspaceEnv>()
       const id = c.req.valid("param").id;
       await assessSupplierRisk(c.var.db, c.var.workspace.id, c.var.user.id, id, c.req.valid("json"), today);
       return c.json(
-        await getSupplierControls(c.var.db, c.var.workspace.id, id, c.var.activeModules, today),
+        await getSupplierControls(c.var.db, c.var.workspace.id, id, c.var.workspace.availableModules, today),
         201,
       );
     },

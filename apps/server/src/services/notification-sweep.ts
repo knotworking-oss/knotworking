@@ -49,6 +49,7 @@ import { reservationChange, releaseExpiredReservations } from "./reservations-co
 import { findReservedLotProblems, reservedLotDrafts } from "./reservation-alerts";
 import { getSiteDue } from "./site";
 import { workspaceTimeZone } from "./time-zone";
+import { getActiveWorkspaceModules } from "./workspace-modules";
 import { listOutstandingAcknowledgements } from "./sops";
 import { trainingDue } from "./ports/training";
 
@@ -167,7 +168,8 @@ async function sweepWorkspace(
     );
     if (!lock?.locked) return { created: [], email: [] };
 
-    const active = new Set(options.activeModules);
+    const activeModules = await getActiveWorkspaceModules(tx, workspaceId, options.activeModules);
+    const active = new Set(activeModules);
     const seeded = new Set<string>(
       (
         await tx
@@ -179,7 +181,7 @@ async function sweepWorkspace(
     const now = options.now ?? new Date();
     // Due dates are decided on the workspace's calendar.
     const today = todayInZone(await workspaceTimeZone(tx, workspaceId), now);
-    const access = await memberAccess(tx, workspaceId, options.activeModules);
+    const access = await memberAccess(tx, workspaceId, activeModules);
     const drafts: NotificationDraft[] = [];
     const cutoff = addDaysToIsoDate(today, -NOTIFY_LOOKBACK_DAYS);
     // The modules' due logic takes a database handle: the transaction is one.
@@ -191,7 +193,7 @@ async function sweepWorkspace(
     if (active.has("recipes")) await sweepRecipes(ctx);
     if (active.has("quality")) await sweepQuality(ctx);
     if (active.has("labels")) await sweepLabels(ctx);
-    if (active.has("sops")) await sweepSops(ctx, options.activeModules);
+    if (active.has("sops")) await sweepSops(ctx, activeModules);
     if (active.has("attendance")) await sweepAttendance(ctx);
     if (active.has("production")) await sweepProduction(ctx);
 

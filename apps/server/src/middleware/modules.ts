@@ -23,7 +23,7 @@ export function assertModule(
   needed: Exclude<ModuleAccessLevel, "none">,
 ) {
   if (!c.var.activeModules.includes(moduleId)) {
-    throw new ApiError(404, "module_inactive", `The ${moduleId} module is not enabled on this server`);
+    throw new ApiError(404, "module_inactive", `The ${moduleId} module is not enabled in this workspace`);
   }
   if (!hasModuleLevel(c.var.workspace.modules[moduleId], needed)) {
     // Guests are capped at read in every module; keep the error they have always had for writes.

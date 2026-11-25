@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import {
+  activeWorkspaceModules,
   addDaysToIsoDate,
   buildShifts,
   defaultAttendanceSettings,
@@ -1239,7 +1240,7 @@ export async function revokeDevice(db: Database, workspaceId: string, actorId: s
 }
 
 /** Swaps a pairing code for a device credential (the tablet keeps it). */
-export async function pairDevice(db: Database, code: string) {
+export async function pairDevice(db: Database, code: string, available: readonly ModuleId[]) {
   return db.transaction(async (tx) => {
     const [device] = await tx
       .select()
@@ -1253,6 +1254,13 @@ export async function pairDevice(db: Database, code: string) {
         "That pairing code is wrong or has expired. Ask a manager for a new one.",
       );
     }
+    const [ws] = await tx
+      .select({ slug: workspaces.slug, name: workspaces.name, enabledModules: workspaces.enabledModules })
+      .from(workspaces)
+      .where(and(eq(workspaces.id, device.workspaceId), isNull(workspaces.deletedAt)));
+    if (!ws || !activeWorkspaceModules(available, ws.enabledModules).includes("attendance")) {
+      throw new ApiError(404, "module_inactive", "The attendance module is not enabled in this workspace");
+    }
     const token = `${KIOSK_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
     await tx
       .update(attendanceDevices)
@@ -1264,11 +1272,11 @@ export async function pairDevice(db: Database, code: string) {
         lastSeenAt: new Date(),
       })
       .where(eq(attendanceDevices.id, device.id));
-    const [ws] = await tx
-      .select({ slug: workspaces.slug, name: workspaces.name })
-      .from(workspaces)
-      .where(eq(workspaces.id, device.workspaceId));
-    return { token, device: { id: device.id, name: device.name }, workspace: ws! };
+    return {
+      token,
+      device: { id: device.id, name: device.name },
+      workspace: { slug: ws.slug, name: ws.name },
+    };
   });
 }
 

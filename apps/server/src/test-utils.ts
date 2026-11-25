@@ -36,9 +36,11 @@ export async function makeApp(options: {
   accountingAdapters?: AccountingAdapterRegistry;
   /** Fake models and MCP tools for the assistant (default: the real ones, which tests never call). */
   assistantDeps?: AppOptions["assistantDeps"];
+  /** An already prepared database (an upgrade test's). `seed` is then ignored. */
+  handle?: DbHandle;
 }) {
   const storage = options.storage ?? new MemoryStorage();
-  const handle = await createTestDb({ seed: options.seed });
+  const handle = options.handle ?? (await createTestDb({ seed: options.seed }));
   const memoryMailer = createMemoryMailer();
   const mailer = options.mailer ?? memoryMailer;
   const auth = createAuth({

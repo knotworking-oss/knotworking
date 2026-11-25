@@ -52,6 +52,7 @@ const summary = (row: typeof postings.$inferSelect) => ({
   attemptId: row.attemptId,
   externalId: row.externalId,
   sourceId: row.sourceId,
+  kind: row.payload.kind,
   reference: row.payload.reference,
   date: row.payload.date,
   currency: row.payload.currency,

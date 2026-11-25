@@ -10,7 +10,7 @@ import type { InstalledAccountingAdapter } from "../registry";
 import { ApiError } from "../../errors";
 import { XeroHttpError, readXeroOrganisation, xeroAccountingRequest, xeroCurrency } from "../xero-http";
 
-type PurchaseBill = Extract<AccountingPosting, { kind: "purchase_invoice" }>;
+type Credit = Extract<AccountingPosting, { kind: "customer_credit_note" }>;
 
 const bindingSchema = z.object({
   connectionId: z.uuid(),
@@ -87,54 +87,91 @@ export function expectedLineTaxCents(
   return (cents * effectiveRate) / 100;
 }
 
-/**
- * Each Knotworking document kind maps to one Xero document. Customer invoices (`ACCREC`) and
- * credit notes (the `/CreditNotes` endpoint) are added here as the shared posting schema grows.
- */
 const xeroDocuments = {
-  purchase_invoice: { type: "ACCPAY", sourcePath: "purchasing/invoices", contact: "supplier" },
+  purchase_invoice: {
+    type: "ACCPAY",
+    sourcePath: "purchasing/invoices",
+    collection: "Invoices",
+    id: "InvoiceID",
+    number: "InvoiceNumber",
+  },
+  customer_invoice: {
+    type: "ACCREC",
+    sourcePath: "invoicing",
+    collection: "Invoices",
+    id: "InvoiceID",
+    number: "InvoiceNumber",
+  },
+  customer_credit_note: {
+    type: "ACCRECCREDIT",
+    sourcePath: "invoicing",
+    collection: "CreditNotes",
+    id: "CreditNoteID",
+    number: "CreditNoteNumber",
+  },
 } as const satisfies Record<
   AccountingPosting["kind"],
-  { type: string; sourcePath: string; contact: "supplier" | "customer" }
+  {
+    type: string;
+    sourcePath: string;
+    collection: string;
+    id: string;
+    number: string;
+  }
 >;
+const contactOf = (document: AccountingPosting) =>
+  document.kind === "purchase_invoice" ? document.supplierReference : document.customerReference;
+const creditReference = (postingKey: string, document: Credit) =>
+  `KW ${postingKey} / ${document.originalInvoice.reference}`;
 
-/**
- * What a document needs before Xero can receive it, checked when an invoice is prepared for a
- * Xero connection and again before sending. The connected organisation's currency, lock dates,
- * contact, account codes and tax types are checked against Xero itself just before the write.
- */
+/** Checked at preparation and again before sending. Xero validates the live ledger separately. */
 export function xeroDocumentIssues(
-  document: Pick<PurchaseBill, "kind" | "date" | "reference" | "currency"> & {
+  document: Pick<AccountingPosting, "kind" | "date" | "reference" | "currency"> & {
     dueDate?: string | null;
-    supplierReference: string | null;
+    supplierReference?: string | null;
+    customerReference?: string | null;
+    originalInvoice?: Credit["originalInvoice"];
   },
 ): string[] {
   const issues: string[] = [];
+  const supplier = document.kind === "purchase_invoice";
   if (!Object.hasOwn(xeroDocuments, document.kind)) issues.push("Xero can't receive this document type yet");
-  if (!document.dueDate) issues.push("Xero needs the supplier's due date on the invoice");
-  else if (document.dueDate < document.date) issues.push("The due date is before the invoice date");
-  // Xero allows 255 characters; control characters would not survive its matching and search.
+  if (document.kind !== "customer_credit_note") {
+    if (!document.dueDate)
+      issues.push(
+        supplier
+          ? "Xero needs the supplier's due date on the invoice"
+          : "Xero needs a due date on the invoice",
+      );
+    else if (document.dueDate < document.date) issues.push("The due date is before the invoice date");
+  } else if (!z.uuid().safeParse(document.originalInvoice?.externalId).success) {
+    issues.push("Verify the original Xero invoice before preparing its credit note");
+  }
   if (document.reference.length > 255 || /\p{Cc}/u.test(document.reference))
-    issues.push("The supplier invoice number can't be sent to Xero as written");
-  if (document.supplierReference !== null && !z.uuid().safeParse(document.supplierReference).success)
-    issues.push("Map the supplier to its Xero ContactID, a UUID from the contact's Xero record");
+    issues.push(
+      supplier
+        ? "The supplier invoice number can't be sent to Xero as written"
+        : "The document number can't be sent to Xero as written",
+    );
+  const contact = supplier ? document.supplierReference : document.customerReference;
+  if (contact != null && !z.uuid().safeParse(contact).success)
+    issues.push(
+      `Map the ${supplier ? "supplier" : "customer"} to its Xero ContactID, a UUID from the contact's Xero record`,
+    );
   if (!xeroCurrency.safeParse(document.currency).success)
-    issues.push(`Xero bills need a two-decimal currency, not ${document.currency}`);
+    issues.push(
+      `Xero ${supplier ? "bills" : "documents"} need a two-decimal currency, not ${document.currency}`,
+    );
   return issues;
 }
 const money = z.number().finite().nonnegative();
-const invoiceSchema = z.object({
-  InvoiceID: z.uuid(),
-  Type: z.literal("ACCPAY"),
+const documentSchema = z.object({
+  Type: z.enum(["ACCPAY", "ACCREC", "ACCRECCREDIT"]),
   Status: z.enum(["AUTHORISED", "PAID"]),
   Contact: z.object({ ContactID: z.uuid() }),
-  InvoiceNumber: z.string(),
-  Url: z.string(),
   CurrencyCode: z.string(),
   Date: z.string().optional(),
   DateString: z.string().optional(),
-  DueDate: z.string().optional(),
-  DueDateString: z.string().optional(),
   SubTotal: money,
   TotalTax: money,
   Total: money,
@@ -150,6 +187,27 @@ const invoiceSchema = z.object({
     }),
   ),
 });
+const invoiceFields = z.object({
+  InvoiceID: z.uuid(),
+  InvoiceNumber: z.string(),
+  Url: z.string(),
+  DueDate: z.string().optional(),
+  DueDateString: z.string().optional(),
+});
+const allocationSchema = z.object({
+  Invoice: z.object({ InvoiceID: z.uuid() }),
+  Amount: money,
+  IsDeleted: z.boolean().optional(),
+});
+const creditFields = z.object({
+  CreditNoteID: z.uuid(),
+  CreditNoteNumber: z.string(),
+  Reference: z.string(),
+  Allocations: z.array(allocationSchema).nullish(),
+});
+function single<T extends z.ZodType>(data: unknown, collection: string, schema: T): z.infer<T> {
+  return z.object({ [collection]: z.tuple([schema]) }).parse(data)[collection]![0]!;
+}
 function exactMoney(value: number): string {
   const canonical = value.toFixed(2);
   if (Number(canonical) !== value) throw new Error("Unsupported amount precision");
@@ -223,7 +281,7 @@ export function createXeroAdapter(options: {
     .max(60000)
     .parse(options.timeoutMs ?? 10000);
   const transport = options.fetch ?? globalThis.fetch;
-  const urlFor = (postingKey: string, document: PurchaseBill) =>
+  const urlFor = (postingKey: string, document: AccountingPosting) =>
     `${appUrl.origin}/${workspaceSlug}/${xeroDocuments[document.kind].sourcePath}/${document.sourceId}?accountingPosting=${postingKey}`;
   function prepare(postingKey: string, input: unknown) {
     z.uuid().parse(postingKey);
@@ -240,7 +298,7 @@ export function createXeroAdapter(options: {
       );
     const issue = xeroDocumentIssues(document)[0];
     if (issue) throw new PreflightIssue(issue);
-    return document as PurchaseBill & { dueDate: string };
+    return document;
   }
   /**
    * One operation's access to Xero. A 401 marks the token expired and retries once with a
@@ -307,27 +365,32 @@ export function createXeroAdapter(options: {
       return null;
     return organisation;
   }
-  async function mappingIssue(request: Request, document: PurchaseBill) {
-    const id = document.supplierReference.toLowerCase();
+  async function mappingIssue(request: Request, document: AccountingPosting) {
+    const id = contactOf(document).toLowerCase();
     const contact = (await lookup(`/Contacts/${id}`, request, (data) => activeContact.parse(data)))
       .Contacts[0]!;
     if (contact.ContactID.toLowerCase() !== id || contact.ContactStatus !== "ACTIVE")
-      return "The reviewed supplier contact is not active in Xero";
+      return `The reviewed ${document.kind === "purchase_invoice" ? "supplier" : "customer"} contact is not active in Xero`;
     const accounts = (await lookup("/Accounts", request, (data) => chart.parse(data))).Accounts;
     const rates = (await lookup("/TaxRates", request, (data) => taxRates.parse(data))).TaxRates;
     for (const [index, line] of document.lines.entries()) {
       const account = accounts.find((a) => a.Code === line.accountReference && a.Status === "ACTIVE");
       if (!account) return `Line ${index + 1} needs an active Xero account code`;
+      if (document.kind !== "purchase_invoice" && account.Class !== "REVENUE")
+        return `Line ${index + 1} needs a Xero revenue account`;
       const tax = rates.find((rate) => rate.TaxType === line.taxReference && rate.Status === "ACTIVE");
       const applies = account.Class && taxByClass[account.Class as keyof typeof taxByClass];
       if (!tax || (applies && tax[applies] === false))
         return `Line ${index + 1} needs an active Xero tax type applicable to its account`;
-      const issue = taxIssue(index, line, tax.EffectiveRate ?? (tax.TaxType === "NONE" ? 0 : undefined));
+      const rate = tax.EffectiveRate ?? (tax.TaxType === "NONE" ? 0 : undefined);
+      if (document.kind !== "purchase_invoice" && rate === undefined)
+        return `Line ${index + 1} needs a Xero tax type with a known effective rate`;
+      const issue = taxIssue(index, line, rate);
       if (issue) return issue;
     }
     return null;
   }
-  function taxIssue(index: number, line: PurchaseBill["lines"][number], rate: number | undefined) {
+  function taxIssue(index: number, line: AccountingPosting["lines"][number], rate: number | undefined) {
     if (rate === undefined) return null; // Xero did not say; its own validation still applies.
     if (rate === 0)
       return line.tax === "0.00" ? null : `Line ${index + 1} has a tax amount against a 0% Xero tax rate`;
@@ -336,30 +399,49 @@ export function createXeroAdapter(options: {
       return `Line ${index + 1} tax ${line.tax} is not ${rate}% of its net amount ${line.net} in Xero`;
     return null;
   }
-  function invoiceResponse(request: Request, externalId: string) {
+  function documentResponse(request: Request, document: AccountingPosting, externalId: string) {
     z.uuid().parse(externalId);
-    return request(`/Invoices/${encodeURIComponent(externalId)}`);
+    return request(`/${xeroDocuments[document.kind].collection}/${encodeURIComponent(externalId)}`);
   }
-  function verifyInvoice(
+  function verifyDocument(
     data: unknown,
     postingKey: string,
-    document: PurchaseBill,
+    document: AccountingPosting,
     externalId: string,
+    checkAllocation = true,
   ): AccountingReceipt {
-    const {
-      Invoices: [invoice],
-    } = z.object({ Invoices: z.tuple([invoiceSchema]) }).parse(data);
+    const type = xeroDocuments[document.kind];
+    const invoice = single(data, type.collection, documentSchema);
+    let id: string;
+    if (document.kind === "customer_credit_note") {
+      const credit = single(data, type.collection, creditFields);
+      id = credit.CreditNoteID;
+      if (
+        credit.CreditNoteNumber !== document.reference ||
+        credit.Reference !== creditReference(postingKey, document)
+      )
+        throw new Error("Xero credit note identity differs from the prepared document");
+      if (checkAllocation && document.originalInvoice.allocate && !verifiedAllocation(credit, document))
+        throw new Error("The expected credit allocation was not verified");
+    } else {
+      const header = single(data, type.collection, invoiceFields);
+      id = header.InvoiceID;
+      if (
+        header.InvoiceNumber !== document.reference ||
+        header.Url !== urlFor(postingKey, document) ||
+        businessDate(header.DueDateString ?? header.DueDate) !== document.dueDate
+      )
+        throw new Error("Xero invoice identity differs from the prepared document");
+    }
     if (
       invoice.HasErrors ||
-      invoice.InvoiceID.toLowerCase() !== externalId.toLowerCase() ||
-      invoice.Contact.ContactID.toLowerCase() !== document.supplierReference.toLowerCase() ||
-      invoice.InvoiceNumber !== document.reference ||
-      invoice.Url !== urlFor(postingKey, document) ||
+      invoice.Type !== type.type ||
+      id.toLowerCase() !== externalId.toLowerCase() ||
+      invoice.Contact.ContactID.toLowerCase() !== contactOf(document).toLowerCase() ||
       invoice.CurrencyCode !== document.currency ||
-      businessDate(invoice.DateString ?? invoice.Date) !== document.date ||
-      businessDate(invoice.DueDateString ?? invoice.DueDate) !== document.dueDate
+      businessDate(invoice.DateString ?? invoice.Date) !== document.date
     )
-      throw new Error("Xero invoice identity differs from the prepared document");
+      throw new Error("Xero document identity differs from the prepared document");
     if (
       exactMoney(invoice.SubTotal) !== document.net ||
       exactMoney(invoice.TotalTax) !== document.tax ||
@@ -388,14 +470,14 @@ export function createXeroAdapter(options: {
       connectionId: binding.connectionId,
       companyId: binding.companyId,
       postingKey,
-      externalId: invoice.InvoiceID.toLowerCase(),
+      externalId: id.toLowerCase(),
       currency: document.currency,
       net: document.net,
       tax: document.tax,
       gross: document.gross,
     });
   }
-  async function findInvoice(request: Request, postingKey: string, document: PurchaseBill) {
+  async function findInvoice(request: Request, postingKey: string, document: AccountingPosting) {
     // Purchase bill numbers are not unique. Look for the source URL under the original contact
     // and date, then verify the whole invoice by ID. Ambiguity and incomplete searches stay unknown.
     const candidates = z.object({
@@ -409,7 +491,7 @@ export function createXeroAdapter(options: {
     });
     const date = document.date.split("-").map(Number).join(",");
     const query = new URLSearchParams({
-      ContactIDs: document.supplierReference,
+      ContactIDs: contactOf(document),
       where: `Type=="${xeroDocuments[document.kind].type}"&&Date==DateTime(${date})`,
       createdByMyApp: "true",
       pageSize: "100",
@@ -427,7 +509,7 @@ export function createXeroAdapter(options: {
       if (Invoices.length < 100) {
         let receipt: AccountingReceipt | null = null;
         for (const id of matches) {
-          const data = await invoiceResponse(request, id);
+          const data = await documentResponse(request, document, id);
           const {
             Invoices: [invoice],
           } = z
@@ -437,21 +519,111 @@ export function createXeroAdapter(options: {
             .parse(data);
           if (invoice.Url !== source) continue;
           if (receipt) return null;
-          receipt = verifyInvoice(data, postingKey, document, id);
+          receipt = verifyDocument(data, postingKey, document, id);
         }
         return receipt;
       }
     }
     return null;
   }
+  async function findCredit(request: Request, postingKey: string, document: Credit) {
+    // Credit notes have no Url field. Use the unique credit number to find candidates and
+    // verify our Reference (including the posting key), amounts and allocation by ID.
+    const reference = document.reference;
+    if (!/^[A-Z0-9-]+$/.test(reference)) return null;
+    const query = new URLSearchParams({
+      where: `Type=="ACCRECCREDIT"&&CreditNoteNumber=="${reference}"`,
+      page: "1",
+      pageSize: "100",
+    });
+    const { CreditNotes } = z
+      .object({
+        CreditNotes: z.array(z.object({ CreditNoteID: z.uuid(), CreditNoteNumber: z.string() })),
+      })
+      .parse(await request(`/CreditNotes?${query}`));
+    if (CreditNotes.length >= 100) return null;
+    const matches = CreditNotes.filter((note) => note.CreditNoteNumber === reference);
+    if (matches.length !== 1) return null;
+    const id = matches[0]!.CreditNoteID;
+    return verifyDocument(await documentResponse(request, document, id), postingKey, document, id);
+  }
+
+  async function originalInvoice(request: Request, document: Credit) {
+    const source = document.originalInvoice;
+    const invoice = single(
+      await request(`/Invoices/${z.uuid().parse(source.externalId)}`),
+      "Invoices",
+      z.object({
+        InvoiceID: z.uuid(),
+        InvoiceNumber: z.string(),
+        Type: z.literal("ACCREC"),
+        Status: z.enum(["AUTHORISED", "PAID"]),
+        Contact: z.object({ ContactID: z.uuid() }),
+        CurrencyCode: z.string(),
+        AmountDue: money.optional(),
+      }),
+    );
+    if (
+      invoice.InvoiceID.toLowerCase() !== source.externalId.toLowerCase() ||
+      invoice.InvoiceNumber !== source.reference ||
+      invoice.CurrencyCode !== document.currency ||
+      invoice.Contact.ContactID.toLowerCase() !== contactOf(document).toLowerCase()
+    )
+      throw new PreflightIssue("The original Xero invoice does not match the reviewed invoice");
+    return invoice;
+  }
+
+  function verifiedAllocation(credit: z.infer<typeof creditFields>, document: Credit) {
+    const active = credit.Allocations?.filter((item) => !item.IsDeleted) ?? [];
+    return (
+      active.length > 0 &&
+      active.every(
+        (item) => item.Invoice.InvoiceID.toLowerCase() === document.originalInvoice.externalId.toLowerCase(),
+      ) &&
+      active.reduce((sum, item) => sum + Math.round(item.Amount * 100), 0) ===
+        Math.round(Number(document.gross) * 100)
+    );
+  }
+
+  async function allocateCredit(
+    request: Request,
+    document: Credit,
+    postingKey: string,
+    data: unknown,
+    creditId: string,
+  ) {
+    const credit = single(data, "CreditNotes", creditFields);
+    if (verifiedAllocation(credit, document)) return data;
+    if (credit.Allocations?.some((item) => !item.IsDeleted))
+      throw new Error("This credit already has allocations");
+    await request(`/CreditNotes/${creditId}/Allocations?summarizeErrors=false`, {
+      method: "PUT",
+      headers: { "Idempotency-Key": `${postingKey}-allocation` },
+      body: JSON.stringify({
+        Allocations: [
+          {
+            Invoice: { InvoiceID: document.originalInvoice.externalId },
+            Amount: Number(document.gross),
+            Date: document.date,
+          },
+        ],
+      }),
+    });
+    return documentResponse(request, document, creditId);
+  }
+
   async function readBack(input: { postingKey: string; document: AccountingPosting; externalId?: string }) {
     try {
       const document = prepare(input.postingKey, input.document);
       const request = session();
       if (!(await verifyOrganisation(request))) return null;
-      if (!input.externalId) return await findInvoice(request, input.postingKey, document);
-      return verifyInvoice(
-        await invoiceResponse(request, input.externalId),
+      if (document.kind === "customer_credit_note") await originalInvoice(request, document);
+      if (!input.externalId)
+        return document.kind === "customer_credit_note"
+          ? await findCredit(request, input.postingKey, document)
+          : await findInvoice(request, input.postingKey, document);
+      return verifyDocument(
+        await documentResponse(request, document, input.externalId),
         input.postingKey,
         document,
         input.externalId,
@@ -464,11 +636,15 @@ export function createXeroAdapter(options: {
     provider: "xero",
     connectionId: binding.connectionId,
     companyId: binding.companyId,
-    capabilities: { postingKinds: ["purchase_invoice"], currencies: [binding.baseCurrency] },
+    capabilities: {
+      postingKinds: ["purchase_invoice", "customer_invoice", "customer_credit_note"],
+      currencies: [binding.baseCurrency],
+    },
     readBack,
     findExisting: readBack,
     async post(input) {
       let written = false;
+      let accepted = false;
       try {
         const document = prepare(input.postingKey, input.document);
         z.uuid().parse(input.attemptId);
@@ -480,14 +656,30 @@ export function createXeroAdapter(options: {
           return reject("The invoice date falls in a locked Xero accounting period");
         const issue = await mappingIssue(request, document);
         if (issue) return reject(issue);
+        const type = xeroDocuments[document.kind];
+        const credit = document.kind === "customer_credit_note";
+        if (credit) {
+          const original = await originalInvoice(request, document);
+          if (
+            document.originalInvoice.allocate &&
+            (original.AmountDue === undefined || original.AmountDue < Number(document.gross))
+          )
+            return reject(
+              "The original Xero invoice does not have enough outstanding balance for this allocation",
+            );
+        }
         const invoice = {
-          Type: xeroDocuments[document.kind].type,
+          Type: type.type,
           Status: "AUTHORISED",
-          Contact: { ContactID: document.supplierReference },
-          InvoiceNumber: document.reference,
+          Contact: { ContactID: contactOf(document) },
+          [type.number]: document.reference,
           Date: document.date,
-          DueDate: document.dueDate,
-          Url: urlFor(input.postingKey, document),
+          ...(credit
+            ? { Reference: creditReference(input.postingKey, document) }
+            : {
+                DueDate: document.dueDate,
+                Url: urlFor(input.postingKey, document),
+              }),
           CurrencyCode: document.currency,
           LineAmountTypes: lineAmountTypes,
           LineItems: document.lines.map((line) => ({
@@ -505,10 +697,10 @@ export function createXeroAdapter(options: {
           // Mark uncertainty before invoking the transport, including timeout/HTTP errors.
           written = true;
           // A 401 is retried once, after a refresh, under the same Idempotency-Key.
-          response = await request("/Invoices?summarizeErrors=false", {
+          response = await request(`/${type.collection}?summarizeErrors=false`, {
             method: "PUT",
             headers: { "Idempotency-Key": input.postingKey },
-            body: JSON.stringify({ Invoices: [invoice] }),
+            body: JSON.stringify({ [type.collection]: [invoice] }),
           });
         } catch (error) {
           // Authentication, authorisation and rate limiting refuse a request before Xero
@@ -516,40 +708,40 @@ export function createXeroAdapter(options: {
           if (refusedBeforeProcessing(error) || isReconnect(error)) written = false;
           throw error;
         }
-        const created = z
-          .object({
-            Invoices: z
-              .array(
-                z.object({
-                  InvoiceID: z.uuid().optional(),
-                  HasErrors: z.boolean().optional(),
-                  StatusAttributeString: z.string().optional(),
-                  ValidationErrors: z.array(z.object({ Message: z.string() })).optional(),
-                }),
-              )
-              .length(1),
-          })
-          .parse(response);
-        const result = created.Invoices[0]!;
-        const hasId = result.InvoiceID && result.InvoiceID !== "00000000-0000-0000-0000-000000000000";
-        if (!hasId && result.StatusAttributeString === "ERROR" && result.ValidationErrors?.length)
-          return reject("Xero rejected the bill during validation and did not create it");
-        if (!hasId || result.HasErrors || result.StatusAttributeString === "ERROR") return unavailable(true);
-        return {
-          outcome: "posted" as const,
-          receipt: verifyInvoice(
-            await invoiceResponse(request, result.InvoiceID!),
-            input.postingKey,
-            document,
-            result.InvoiceID!,
-          ),
-        };
+        const result = single(
+          response,
+          type.collection,
+          z.object({
+            [type.id]: z.uuid().optional(),
+            HasErrors: z.boolean().optional(),
+            StatusAttributeString: z.string().optional(),
+            ValidationErrors: z.array(z.object({ Message: z.string() })).optional(),
+          }),
+        );
+        const id = result[type.id] as string | undefined;
+        const hasId = id && id !== "00000000-0000-0000-0000-000000000000";
+        if (
+          !hasId &&
+          result.StatusAttributeString === "ERROR" &&
+          Array.isArray(result.ValidationErrors) &&
+          result.ValidationErrors.length
+        )
+          return reject("Xero rejected the document during validation and did not create it");
+        if (!id || !hasId || result.HasErrors || result.StatusAttributeString === "ERROR")
+          return unavailable(true);
+        accepted = true;
+        let data = await documentResponse(request, document, id);
+        if (credit && document.originalInvoice.allocate) {
+          verifyDocument(data, input.postingKey, document, id, false);
+          data = await allocateCredit(request, document, input.postingKey, data, id);
+        }
+        return { outcome: "posted" as const, receipt: verifyDocument(data, input.postingKey, document, id) };
       } catch (error) {
         if (!written && error instanceof PreflightIssue) return reject(error.message);
         if (!written && isReconnect(error))
-          return defer(`${error.message} The bill stays queued and is sent once Xero is reconnected.`);
+          return defer(`${error.message} The document stays queued and is sent once Xero is reconnected.`);
         if (!written && error instanceof XeroHttpError && error.status === 429)
-          return defer("Xero's rate limit was reached before the bill was sent; it stays queued");
+          return defer("Xero's rate limit was reached before the document was sent; it stays queued");
         if (!written && error instanceof XeroHttpError && error.status === 401)
           return reject(
             "Xero denied access, even after refreshing it. Check the connection and consent before retrying.",
@@ -558,8 +750,8 @@ export function createXeroAdapter(options: {
           return reject(
             "Xero refused access to this organisation. Check the connected user's Xero permissions before retrying.",
           );
-        if (error instanceof XeroHttpError && error.validationRejected)
-          return reject("Xero rejected the bill during validation and did not create it");
+        if (!accepted && error instanceof XeroHttpError && error.validationRejected)
+          return reject("Xero rejected the document during validation and did not create it");
         return unavailable(written);
       }
     },

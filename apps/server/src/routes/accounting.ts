@@ -1,5 +1,6 @@
 import {
   accountingConnectionCreateSchema,
+  accountingCustomerPrepareSchema,
   accountingConnectionUpdateSchema,
   accountingInvoiceListSchema,
   accountingInvoicePrepareSchema,
@@ -39,6 +40,11 @@ import {
   retryAccountingQueueItem,
   sendAccountingPostingNow,
 } from "../accounting/queue";
+import {
+  getPreparableCustomerDocument,
+  listPreparableCustomerDocuments,
+  prepareCustomerPosting,
+} from "../accounting/customer-documents";
 const id = z.object({ id: z.uuid() });
 const invoiceParam = z.object({ id: z.uuid(), invoiceId: z.uuid() });
 const postingParam = z.object({ id: z.uuid(), postingId: z.uuid() });
@@ -55,6 +61,7 @@ export const accountingRoutes = new Hono<WorkspaceEnv>()
       canMapSuppliers: canRead(c, "items"),
       canMapCustomers: canRead(c, "customers"),
       canPrepareInvoices: canRead(c, "purchasing"),
+      canPrepareCustomerDocuments: canRead(c, "invoicing"),
     }),
   )
   .post("/accounting/connections", validate("json", accountingConnectionCreateSchema), async (c) =>
@@ -159,6 +166,53 @@ export const accountingRoutes = new Hono<WorkspaceEnv>()
       const { id: connectionId, invoiceId } = c.req.valid("param");
       return c.json(
         await prepareInvoicePosting(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          connectionId,
+          invoiceId,
+          c.req.valid("json"),
+        ),
+        201,
+      );
+    },
+  )
+  .get(
+    "/accounting/connections/:id/customer-documents",
+    validate("param", id),
+    validate("query", accountingPageSchema),
+    async (c) => {
+      assertModule(c, "invoicing", "read");
+      return c.json(
+        await listPreparableCustomerDocuments(
+          c.var.db,
+          c.var.workspace.id,
+          c.req.valid("param").id,
+          c.req.valid("query").offset,
+        ),
+      );
+    },
+  )
+  .get(
+    "/accounting/connections/:id/customer-documents/:invoiceId",
+    validate("param", invoiceParam),
+    async (c) => {
+      assertModule(c, "invoicing", "read");
+      const { id: connectionId, invoiceId } = c.req.valid("param");
+      return c.json(
+        await getPreparableCustomerDocument(c.var.db, c.var.workspace.id, connectionId, invoiceId),
+      );
+    },
+  )
+  .post(
+    "/accounting/connections/:id/customer-documents/:invoiceId/prepare",
+    validate("param", invoiceParam),
+    validate("json", accountingCustomerPrepareSchema),
+    async (c) => {
+      assertModule(c, "invoicing", "read");
+      const { id: connectionId, invoiceId } = c.req.valid("param");
+      return c.json(
+        await prepareCustomerPosting(
           c.var.db,
           c.var.workspace.id,
           c.var.user.id,

@@ -4,7 +4,6 @@ import {
   type AccountingPosting,
 } from "@knotworking/core";
 import {
-  accountingMappings as mappings,
   accountingPostings as postings,
   items,
   purchaseInvoiceLines,
@@ -17,7 +16,11 @@ import {
 } from "@knotworking/db";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { ApiError, notFound } from "../errors";
-import { assertAccountingConnection, findAccountingConnection } from "../services/accounting";
+import {
+  assertAccountingConnection,
+  enabledAccountingMappings,
+  findAccountingConnection,
+} from "../services/accounting";
 import { executeLedgerCommand } from "../services/ledger-command";
 import { enqueueAccountingPostingTx } from "./outbox";
 import { providerDocumentIssues } from "./provider-rules";
@@ -125,22 +128,6 @@ async function otherVersionPostings(
     );
 }
 
-async function enabledMappings(db: Executor, ws: string, connectionId: string) {
-  const rows = await db
-    .select({
-      kind: mappings.kind,
-      localReference: mappings.localReference,
-      externalReference: mappings.externalReference,
-    })
-    .from(mappings)
-    .where(
-      and(eq(mappings.workspaceId, ws), eq(mappings.connectionId, connectionId), eq(mappings.enabled, true)),
-    );
-  const byKind = (kind: string) =>
-    new Map(rows.filter((r) => r.kind === kind).map((r) => [r.localReference, r.externalReference]));
-  return { supplier: byKind("supplier"), account: byKind("account"), tax: byKind("tax") };
-}
-
 function postingView(row: typeof postings.$inferSelect | undefined) {
   return row
     ? {
@@ -211,7 +198,7 @@ export async function getPreparableInvoice(
   const source = await findApprovedSource(db, ws, invoiceId);
   const currency = await workspaceCurrency(db, ws);
   const digits = currencyDigits(currency);
-  const mapped = await enabledMappings(db, ws, connectionId);
+  const mapped = await enabledAccountingMappings(db, ws, connectionId);
   const [existing] = await db
     .select()
     .from(postings)
@@ -404,7 +391,7 @@ export async function prepareInvoicePosting(
           `Line tax adds up to ${format(tax, digits)} but the invoice VAT is ${format(vat, digits)}`,
         );
 
-      const mapped = await enabledMappings(tx, ws, connectionId);
+      const mapped = await enabledAccountingMappings(tx, ws, connectionId);
       const supplierReference = mapped.supplier.get(invoice.supplierId);
       const unmapped = {
         supplier: supplierReference ? [] : [supplier.name],

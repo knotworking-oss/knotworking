@@ -29,7 +29,8 @@ const binding = {
   companyId: "test-company",
   capabilities: { postingKinds: ["purchase_invoice"] as const, currencies: ["GBP", "USD", "JPY", "KWD"] },
 };
-function document(extra: Partial<AccountingPosting> = {}): AccountingPosting {
+type PurchaseInvoice = Extract<AccountingPosting, { kind: "purchase_invoice" }>;
+function document(extra: Partial<PurchaseInvoice> = {}): PurchaseInvoice {
   return {
     version: 1,
     provider: binding.provider,
@@ -77,15 +78,13 @@ describe("Provider-neutral durable posting boundary (test adapters only)", () =>
       { id: other, name: "Other", slug: "other-finance" },
     ]);
     for (const workspaceId of [ws, other])
-      await handle.db
-        .insert(accountingConnections)
-        .values({
-          id: connectionId,
-          workspaceId,
-          name: "Test setup",
-          provider: binding.provider,
-          companyId: binding.companyId,
-        });
+      await handle.db.insert(accountingConnections).values({
+        id: connectionId,
+        workspaceId,
+        name: "Test setup",
+        provider: binding.provider,
+        companyId: binding.companyId,
+      });
   }, 30000);
   afterAll(async () => {
     await handle?.close();

@@ -25,37 +25,53 @@ const destination = {
   connectionId: z.uuid(),
   companyId: label,
 };
+const postingFields = {
+  version: z.literal(1),
+  ...destination,
+  sourceId: z.uuid(),
+  sourceRevision: z.number().int().positive(),
+  reference: label,
+  date: z.iso.date(),
+  currency: currencySchema,
+  lines: z
+    .array(
+      z
+        .object({
+          accountReference: label,
+          taxReference: label,
+          description: label,
+          net: accountingAmountSchema,
+          tax: accountingAmountSchema,
+        })
+        .strict(),
+    )
+    .min(1)
+    .max(500),
+  net: accountingAmountSchema,
+  tax: accountingAmountSchema,
+  gross: accountingAmountSchema,
+};
 export const accountingPostingSchema = z
-  .object({
-    version: z.literal(1),
-    ...destination,
-    kind: z.literal("purchase_invoice"),
-    sourceId: z.uuid(),
-    sourceRevision: z.number().int().positive(),
-    supplierReference: label,
-    reference: label,
-    date: z.iso.date(),
-    dueDate: z.iso.date().optional(),
-    currency: currencySchema,
-    lines: z
-      .array(
-        z
-          .object({
-            accountReference: label,
-            taxReference: label,
-            description: label,
-            net: accountingAmountSchema,
-            tax: accountingAmountSchema,
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(500),
-    net: accountingAmountSchema,
-    tax: accountingAmountSchema,
-    gross: accountingAmountSchema,
-  })
-  .strict()
+  .discriminatedUnion("kind", [
+    z.strictObject({
+      ...postingFields,
+      kind: z.literal("purchase_invoice"),
+      supplierReference: label,
+      dueDate: z.iso.date().optional(),
+    }),
+    z.strictObject({
+      ...postingFields,
+      kind: z.literal("customer_invoice"),
+      customerReference: label,
+      dueDate: z.iso.date(),
+    }),
+    z.strictObject({
+      ...postingFields,
+      kind: z.literal("customer_credit_note"),
+      customerReference: label,
+      originalInvoice: z.strictObject({ externalId: label, reference: label, allocate: z.boolean() }),
+    }),
+  ])
   .superRefine((v, ctx) => {
     const amounts = [v.net, v.tax, v.gross, ...v.lines.flatMap((l) => [l.net, l.tax])];
     if (!validPrecision(v.currency, amounts, ctx)) return;
@@ -160,6 +176,23 @@ export const accountingInvoicePrepareSchema = z
       ctx.addIssue({ code: "custom", message: "Code each invoice line once" });
   });
 export type AccountingInvoicePrepareInput = z.infer<typeof accountingInvoicePrepareSchema>;
+export const accountingCustomerPrepareSchema = z
+  .strictObject({
+    commandId: z.uuid(),
+    expectedRevision: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(2000),
+    lines: z
+      .array(z.strictObject({ id: z.uuid(), accountKey: label, taxKey: label }))
+      .max(500)
+      .default([]),
+    allocate: z.boolean().default(false),
+  })
+  .refine(
+    (input) => new Set(input.lines.map((line) => line.id)).size === input.lines.length,
+    "Code each invoice line once",
+  );
+export type AccountingCustomerPrepareInput = z.infer<typeof accountingCustomerPrepareSchema>;
+
 export const accountingInvoiceListSchema = accountingPageSchema.extend({
   /** `open`: approved invoices not yet prepared for this connection. */
   show: z.enum(["open", "all"]).default("open"),

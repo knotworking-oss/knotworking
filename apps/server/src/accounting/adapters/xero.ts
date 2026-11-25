@@ -85,8 +85,7 @@ export function xeroDocumentIssues(
 ): string[] {
   const issues: string[] = [];
   if (!Object.hasOwn(xeroDocuments, document.kind)) issues.push("Xero can't receive this document type yet");
-  if (!document.dueDate)
-    issues.push("Add the supplier's due date to the invoice. Xero needs one for a bill.");
+  if (!document.dueDate) issues.push("Xero needs the supplier's due date on the invoice");
   else if (document.dueDate < document.date) issues.push("The due date is before the invoice date");
   // Xero allows 255 characters; control characters would not survive its matching and search.
   if (document.reference.length > 255 || /\p{Cc}/u.test(document.reference))

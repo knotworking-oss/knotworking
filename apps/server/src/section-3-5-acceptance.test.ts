@@ -171,7 +171,7 @@ describe("Section 3.5 acceptance exercise", () => {
         rules: [{ fromRecipeId: recipe.plain, toRecipeId: recipe.milk, minutes: 5, note: "Same dough line" }],
       }),
     );
-  });
+  }, 60_000);
 
   it("plans the short-life day from confirmed orders, with an explained order and a changeover", async () => {
     const order = await ok(

@@ -104,6 +104,7 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
         c.var.workspace.id,
         c.var.user.id,
         c.req.valid("json"),
+        { slug: c.var.workspace.slug, canUse: (moduleId) => canRead(c, moduleId) },
         emailNotifier(c.var),
       ),
       201,

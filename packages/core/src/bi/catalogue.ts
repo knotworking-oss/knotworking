@@ -1,6 +1,6 @@
 import type { ModuleAccessLevel, ModuleId } from "../modules";
 import { workflowStateTypes } from "../enums";
-import { itemTypes } from "../items";
+import { baseUnits, itemTypes, unitCodes, unitDimension } from "../items";
 import { productionBatchStatuses } from "../production";
 import { purchaseInvoiceLineKinds, purchaseInvoiceStatuses } from "../purchase-invoices";
 import { purchaseOrderLineKinds, purchaseOrderStatuses } from "../purchasing";
@@ -107,7 +107,7 @@ export interface BiMeasure extends BiFieldRules {
   /** Multiply `of` by this column first (a line's value is quantity × unit price). */
   times?: BiColumnRef;
   /**
-   * `of` is in the item's base unit (g, ml or each) and `times` is per `unit`: convert `of` into
+   * `of` is in the item's base unit and `times` is per `unit`: convert `of` into
    * `unit` first, through the item's density or unit weight across dimensions (as
    * `convertQuantity` does). Lines that can't be converted count as unknown (left out of sums).
    */
@@ -191,16 +191,16 @@ const itemDims = (join = "item"): BiDimension[] => [
   { id: "item", label: "Item", type: "reference", join, column: "id", labelColumn: "name" },
   { id: "item_type", label: "Item type", type: "category", join, column: "type", values: itemTypes },
 ];
-/** The item's base unit (g, ml or each), from its own unit: what ledger quantities are held in. */
+/** The item's base unit, derived from its display unit. */
 const baseUnitDim = (join = "item"): BiDimension => ({
   id: "base_unit",
   label: "Base unit",
-  description: "The unit quantities are held in: g, ml or each.",
+  description: "The unit in which ledger quantities are stored.",
   type: "category",
   join,
   column: "unit",
-  values: ["g", "ml", "each"],
-  map: { mg: "g", g: "g", kg: "g", ml: "ml", l: "ml", each: "each" },
+  values: Object.values(baseUnits),
+  map: Object.fromEntries(unitCodes.map((unit) => [unit, baseUnits[unitDimension(unit)]])),
 });
 /** Purchase orders that commit spend: sent or closed (drafts and cancelled orders never count). */
 const committedOrders: readonly BiCondition[] = [
@@ -221,7 +221,7 @@ const stockMovements: BiDataset = {
   id: "stock_movements",
   label: "Stock movements",
   description:
-    "The append-only stock ledger: goods in, transfers, adjustments, waste, stocktakes, despatches, consumption and production output. Quantities are signed (in is positive) and in each item's base unit (g, ml or each).",
+    "The append-only stock ledger: goods in, transfers, adjustments, waste, stocktakes, despatches, consumption and production output. Quantities are signed (in is positive) and in each item's base unit.",
   grain: "one ledger movement",
   module: "stock",
   table: "stock_movements",
@@ -416,7 +416,7 @@ const purchaseOrders: BiDataset = {
       id: "ordered_quantity",
       label: "Ordered quantity",
       description:
-        "Sum of stock line quantities on sent and closed orders, in the item's base unit (g, ml or each). Non-stock lines are left out.",
+        "Sum of stock line quantities on sent and closed orders, in the item's base unit. Non-stock lines are left out.",
       agg: "sum",
       of: { column: "quantity" },
       where: [...committedOrders, { column: "kind", op: "eq", value: "stock" }],
@@ -553,7 +553,7 @@ const salesOrders: BiDataset = {
       label: "Base unit",
       type: "category",
       column: "base_unit",
-      values: ["g", "ml", "each"],
+      values: Object.values(baseUnits),
     },
   ],
   measures: [
@@ -639,7 +639,7 @@ const productionBatches: BiDataset = {
     {
       id: "planned_quantity",
       label: "Planned quantity",
-      description: "Sum of planned output, in the product's base unit (g, ml or each).",
+      description: "Sum of planned output, in the product's base unit.",
       agg: "sum",
       of: { column: "planned_quantity" },
       unit: "quantity",

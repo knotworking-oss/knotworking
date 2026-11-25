@@ -73,6 +73,7 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   [/^\/costing(\/|$)/, "costing"],
   [/^\/(?:site\/)?maintenance(\/|$)/, "maintenance"],
   [/^\/site\/calibration-instruments$/, "maintenance"],
+  [/^\/checklists(\/|$)/, "checklists"],
   // Site programmes: pest control, glass register, storage temperatures, checklists.
   [/^\/site(\/|$)/, "site"],
   // Labels and nutrition: items' labelling data, computed declarations and product labels. Under

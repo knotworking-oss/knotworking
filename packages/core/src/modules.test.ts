@@ -192,6 +192,7 @@ describe("resolveModuleAccess", () => {
       calendar: "none",
       assets: "none",
       maintenance: "none",
+      checklists: "none",
       items: "none",
       recipes: "none",
       sops: "none",

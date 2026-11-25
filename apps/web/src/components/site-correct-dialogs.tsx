@@ -21,6 +21,7 @@ import {
   TextAreaField,
   TextField,
   siteApi,
+  checklistApi,
   maintenanceApi,
   text,
 } from "@/components/site-forms";
@@ -221,12 +222,16 @@ export function CorrectCheckDialog({
     <SiteDialog
       wide
       title="Correct a check"
-      description={`${check.templateName}. The correction replaces it and needs its own sign-off.`}
+      description={
+        check.kind === "general"
+          ? check.templateName
+          : `${check.templateName}. The correction needs its own sign-off.`
+      }
       submitLabel="Correct check"
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().checklists.checks[":id"].correct.$post({
+          (check.kind === "general" ? checklistApi() : siteApi().checklists).checks[":id"].correct.$post({
             param: { slug, id: check.id },
             json: {
               reason: reason.trim(),

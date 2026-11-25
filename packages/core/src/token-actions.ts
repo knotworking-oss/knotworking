@@ -275,6 +275,9 @@ export const personOnlyActions: readonly PersonOnlyAction[] = [
   personOnly("maintenance", "Cancel work orders", "attestation"),
   personOnly("site", "Record pre-start and changeover checks", "attestation"),
   personOnly("site", "Correct site records", "attestation"),
+  personOnly("checklists", "Record completed checklists", "attestation"),
+  personOnly("checklists", "Correct checklist results", "attestation"),
+  personOnly("checklists", "Resolve checklist follow-ups", "attestation"),
   personOnly("maintenance", "Correct maintenance records", "attestation"),
   // Corrections of the ledger.
   personOnly("stock", "Reverse stock movements", "correction"),

@@ -694,6 +694,13 @@
       "when": 1795619661112,
       "tag": "0098_maintenance",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1795621243657,
+      "tag": "0099_checklists",
+      "breakpoints": true
     }
   ]
 }

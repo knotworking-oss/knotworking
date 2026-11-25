@@ -1067,6 +1067,31 @@ export const getChecklistChecks = (slug: string) =>
     return { ...recent, checks: withQueue(recent.checks, queue.checks) };
   });
 
+export const getGeneralChecklistTemplates = (slug: string) =>
+  load((api) => unwrap(ws(api).checklists.templates.$get({ param: { slug }, query: { status: "all" } })));
+
+export const getGeneralChecklistChecks = (slug: string, offset: number) =>
+  load((api) =>
+    unwrap(
+      ws(api).checklists.checks.$get({
+        param: { slug },
+        query: { limit: "50", offset: String(offset), includeCorrected: "false" },
+      }),
+    ),
+  );
+
+export const getChecklistActions = (slug: string, offset: number, status: "open" | "all") =>
+  load((api) =>
+    unwrap(
+      ws(api).checklists.actions.$get({
+        param: { slug },
+        query: { limit: "25", offset: String(offset), status },
+      }),
+    ),
+  );
+
+export type ChecklistAction = Awaited<ReturnType<typeof getChecklistActions>>["actions"][number];
+
 /** SOPs module: one page of SOPs (see `sopListQuerySchema`). */
 export const getSops = (
   slug: string,
@@ -1455,7 +1480,10 @@ export const getAllCorrectiveActions = (slug: string) =>
 
 /** The site programmes' records between two days: readings, checks, maintenance and pest visits. */
 export const getSiteAuditRecords = async (slug: string, range: { from: string; to: string }) => {
-  const withMaintenance = await canReadModule(slug, "maintenance");
+  const [withMaintenance, withChecklists] = await Promise.all([
+    canReadModule(slug, "maintenance"),
+    canReadModule(slug, "checklists"),
+  ]);
   return load(async (api) => {
     const site = ws(api).site;
     const query = (offset: number, size: number) => ({
@@ -1469,10 +1497,12 @@ export const getSiteAuditRecords = async (slug: string, range: { from: string; t
         const r = await unwrap(site.storage.readings.$get({ param: { slug }, query: query(o, s) }));
         return { rows: r.readings, total: r.total };
       }),
-      allPages(async (o, s) => {
-        const r = await unwrap(site.checklists.checks.$get({ param: { slug }, query: query(o, s) }));
-        return { rows: r.checks, total: r.total };
-      }),
+      withChecklists
+        ? allPages(async (o, s) => {
+            const r = await unwrap(site.checklists.checks.$get({ param: { slug }, query: query(o, s) }));
+            return { rows: r.checks, total: r.total };
+          })
+        : { rows: [], total: 0 },
       withMaintenance
         ? allPages(async (o, s) => {
             const r = await unwrap(ws(api).maintenance.records.$get({ param: { slug }, query: query(o, s) }));
@@ -1499,7 +1529,7 @@ export const getSiteAuditRecords = async (slug: string, range: { from: string; t
     ]);
     return {
       readings: readings.rows.reverse(),
-      checks: checks.rows.reverse(),
+      checks: withChecklists ? checks.rows.reverse() : null,
       maintenance: withMaintenance ? maintenance.rows.reverse() : null,
       visits: visits.rows.reverse(),
       glassChecks: glassChecks.rows.reverse(),

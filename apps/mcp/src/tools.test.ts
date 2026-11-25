@@ -17,6 +17,12 @@ afterEach(async () => {
 });
 
 const READ_TOOLS = [
+  "list_checklist_templates",
+  "get_checklist_template",
+  "get_checklists_due",
+  "list_checklist_results",
+  "get_checklist_result",
+  "list_checklist_actions",
   "list_maintenance_tasks",
   "list_maintenance_records",
   "get_maintenance_record",
@@ -208,6 +214,7 @@ const GATED_TOOLS = [
   "cancel_production_batch",
 ];
 const WRITE_TOOLS = [
+  "save_checklist_template",
   "save_asset",
   "draft_hse_register",
   "draft_hse_permit",

@@ -2,7 +2,7 @@ import {
   checklistTemplateCreateSchema,
   checklistTemplateUpdateSchema,
   ccpLogReviewStatuses,
-  checkSignOffStatuses,
+  siteCheckSignOffStatuses,
   glassItemCreateSchema,
   glassItemUpdateSchema,
   maintenanceTaskCreateSchema,
@@ -317,7 +317,7 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
           .optional()
           .describe("Only out-of-limit (true) or within-limit (false) readings."),
         review: z.enum(ccpLogReviewStatuses).optional().describe("Review status (storage_readings)."),
-        sign_off: z.enum(checkSignOffStatuses).optional().describe("Sign-off status (checklist_checks)."),
+        sign_off: z.enum(siteCheckSignOffStatuses).optional().describe("Sign-off status (checklist_checks)."),
         awaiting_clearance: z.boolean().optional().describe("Only work awaiting a hygiene clearance."),
         status: z
           .enum(["open", "closed", "released", "completed", "cancelled", "all"])

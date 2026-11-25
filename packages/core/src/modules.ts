@@ -24,6 +24,7 @@ export const moduleIds = [
   "calendar",
   "assets",
   "maintenance",
+  "checklists",
   "items",
   "recipes",
   "sops",
@@ -220,6 +221,23 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     defaultAccess: "none",
     // Keep the existing entity IDs so earlier sync log entries retain their owner.
     syncEntities: ["site_asset", "site_maintenance_task", "site_maintenance_record", "site_work_order"],
+  },
+  checklists: {
+    id: "checklists",
+    name: "Checklists",
+    description:
+      "Reusable checklists, recurring schedules, completed checks and follow-up actions for failures.",
+    dependsOn: [],
+    enhancedBy: [],
+    defaultActive: true,
+    defaultAccess: "none",
+    syncEntities: [
+      "checklist_template",
+      "checklist_item",
+      "checklist_check",
+      "checklist_check_item",
+      "checklist_action",
+    ],
   },
   items: {
     id: "items",
@@ -460,7 +478,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Prerequisite programmes: pest control, the glass and brittle plastics register, storage temperature logging, and pre-start and allergen changeover checks, with what is due across them.",
     dependsOn: ["assets"],
-    enhancedBy: ["maintenance"],
+    enhancedBy: ["maintenance", "checklists", "production"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [

@@ -46,8 +46,9 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
 import { forbidTokens } from "../middleware/auth";
-import { canRead, requireModuleLevel } from "../middleware/modules";
+import { assertModule, canRead, requireModuleLevel } from "../middleware/modules";
 import { listCalibrationInstruments } from "../services/maintenance";
+import * as checklists from "../services/checklists";
 import * as site from "../services/site";
 import { importGlassCsv } from "../services/site-import";
 import { validate } from "../validate";
@@ -75,12 +76,15 @@ const sourceOf = (c: Context<WorkspaceEnv>): SiteSource =>
  * Records are append-only: no route deletes one.
  */
 export const siteRoutes = new Hono<WorkspaceEnv>()
+  .use("/site/checklists/*", requireModuleLevel("checklists", "read"))
   // ── Areas (the asset register) and what's due ──
   .get("/site/areas", async (c) => c.json(await site.listAreas(c.var.db, c.var.workspace.id)))
   .get("/site/due", validate("query", siteDueQuerySchema), async (c) =>
     c.json(
       await site.getSiteDue(c.var.db, c.var.workspace.id, c.req.valid("query"), {
         withMaintenance: canRead(c, "maintenance"),
+        withChecklists: canRead(c, "checklists"),
+        withProduction: canRead(c, "production"),
       }),
     ),
   )
@@ -396,62 +400,138 @@ export const siteRoutes = new Hono<WorkspaceEnv>()
 
   // ── Pre-start and allergen changeover checks ──
   .get("/site/checklists/templates", validate("query", checklistTemplateListQuerySchema), async (c) =>
-    c.json(await site.listChecklistTemplates(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+    c.json(
+      await checklists.listChecklistTemplates(
+        c.var.db,
+        c.var.workspace.id,
+        c.req.valid("query"),
+        "site",
+        canRead(c, "production"),
+      ),
+    ),
   )
   .get("/site/checklists/templates/:id", validate("param", idParam), async (c) =>
-    c.json(await site.getChecklistTemplate(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
-  )
-  .post("/site/checklists/templates", validate("json", checklistTemplateCreateSchema), async (c) =>
     c.json(
-      await site.createChecklistTemplate(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")),
-      201,
+      await checklists.getChecklistTemplate(
+        c.var.db,
+        c.var.workspace.id,
+        c.req.valid("param").id,
+        "site",
+        canRead(c, "production"),
+      ),
     ),
+  )
+  .post(
+    "/site/checklists/templates",
+    requireModuleLevel("checklists", "write"),
+    validate("json", checklistTemplateCreateSchema),
+    async (c) => {
+      const input = c.req.valid("json");
+      if (input.duringProduction) assertModule(c, "production", "read");
+      return c.json(
+        await checklists.createChecklistTemplate(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          input,
+          "site",
+          canRead(c, "production"),
+        ),
+        201,
+      );
+    },
   )
   .patch(
     "/site/checklists/templates/:id",
+    requireModuleLevel("checklists", "write"),
     validate("param", idParam),
     validate("json", checklistTemplateUpdateSchema),
-    async (c) =>
-      c.json(
-        await site.updateChecklistTemplate(
+    async (c) => {
+      const input = c.req.valid("json");
+      if (input.duringProduction) assertModule(c, "production", "read");
+      return c.json(
+        await checklists.updateChecklistTemplate(
           c.var.db,
           c.var.workspace.id,
           c.var.user.id,
           c.req.valid("param").id,
-          c.req.valid("json"),
+          input,
+          "site",
+          canRead(c, "production"),
         ),
-      ),
+      );
+    },
   )
   // The allergen risk of a changeover (warns only; nothing is stored or blocked).
-  .get("/site/checklists/allergen-risk", validate("query", changeoverRiskQuerySchema), async (c) =>
-    c.json(await site.getChangeoverRisk(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+  .get(
+    "/site/checklists/allergen-risk",
+    requireModuleLevel("production", "read"),
+    validate("query", changeoverRiskQuerySchema),
+    async (c) =>
+      c.json(await checklists.getChangeoverRisk(c.var.db, c.var.workspace.id, c.req.valid("query"))),
   )
-  .get("/site/checklists/checks", validate("query", checklistCheckListQuerySchema), async (c) =>
-    c.json(await site.listChecklistChecks(c.var.db, c.var.workspace.id, c.req.valid("query"))),
-  )
+  .get("/site/checklists/checks", validate("query", checklistCheckListQuerySchema), async (c) => {
+    const query = c.req.valid("query");
+    if (query.batchId) assertModule(c, "production", "read");
+    return c.json(
+      await checklists.listChecklistChecks(
+        c.var.db,
+        c.var.workspace.id,
+        query,
+        "site",
+        canRead(c, "production"),
+      ),
+    );
+  })
   .get("/site/checklists/checks/:id", validate("param", idParam), async (c) =>
-    c.json(await site.getChecklistCheck(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+    c.json(
+      await checklists.getChecklistCheck(
+        c.var.db,
+        c.var.workspace.id,
+        c.req.valid("param").id,
+        "site",
+        canRead(c, "production"),
+      ),
+    ),
   )
   // A completed check attests that a person did it: tokens are refused.
-  .post("/site/checklists/checks", forbidTokens, validate("json", checklistCheckCreateSchema), async (c) =>
-    c.json(
-      await site.recordChecklistCheck(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")),
-      201,
-    ),
+  .post(
+    "/site/checklists/checks",
+    forbidTokens,
+    requireModuleLevel("checklists", "write"),
+    validate("json", checklistCheckCreateSchema),
+    async (c) => {
+      const input = c.req.valid("json");
+      if (input.previousBatchId || input.nextBatchId) assertModule(c, "production", "read");
+      return c.json(
+        await checklists.recordChecklistCheck(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          input,
+          "site",
+          canRead(c, "production"),
+        ),
+        201,
+      );
+    },
   )
   .post(
     "/site/checklists/checks/:id/correct",
     forbidTokens,
+    requireModuleLevel("checklists", "write"),
     validate("param", idParam),
     validate("json", checklistCheckCorrectSchema),
     async (c) =>
       c.json(
-        await site.correctChecklistCheck(
+        await checklists.correctChecklistCheck(
           c.var.db,
           c.var.workspace.id,
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json"),
+          "site",
+          canRead(c, "production"),
         ),
         201,
       ),
@@ -461,16 +541,18 @@ export const siteRoutes = new Hono<WorkspaceEnv>()
     "/site/checklists/checks/:id/sign-off",
     forbidTokens,
     requireModuleLevel("site", "manage"),
+    requireModuleLevel("checklists", "write"),
     validate("param", idParam),
     validate("json", checkSignOffSchema),
     async (c) =>
       c.json(
-        await site.signOffChecklistCheck(
+        await checklists.signOffChecklistCheck(
           c.var.db,
           c.var.workspace.id,
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json"),
+          canRead(c, "production"),
         ),
       ),
   );

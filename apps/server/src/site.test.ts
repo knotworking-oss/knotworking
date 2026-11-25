@@ -9,7 +9,7 @@ const daysAgo = (n: number) => new Date(Date.now() - n * DAY).toISOString();
 const dateAgo = (n: number) => daysAgo(n).slice(0, 10);
 const dateAhead = (n: number) => addDays(todayInZone(DEFAULT_TIME_ZONE), n);
 // Site needs only the asset register; HACCP (calibration instruments) is a soft dependency.
-const DEPENDENCIES = ["assets"] as const;
+const DEPENDENCIES = ["assets", "items", "recipes", "stock", "production"] as const;
 
 describe("site programmes module", () => {
   let ctx: TestCtx;
@@ -117,6 +117,7 @@ describe("site programmes module", () => {
       expect((await as(marcus.cookie).get("/site/due")).status).toBe(403);
       await grant("site", "write");
       await grant("maintenance", "write");
+      await grant("checklists", "write");
       expect((await as(marcus.cookie).get("/site/due")).status).toBe(403);
       for (const id of DEPENDENCIES) await grant(id, "read");
       expect((await as(marcus.cookie).get("/site/due")).status).toBe(200);

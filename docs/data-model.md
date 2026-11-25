@@ -146,6 +146,14 @@ Every table is workspace scoped. Ledger command receipts make writes retry-safe;
 
 Normal HSE sync entities (`hse_record`, `hse_entry`, `hse_permit`) contain IDs/revisions only. Full registers, versions, entries, permits and private histories are queried through paginated guarded endpoints. Attachment targets reuse the existing storage and HSE access checks with append-only file retention. Workspace business dates, durable command receipts and the workspace lock apply to all decisions. The Training port reuses its existing competence/SOP rules and returns the exact source training record/sign-off references; HSE creates no shadow staff, supplier, training or maintenance register.
 
+## Customer invoices and credit notes
+
+- `customer_documents` stores customer and issuer snapshots, dates, currency, status, revision, source reference, original invoice and correction reason. Line snapshots retain quantities, prices and source line IDs. Net, tax and gross use canonical decimal strings at the document currency's precision. Issue assigns a unique number per workspace and sequence per document kind.
+- `customer_document_claims` reserves despatch lines, direct sales order lines, signed-off service quotes or credited invoice lines. A partial unique index allows only one live claim per source. Sales and Despatch use the same despatch-line key. Discarding a draft releases its claims in the same transaction as the decision. Issued claims remain available for audit after crediting.
+- `customer_document_events` keeps each draft, edit and signed decision with its before-issue or issued snapshot, revision, actor, time and reason. Claims and events use composite workspace/document foreign keys. The workspace ledger lock serializes source validation, competing approvals and numbering. Approval rechecks live delivery quantity or direct sales facts before assigning a number.
+
+Invoicing records and events stay out of shared workspace sync, bootstrap and search. The linked accounting posting and receipt live in the private accounting outbox. Closing or disabling a Xero connection does not change a local issued document.
+
 ## Accounting setup and private integration records
 
 `accounting_connections` stores optional provider/company metadata, display name, revision and disable state. Its composite workspace/id key preserves connection UUID namespaces across tenants. Company is empty until supplied, then immutable. The provider/company lookup prevents accidental duplicate setup through the service. Imported foundation destinations have no invented creator.

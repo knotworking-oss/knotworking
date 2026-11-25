@@ -1,6 +1,6 @@
-# Connect Xero and post supplier bills
+# Connect Xero and post financial documents
 
-Knotworking sends approved supplier invoices to Xero as authorised bills. The optional Accounting module keeps the reviewed destination, financial lines and posting history in the [private accounting outbox](accounting.md#posting-lifecycle-and-isolation).
+Knotworking sends approved supplier bills, issued customer invoices and issued customer credit notes to Xero. The optional Accounting module keeps the reviewed destination, financial lines and posting history in the [private accounting outbox](accounting.md#posting-lifecycle-and-isolation).
 
 ## Set up a test app and connect
 
@@ -30,6 +30,15 @@ The consent flow expires after ten minutes and the callback state is single-use.
 
 4. In **Posted**, open the result and record the Xero invoice ID. In Xero, compare the supplier, invoice number, dates, account and tax codes, net, tax and gross against the source, and follow the source link. Knotworking confirms the posting after reading the Xero bill back and comparing those fields. See the [Xero invoice contract](https://developer.xero.com/documentation/api/accounting/invoices/).
 
+## Send a customer invoice or credit note
+
+1. Enable Customers and Invoicing in the workspace. In **Reviewed mappings**, select the existing customer and save its Xero `ContactID`. Review active revenue account codes and output tax types. Invoicing retains its own issued numbers, dates and line totals.
+2. Issue the invoice locally. In **Prepare customer invoices and credit notes**, select it and code each line with reviewed revenue and tax mappings. Send it from the Accounting queue. Xero receives an authorised `ACCREC` invoice with the issued number, dates, source URL and tax-exclusive financial lines. For customer documents, each Xero account must be active and of class `REVENUE`, and the applicable tax type must have a known `EffectiveRate` (or be `NONE`). Read-back checks identity, status, dates, contact, currency, exact totals and the line descriptions, account codes and tax.
+3. Issue a local credit against eligible lines of the original invoice. Verify that the original invoice posted to this same Xero connection. Review the inherited contact, line coding and original Xero invoice ID, then choose whether to allocate the full credit. Leave the allocation box clear to post a credit on account, for example when the original invoice is already paid.
+4. Xero receives an authorised `ACCRECCREDIT` at `PUT /CreditNotes`, with the local `CreditNoteNumber` and a `Reference` containing the posting UUID and original invoice number. The credit contract has no source URL field. If allocation is selected, the adapter checks the original invoice's outstanding balance and makes a separate `PUT /CreditNotes/{CreditNoteID}/Allocations` with the original Xero invoice ID, exact amount, date and a distinct stable idempotency key. It verifies the issued credit and requested allocation by reading `GET /CreditNotes/{CreditNoteID}`. The queue contains the verified Xero ID and links to the Knotworking credit. See the [Xero Accounting OpenAPI contract](https://github.com/XeroAPI/Xero-OpenAPI/blob/master/xero_accounting.yaml).
+
+For **Needs checking**, customer invoices use the contact, date and source URL. Credit notes use the credit number to find a candidate and read it by ID to verify the `Reference`, original invoice, amounts and any requested allocation. If the credit posted before an allocation was attempted, or allocation failed after credit creation, finance should verify the credit in Xero and finish the requested allocation there. Then read it back in Knotworking. The recovery action reads only. An ambiguous result or rate limit after a successful write remains **Needs checking**.
+
 ## Reconnect, disconnect and recover an interrupted posting
 
 - **Reconnect required.** If Xero refuses an access token (`401`), Knotworking marks it expired, refreshes it once and repeats the call. Only a refresh Xero refuses (`invalid_grant`, such as revoked consent or an expired refresh grant) needs a reconnect. If Xero refuses the organisation (`403`), Knotworking checks Xero's connection list; when the organisation was disconnected from Knotworking in Xero, the setup shows **Reconnect required** and its bills stay queued until you reconnect. Any other `403`, such as a connected user without permission, rejects the bill without a write. In each case, choose **Reconnect Xero** and confirm the original organisation. Use **Verify connection** before resuming work. Existing postings still refer to the original destination. A different organisation needs a different setup.
@@ -44,31 +53,37 @@ Connect, review, confirm, verify and disconnect are available only to a signed-i
 The fake-Xero suites need no Xero account:
 
 ```sh
-pnpm --filter @knotworking/server exec vitest run src/accounting-xero.test.ts src/accounting/adapters/xero.test.ts
+pnpm --filter @knotworking/server exec vitest run --maxWorkers=2 src/accounting-xero.test.ts src/accounting/adapters/xero.test.ts
 ```
 
 They cover session-bound consent, refresh and revoked consent, a refused access token refreshed once, rate limits before and on the create call, an organisation disconnected in Xero, removal of unchosen organisations, expired sign-in sweeps, lock dates, tax-rate checks, stock and non-stock bills from purchase order to Xero, an interrupted create response, two bills with the same source link, double dispatch, disabled and disconnected setups, a wrong organisation and definitive rejection. PGlite runs one transaction at a time, so concurrent refresh across API processes has a separate test that needs a disposable Postgres database:
 
 ```sh
-TEST_POSTGRES_URL=postgres://… pnpm --filter @knotworking/server exec vitest run src/accounting-xero.postgres.test.ts
+TEST_POSTGRES_URL=postgres://… pnpm --filter @knotworking/server exec vitest run --maxWorkers=2 src/accounting-xero.postgres.test.ts
 ```
+
+The same fake transport covers partial shipments, signed-off billable hours, sales and credit read-back, credit allocation, duplicate preparation, rejected tax rates, deferred and interrupted sends, and local PDF output with the Xero connection disabled.
 
 ## Demo Company acceptance evidence
 
-Automated tests use a fake Xero HTTP service. Record live results here when acceptance is run. Use synthetic suppliers and purchases. Keep OAuth credentials, tokens and callback URLs out of evidence.
+Automated tests use a fake Xero HTTP service. Record live results here when acceptance is run. Use synthetic suppliers, customers, purchases and sales. Keep OAuth credentials, tokens and callback URLs out of evidence.
 
-| Check                             | Evidence to record                                                                                                                                                                                                | Result  |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| Setup and verification            | Date, tester, Knotworking commit, workspace, Xero Demo Company name and tenant ID, base currency and approval roles                                                                                               | Pending |
-| Mapping review                    | Synthetic supplier and Xero ContactID, account codes, tax types and reviewer                                                                                                                                      | Pending |
-| Stock purchase bill               | Purchase order, receipt, approved invoice and queue posting IDs, Xero invoice ID, net/tax/gross, source link and read-back history                                                                                | Pending |
-| Service purchase bill             | Same evidence as the stock purchase, with Stock disabled and a non-stock receipt                                                                                                                                  | Pending |
-| Interrupted response              | In a test environment, drop the client-side response after Xero commits one bill. Record the uncertain attempt, Xero invoice ID, recovery result and count of bills for the source link before and after recovery | Pending |
-| Disable, disconnect and reconnect | Evidence that disabled and disconnected setups send no queued bills, and reconnection verifies the same tenant before sending resumes                                                                             | Pending |
-| Exceptions                        | Any unexpected validation, rounding or permission behaviour and the person responsible for follow-up                                                                                                              | Pending |
+| Check                                | Evidence to record                                                                                                                                                                                                | Result  |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Setup and verification               | Date, tester, Knotworking commit, workspace, Xero Demo Company name and tenant ID, base currency and approval roles                                                                                               | Pending |
+| Mapping review                       | Synthetic supplier and Xero ContactID, account codes, tax types and reviewer                                                                                                                                      | Pending |
+| Stock purchase bill                  | Purchase order, receipt, approved invoice and queue posting IDs, Xero invoice ID, net/tax/gross, source link and read-back history                                                                                | Pending |
+| Service purchase bill                | Same evidence as the stock purchase, with Stock disabled and a non-stock receipt                                                                                                                                  | Pending |
+| Interrupted response                 | In a test environment, drop the client-side response after Xero commits one bill. Record the uncertain attempt, Xero invoice ID, recovery result and count of bills for the source link before and after recovery | Pending |
+| Disable, disconnect and reconnect    | Evidence that disabled and disconnected setups send no queued bills, and reconnection verifies the same tenant before sending resumes                                                                             | Pending |
+| Partial shipment and service invoice | Sales/despatch or service sign-off IDs, issued invoice number, Xero invoice ID, exact net/tax/gross and source URL                                                                                                | Pending |
+| Customer credit note and allocation  | Original invoice and credit Xero IDs, credit number, exact amounts and any amount allocated to the original invoice                                                                                               | Pending |
+| Exceptions                           | Any unexpected validation, rounding or permission behaviour and the person responsible for follow-up                                                                                                              | Pending |
 
 ### Open questions
 
 - Confirm the pilot workspace and Xero organisation use the same base currency. The implementation uses the configured workspace currency, with GBP as the existing default.
 - Confirm the Xero app's scopes before acceptance. Knotworking requests the granular `accounting.invoices` scope, which apps created on or after 2 March 2026 must use, rather than the broad `accounting.transactions`. Check the app's settings against [Xero scopes](https://developer.xero.com/documentation/guides/oauth2/scopes/). If they differ, change `xeroScopes` in `apps/server/src/accounting/xero-http.ts`.
 - Confirm who approves supplier invoices and who reviews the accounting coding. This increment uses the existing single-approver Purchasing flow. The approver and the accounting reviewer may be the same person if their role grants both permissions.
+
+- Confirm customer invoice and credit number prefixes against existing Xero numbering. Local defaults are `INV-` and `CN-`, each followed by a six-digit workspace sequence.

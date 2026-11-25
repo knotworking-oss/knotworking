@@ -1061,11 +1061,21 @@ Code: `packages/core/src/hse-incidents.ts`, `packages/db/src/schema/hse-incident
 
 All commands require a durable `commandId`; revisions and the shared workspace lock reject stale decisions and serialize concurrent work. Private incident writes/audit events intentionally omit `recordChanges`, like other confidential platform records. Operating owners must populate/approve their own scopes, methods, schedules, reporting criteria, contractor evidence and environmental obligations. This milestone does not establish a complete legal/compliance register or replace Finance/HR (3.4.2/3.4.4).
 
+## Invoicing module
+
+Enable `invoicing` alongside `customers` in the installation and workspace. Invoicing is opt-in and defaults to no member access. Grant **read** to view and download issued documents, **write** to draft and edit, and **manage** to approve, issue or discard a draft. Approval and discard require a person's session.
+
+- Open **Operations → Invoicing** to draft a manual invoice. Choose a customer, currency, invoice date and due date. Enter quantities, unit prices and tax rates. Tax is calculated per line on the rounded net amount.
+- Use **Draft customer invoice** on a confirmed sales order, confirmed despatch or signed-off client-service quote when the source modules are available and readable. With Despatch enabled, sales drafts use unbilled delivery lines linked to the order and price them from the agreed order. With Despatch disabled, a confirmed order with no delivery links can bill its order lines. A standalone despatch uses the workspace currency and needs a reviewed price for every line. Returns recorded before approval reduce the billable quantity. Discard and redraft if a return changes the quantity after drafting.
+- A service draft copies the fixed fee or the exact amount for approved hours. The separate **Download billing draft** CSV remains available. Choose one billing workflow for each job to avoid re-entering an invoice raised from the CSV.
+- Issuing assigns the next workspace sequence number and enables PDF download. To correct an issued invoice, open it and **Draft credit note**, select whole lines to reverse, and record the reason. The original and its linked credit notes keep their amounts and decision history.
+- Accounting is optional. With it enabled, an administrator can [prepare issued documents for Xero](accounting.md#preparing-customer-invoices-and-credit-notes). Invoicing content and history use dedicated permission-checked routes and stay out of workspace sync.
+
 ## Accounting integrations
 
 `accounting` is optional (`defaultActive: false`, `defaultAccess: none`, no dependencies). It currently exposes signed-in owner/admin setup at `/<workspace>/settings/accounting`: provider/company metadata, connection disabling, reviewed supplier/customer/account/tax mappings and private change history. All `/accounting/*` API routes require administrator and Accounting manage access; API tokens are refused. Supplier/customer reference lookups and mappings additionally check Items/Customers read access. No configuration or financial payloads enter bootstrap, search, notifications, attachments or shared sync. There are no MCP configuration/sign-off tools.
 
-Owners and administrators can [connect and verify a Xero organisation](xero.md) when the server has Xero app credentials. Accounting can run on its own. Purchasing supplies approved bills, Items supplies supplier references, and Customers supplies customer references when the caller can read those modules. Disabled connections block preparation and sending. See [Accounting integrations](accounting.md) for the private audit history, 500-mapping limit and adapter contract.
+Owners and administrators can [connect and verify a Xero organisation](xero.md) when the server has Xero app credentials. Accounting can run on its own. Purchasing supplies approved bills, Invoicing supplies issued invoices and credit notes, Items supplies supplier references, and Customers supplies customer references when the caller can read those modules. Disabled connections block preparation and sending. See [Accounting integrations](accounting.md) for the private audit history, 500-mapping limit and adapter contract.
 
 ## Workforce planning and private HR (3.4.4.1)
 

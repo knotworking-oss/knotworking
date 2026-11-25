@@ -2,21 +2,21 @@
 
 Knotworking is intended as an open source tool that can work with different accounting systems. Each installation chooses whether to connect one. The shared accounting layer is provider-neutral; product-specific APIs, SDKs, credentials and import layouts belong in separate adapters. Sage 50 Accounts is an initial adapter candidate, not a prerequisite or a global accounting choice. Xero, QuickBooks and other systems can implement the same interface.
 
-Knotworking owns operational records and sales orders. A connected accounting system owns its financial ledger, tax filing, payment processing and financial accounts. This foundation does not implement another general ledger.
+Knotworking owns operational records, sales orders and issued customer documents. A connected accounting system owns its financial ledger, tax filing, payment processing and financial accounts. This foundation does not implement another general ledger.
 
 ## Current delivery
 
 `apps/server/src/accounting/adapter.ts` defines `AccountingAdapter`, bound to a provider, connection UUID and external company. It declares supported document kinds and currencies. The dispatcher refuses a mismatched provider, connection, company or unsupported capability before claiming the job or calling the adapter.
 
-The durable outbox in `apps/server/src/accounting/outbox.ts` and shared schemas in `packages/core/src/accounting.ts` accept prepared purchase invoices. Supplier, account and tax references are opaque strings: each adapter translates reviewed mappings into its destination's identifiers. Providers use extensible identifiers, so contributors do not need to edit a central enum to introduce an adapter.
+The durable outbox in `apps/server/src/accounting/outbox.ts` and shared schemas in `packages/core/src/accounting.ts` accept prepared purchase invoices, customer invoices and customer credit notes. Supplier, customer, account and tax references are opaque strings: each adapter translates reviewed mappings into its destination's identifiers. Providers use extensible identifiers, so contributors do not need to edit a central enum to introduce an adapter.
 
 Amounts are exact decimal strings validated against the document currency's precision, including zero-decimal and three-decimal currencies. Line totals reconcile exactly; the shared layer never infers a tax rate, mapping, currency conversion or rounding correction. Each adapter advertises the currencies it actually implements, even if the shared schema accepts more.
 
-Optional administrator setup is available at `/<workspace>/settings/accounting` when the `accounting` module is enabled. Administrators can [prepare approved purchase invoices](#preparing-approved-purchase-invoices) and connect a [Xero organisation](xero.md) when the server has Xero app credentials. The dispatcher sends these through the installed adapter. The automated suite verifies the HTTP contract with a fake Xero service. Demo Company acceptance is pending.
+Optional administrator setup is available at `/<workspace>/settings/accounting` when the `accounting` module is enabled. Administrators can [prepare approved purchase invoices](#preparing-approved-purchase-invoices) and [issued customer documents](#preparing-customer-invoices-and-credit-notes), and connect a [Xero organisation](xero.md) when the server has Xero app credentials. The dispatcher sends these through the installed adapter. The automated suite verifies the HTTP contract with a fake Xero service. Demo Company acceptance is pending.
 
 ## Posting lifecycle and isolation
 
-- Each workspace, connection and source invoice has one immutable prepared snapshot. An identical enqueue returns its existing ID; changed source revisions or mappings conflict. A connection's provider and company cannot be rebound after use. A separate explicitly configured connection has its own source and external-ID namespace; sending to several connections will eventually need explicit finance permissions and routing rules.
+- Each workspace, connection, document kind and source ID has one immutable prepared snapshot. An identical enqueue returns its existing ID; changed source revisions or mappings conflict. A connection's provider and company cannot be rebound after use. A separate explicitly configured connection has its own source and external-ID namespace; sending to several connections will eventually need explicit finance permissions and routing rules.
 - The posting UUID is a stable retry reference, distinct from each attempt UUID. A provider-local transaction ID is unique within a connection, so equal IDs from different accounting systems do not collide. Read-back must match provider, connection, company, posting reference, currency and exact totals.
 - Claiming commits `unknown` before external IO. A lost reply, crash or invalid acknowledgement remains uncertain and cannot be resent automatically. A definitive no-write rejection is `failed`; an explicit reviewed retry keeps the same snapshot/key and records a new attempt. A `deferred` outcome is a no-write that may succeed later without anyone acting, such as a provider rate limit or a setup waiting to be reconnected: the posting goes back to `queued` with a `deferred` history entry. A timeout, partial write or unsuccessful search is not proof of no write.
 - Positive destination read-back reconciles an uncertain posting to `posted`. Repeating the same confirmation is idempotent. Stale callbacks, mismatched destinations and contradictory transaction IDs are rejected. No-post resolution after uncertainty is deliberately deferred until a connector can prove quiescence and authoritative reconciliation.
@@ -55,11 +55,19 @@ Purchasing records one header VAT amount per invoice and unrounded line values (
 - Line tax adds up exactly to the header VAT. VAT with more places than the currency allows is refused, as are negative lines and zero-value invoices.
 - The supplier and every account/tax key resolve to enabled reviewed mappings. The snapshot stores the destination references as reviewed, so a later mapping change does not alter a prepared posting.
 - **Provider checks:** an installed provider can add requirements in `accounting/provider-rules.ts`. A Xero bill needs a due date on or after the invoice date, a `ContactID` supplier mapping and a two-decimal currency. These show as blockers and are refused with `provider_document_invalid`.
-- **Corrections:** if any other version of the same supplier invoice number already has a posting on this connection, the corrected version is refused (`invoice_already_posted`). Record the correction in the accounting system until credit notes and adjustments are supported.
+- **Corrections:** if any other version of the same supplier invoice number already has a posting on this connection, the corrected version is refused (`invoice_already_posted`). Record the correction in the accounting system until supplier credits and adjustments can be posted.
 
 The command is idempotent: the same command returns its receipt, identical coding returns the existing posting, and different coding of a prepared invoice conflicts. The private posting history records the person (`user:<id>`), invoice number, version and review note. Nothing is published to workspace sync. Routes: `GET /v1/workspaces/:slug/accounting/connections/:id/purchase-invoices` (`show=open|all`), `GET …/purchase-invoices/:invoiceId` (lines, suggested nets, mappings, blockers or the existing posting) and `POST …/purchase-invoices/:invoiceId/prepare`. All three refuse personal tokens. Tests: `apps/server/src/accounting-invoice-producer.test.ts`.
 
 Prepared postings stay `queued` until the [dispatcher](#dispatch-and-the-finance-review-queue) sends them through an installed adapter.
+
+## Preparing customer invoices and credit notes
+
+Under **Accounting connections → Manage → Prepare customer invoices and credit notes**, an administrator with Invoicing read access can pick an issued customer document. A customer invoice needs a reviewed contact mapping and a revenue account and tax mapping on every line. The issued descriptions and exact line amounts carry through to the posting. The connection revision and any selected mapping keys are checked inside the transaction.
+
+Credit notes use the contact and line coding from the original invoice's verified posting to the same Xero connection. Review the original Xero invoice ID and select whether to allocate the credit to it. The review reason, immutable snapshot and eventual Xero ID are recorded in the shared queue. Repeating the same review with identical coding returns the same posting. Queue details link finance back to the source document and identify the original Xero invoice on credits.
+
+Routes are under `/v1/workspaces/:slug/accounting/connections/:id/customer-documents`: `GET` with `offset`, `GET /:invoiceId` and `POST /:invoiceId/prepare`.
 
 ## Dispatch and the finance review queue
 
@@ -72,7 +80,7 @@ Each posting's claim checks whether Accounting is still enabled in the workspace
 **The queue** sits under **Manage → Accounting queue** for signed-in administrators (personal tokens are refused). It has four tabs:
 
 - **Queued:** prepared and waiting. **Send now** dispatches one immediately when an adapter is installed. A deferred send returns here; its history shows **Not sent yet, back in the queue** with the reason.
-- **Needs checking** (`unknown`): the send may or may not have reached the ledger. These are never resent. The reviewer enters the transaction ID or, for Xero, searches for the original bill by its source link and verifies it. The adapter must return a receipt matching the provider, connection, company, posting reference and exact totals before the posting becomes `posted`. A transaction that can't be found or doesn't match leaves it uncertain (`read_back_not_verified`). There is deliberately no "mark as not posted".
+- **Needs checking** (`unknown`): the send may or may not have reached the ledger. These are never resent. The reviewer enters the transaction ID or, for Xero, searches for the original document and verifies it. The adapter must return a receipt matching the provider, connection, company, posting reference and exact totals before the posting becomes `posted`. A transaction that can't be found or doesn't match leaves it uncertain (`read_back_not_verified`). There is deliberately no "mark as not posted".
 - **Rejected** (`failed`): the adapter reported a definite no-write rejection. **Retry** requeues the current attempt with the same snapshot and posting key and records what was fixed.
 - **Posted:** confirmed by read-back, with the accounting transaction ID.
 

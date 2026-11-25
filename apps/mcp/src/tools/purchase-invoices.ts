@@ -129,8 +129,10 @@ export function registerPurchaseInvoiceTools({ define, slugOf, workspaceParam }:
             order: l.orderLine.reference,
             orderLine: l.orderLine.lineNo,
             orderLineId: l.orderLine.id,
-            item: l.item ? `${l.item.code} ${l.item.name}` : null,
-            unit: l.unit,
+            // A non-stock order line (a service, goods not kept in stock) is named by its description.
+            item: l.item ? `${l.item.code} ${l.item.name}` : (l.orderLine.description ?? null),
+            unit: l.unit ?? l.orderLine.unitLabel,
+            ...(l.orderLine.nominalCode ? { nominalCode: l.orderLine.nominalCode } : {}),
             invoiced: l.quantity,
             unitPrice: l.unitPrice,
             value: l.value,
@@ -255,7 +257,7 @@ export function registerPurchaseInvoiceTools({ define, slugOf, workspaceParam }:
     {
       module: "purchasing",
       title: "Draft or edit a supplier invoice",
-      description: `Enter a supplier's invoice as a draft, or, with \`invoice_id\`, edit a draft. A new draft needs the supplier (id, code or exact name), the supplier's invoice number (unique per supplier) and the invoice date; a due date, VAT (a plain amount, default 0) and notes are optional. Each line is either an order line, given as \`order\` (reference) and \`order_line\` (its line number) or \`order_line_id\`, with the quantity and unit price per that order line's unit as invoiced (the order must be with the same supplier and sent or closed), or a \`charge\` such as carriage with its price. IMPORTANT when editing: \`lines\` replaces every line. The result shows the three-way match against the order and what was received, so you can tell the user what doesn't match. ${PERSON_ONLY}`,
+      description: `Enter a supplier's invoice as a draft, or, with \`invoice_id\`, edit a draft. A new draft needs the supplier (id, code or exact name), the supplier's invoice number (unique per supplier) and the invoice date; a due date, VAT (a plain amount, default 0) and notes are optional. Each line is either an order line, given as \`order\` (reference) and \`order_line\` (its line number) or \`order_line_id\`, with the quantity and unit price per that order line's unit as invoiced (a non-stock line's own unit; the order must be with the same supplier and sent or closed), or a \`charge\` such as carriage with its price. IMPORTANT when editing: \`lines\` replaces every line. The result shows the three-way match against the order and what was received, so you can tell the user what doesn't match. ${PERSON_ONLY}`,
       annotations: DRAFT,
       input: {
         workspace: workspaceParam,

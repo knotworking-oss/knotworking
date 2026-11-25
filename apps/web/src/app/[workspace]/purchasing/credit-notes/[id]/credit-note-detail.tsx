@@ -168,7 +168,7 @@ export function CreditNoteDetailView({
                         <div className="font-medium">
                           {l.invoiceLine.item
                             ? `${l.invoiceLine.item.code} ${l.invoiceLine.item.name}`
-                            : "Item"}
+                            : (l.invoiceLine.description ?? "Item")}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           Invoice line {l.invoiceLine.lineNo}
@@ -183,7 +183,7 @@ export function CreditNoteDetailView({
                     {l.reason ? purchaseCreditLineReasonLabels[l.reason] : "Charge"}
                   </TableCell>
                   <TableCell data-label="Quantity" className="text-right tabular-nums">
-                    {l.quantity} {l.unit ? units[l.unit].label : ""}
+                    {l.quantity} {l.unit ? units[l.unit].label : (l.unitLabel ?? "")}
                   </TableCell>
                   <TableCell data-label="Per unit" className="text-right tabular-nums">
                     {formatPrice(l.unitPrice, currency)}

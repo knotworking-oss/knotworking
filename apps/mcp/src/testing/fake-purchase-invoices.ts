@@ -54,7 +54,7 @@ export function mountFakePurchaseInvoices(
         // The items module's row (unit conversions need it).
         { id: ol.itemId, code: "", name: "", type: "", unit: ol.unit, status: "active" },
       );
-      const factor = toBaseQuantity(1, ol.unit, { unit: ol.unit }) ?? 1;
+      const factor = ol.kind === "non_stock" ? 1 : (toBaseQuantity(1, ol.unit, { unit: ol.unit }) ?? 1);
       const receivedBase = purchasing.receipts
         .filter((r) => r.lineId === ol.id && r.outcome === "accepted")
         .reduce((s, r) => s + r.quantity, 0);
@@ -76,6 +76,10 @@ export function mountFakePurchaseInvoices(
           purchaseOrderId: order.id,
           reference: order.reference,
           orderStatus: order.status,
+          kind: ol.kind ?? "stock",
+          description: ol.description ?? null,
+          unitLabel: ol.unitLabel ?? null,
+          nominalCode: ol.nominalCode ?? null,
           quantity: ol.quantity / factor,
           unitPrice: ol.unitPrice,
           removed: false,

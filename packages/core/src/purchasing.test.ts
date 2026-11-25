@@ -21,6 +21,7 @@ import {
   supplierPerformanceRange,
   notPurchasableReason,
   PRICE_DECIMALS,
+  PURCHASE_UNIT_LABEL_MAX,
   purchaseOrderLineSchema,
   type PerformanceLine,
   type PerformanceReceipt,
@@ -501,10 +502,14 @@ describe("schemas", () => {
     expect(
       purchaseReceiveSchema.safeParse({ ...base, lines: [{ ...rejectedLine, reason: " " }] }).success,
     ).toBe(false);
-    // A rejected line needs no location.
+    // The location (and unit) may be left out: the server uses the order's delivery location and
+    // the line's unit for a stock line, and a non-stock line has neither.
     expect(
-      purchaseReceiveSchema.safeParse({ ...base, lines: [{ ...accepted, locationId: undefined }] }).success,
-    ).toBe(false);
+      purchaseReceiveSchema.safeParse({
+        ...base,
+        lines: [{ ...accepted, locationId: undefined, unit: undefined }],
+      }).success,
+    ).toBe(true);
     const expiry = (over: object) =>
       purchaseReceiveSchema.safeParse({ ...base, lines: [{ ...accepted, ...over }] });
     expect(expiry({ expiresOn: "2026-03-01" }).success).toBe(false);
@@ -515,6 +520,75 @@ describe("schemas", () => {
     );
     const issue = expiry({ expiresOn: "2026-01-31", expiryType: "use_by" }).error!.issues[0]!;
     expect(issue.path).toEqual(["lines", 0, "expiresOn"]);
+  });
+
+  it("takes stock lines by default and non-stock lines by kind", () => {
+    const stock = purchaseOrderLineSchema.parse({ itemId: uuid(1), quantity: 2, unit: "kg" });
+    expect(stock.kind).toBe("stock");
+    const service = purchaseOrderLineSchema.parse({
+      kind: "non_stock",
+      description: "  Window cleaning, March ",
+      quantity: 3,
+      unit: "visit",
+      unitPrice: 45,
+      nominalCode: " 7500 ",
+    });
+    expect(service).toMatchObject({
+      kind: "non_stock",
+      description: "Window cleaning, March",
+      unit: "visit",
+      nominalCode: "7500",
+    });
+    // An item is optional on a non-stock line; a description is not.
+    expect(
+      purchaseOrderLineSchema.safeParse({
+        kind: "non_stock",
+        itemId: uuid(2),
+        description: "Gloves",
+        quantity: 1,
+      }).success,
+    ).toBe(true);
+    expect(purchaseOrderLineSchema.safeParse({ kind: "non_stock", quantity: 1 }).success).toBe(false);
+    expect(
+      purchaseOrderLineSchema.safeParse({ kind: "non_stock", description: " ", quantity: 1 }).success,
+    ).toBe(false);
+    // A stock line still needs an item and a unit code; free text is for non-stock lines.
+    expect(purchaseOrderLineSchema.safeParse({ kind: "stock", quantity: 1, unit: "kg" }).success).toBe(false);
+    expect(purchaseOrderLineSchema.safeParse({ itemId: uuid(1), quantity: 1, unit: "visit" }).success).toBe(
+      false,
+    );
+    expect(purchaseOrderLineSchema.safeParse({ kind: "other", description: "x", quantity: 1 }).success).toBe(
+      false,
+    );
+    expect(
+      purchaseOrderLineSchema.safeParse({
+        kind: "non_stock",
+        description: "x",
+        quantity: 1,
+        unit: "u".repeat(PURCHASE_UNIT_LABEL_MAX + 1),
+      }).success,
+    ).toBe(false);
+    // Updates take both kinds with an id; suggestions only stock lines.
+    expect(
+      purchaseOrderUpdateSchema.safeParse({
+        lines: [{ id: uuid(5), kind: "non_stock", description: "Licence", quantity: 12, unit: "month" }],
+      }).success,
+    ).toBe(true);
+    expect(
+      purchaseSuggestionsCreateSchema.safeParse({
+        orders: [
+          { supplierId: uuid(9), lines: [{ kind: "non_stock", description: "Licence", quantity: 1 }] },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("receives non-stock lines without lot fields", () => {
+    const parsed = purchaseReceiveSchema.parse({
+      receivedOn: "2026-02-01",
+      lines: [{ lineId: uuid(1), outcome: "accepted", quantity: 2.5 }],
+    });
+    expect(parsed.lines[0]).toEqual({ lineId: uuid(1), outcome: "accepted", quantity: 2.5 });
   });
 
   it("lists orders by state, open by default all", () => {

@@ -2,9 +2,10 @@
  * Purchasing module: purchase orders, their lines, and goods-in against them.
  * See docs/modules.md and `@knotworking/core` purchasing.ts.
  *
- * Quantities are in the item's base unit (g, ml or each). An order's displayed state (part
+ * Stock lines' quantities are in the item's base unit (g, ml or each); non-stock lines' (services,
+ * subscriptions, goods not kept in stock) are as entered. An order's displayed state (part
  * received, received) is derived from its receipts, never stored. Received quantities are the sum
- * of accepted receipts whose stock movement has not been reversed.
+ * of accepted receipts whose stock movement has not been reversed and that are not voided.
  */
 import type {
   ApprovedInvoiceLineMatch,
@@ -16,6 +17,7 @@ import type {
   PurchaseInvoiceLineKind,
   PurchaseInvoiceStatus,
   PurchaseOrderEmailStatus,
+  PurchaseOrderLineKind,
   PurchaseOrderStatus,
   PurchaseReceiptOutcome,
   SupplierControlsOverride,
@@ -23,6 +25,7 @@ import type {
 } from "@knotworking/core";
 import { sql } from "drizzle-orm";
 import {
+  check,
   date,
   index,
   integer,
@@ -91,7 +94,13 @@ export const purchaseOrders = pgTable(
   ],
 );
 
-/** One item on an order. The same item may be on several lines. */
+/**
+ * One line of an order. A `stock` line is an item received into stock (quantity in the item's base
+ * unit, `unit` the unit it was entered in). A `non_stock` line is a service, subscription or goods
+ * not kept in stock: a description, an optional item it refers to, the quantity as entered in its
+ * own free-text unit (`unitLabel`) and an expense or nominal code. The same item may be on several
+ * lines.
+ */
 export const purchaseOrderLines = pgTable(
   "purchase_order_lines",
   {
@@ -102,13 +111,19 @@ export const purchaseOrderLines = pgTable(
       .references(() => purchaseOrders.id, { onDelete: "cascade" }),
     /** 1..n: the order of lines on the order. */
     lineNo: integer("line_no").notNull(),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => items.id),
-    /** Ordered, in the item's base unit. */
+    kind: text("kind").$type<PurchaseOrderLineKind>().notNull().default("stock"),
+    /** Stock lines: the item (required). Non-stock lines: an optional reference. */
+    itemId: uuid("item_id").references(() => items.id),
+    /** Stock lines: ordered, in the item's base unit. Non-stock lines: as entered, in `unitLabel`. */
     quantity: quantity("quantity").notNull(),
-    /** The unit the line was entered and is shown in. */
-    unit: text("unit").$type<UnitCode>().notNull(),
+    /** Stock lines: the unit the line was entered and is shown in (required). Null on non-stock lines. */
+    unit: text("unit").$type<UnitCode>(),
+    /** Non-stock lines: what is bought (required). */
+    description: text("description"),
+    /** Non-stock lines: the unit, as free text (`hour`, `month`); null for none. */
+    unitLabel: text("unit_label"),
+    /** Non-stock lines: the expense account or nominal code it is coded to, as text. */
+    nominalCode: text("nominal_code"),
     /**
      * Per `unit` (8 places: a line in grams of an item costed per kilo has a small price); null
      * when the price is unknown.
@@ -128,6 +143,17 @@ export const purchaseOrderLines = pgTable(
   (t) => [
     index("purchase_order_lines_order_idx").on(t.purchaseOrderId, t.lineNo),
     index("purchase_order_lines_item_idx").on(t.workspaceId, t.itemId),
+    check("purchase_order_lines_kind_check", sql`${t.kind} in ('stock', 'non_stock')`),
+    // A stock line is an item in a unit that converts; existing rows are all stock lines.
+    check(
+      "purchase_order_lines_stock_check",
+      sql`${t.kind} <> 'stock' or (${t.itemId} is not null and ${t.unit} is not null)`,
+    ),
+    // A non-stock line is described and has no stock unit (its quantity is as entered).
+    check(
+      "purchase_order_lines_non_stock_check",
+      sql`${t.kind} <> 'non_stock' or (${t.description} is not null and ${t.unit} is null)`,
+    ),
   ],
 );
 
@@ -146,19 +172,24 @@ export const purchaseReceipts = pgTable(
     lineId: uuid("line_id")
       .notNull()
       .references(() => purchaseOrderLines.id),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => items.id),
+    /** The order line's item; null for a non-stock line without one. */
+    itemId: uuid("item_id").references(() => items.id),
     /** Shared by every row of one delivery. */
     deliveryId: uuid("delivery_id").notNull(),
     outcome: text("outcome").$type<PurchaseReceiptOutcome>().notNull(),
-    /** Base unit: received into stock (accepted) or refused at the door (rejected). */
+    /**
+     * Accepted (received; into stock for a stock line) or refused at the door (rejected). Stock
+     * lines: base unit. Non-stock lines: the line's own unit.
+     */
     quantity: quantity("quantity").notNull(),
     receivedOn: date("received_on").notNull(),
-    /** Set for accepted rows; null for rejected ones. */
+    /** Set for accepted rows of stock lines; null for rejected ones and non-stock lines. */
     lotId: uuid("lot_id").references(() => stockLots.id),
     stockMovementId: uuid("stock_movement_id").references(() => stockMovements.id),
-    /** Per base unit (8 places: a price per gram is small), what costing reads. Null when unknown. */
+    /**
+     * Per base unit (8 places: a price per gram is small), what costing reads; per the line's own
+     * unit on a non-stock line. Null when unknown.
+     */
     unitPrice: numeric("unit_price", { precision: 18, scale: 8, mode: "number" }),
     /** The delivery note number. */
     deliveryReference: text("delivery_reference"),
@@ -169,9 +200,9 @@ export const purchaseReceipts = pgTable(
     notes: text("notes"),
     actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
     /**
-     * A rejected row recorded in error is voided, never deleted or edited: it stays on the order
-     * (struck through) and counts nowhere. Accepted rows are corrected by reversing the stock
-     * movement instead.
+     * A row recorded in error is voided, never deleted or edited: it stays on the order (struck
+     * through) and counts nowhere. Rejected rows and accepted rows of non-stock lines are voided;
+     * accepted rows of stock lines are corrected by reversing the stock movement instead.
      */
     voidedAt: ts("voided_at"),
     voidedBy: uuid("voided_by").references(() => users.id, { onDelete: "set null" }),
@@ -183,6 +214,11 @@ export const purchaseReceipts = pgTable(
     index("purchase_receipts_order_idx").on(t.purchaseOrderId),
     index("purchase_receipts_received_idx").on(t.workspaceId, t.receivedOn),
     index("purchase_receipts_lot_idx").on(t.lotId),
+    // Only an item's receipt can put a lot into stock.
+    check(
+      "purchase_receipts_stock_check",
+      sql`${t.itemId} is not null or (${t.lotId} is null and ${t.stockMovementId} is null)`,
+    ),
   ],
 );
 

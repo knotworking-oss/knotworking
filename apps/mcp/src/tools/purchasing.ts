@@ -1,4 +1,11 @@
-import { expiryTypes, purchaseOrderListStatuses, unitCodes } from "@knotworking/core";
+import {
+  PURCHASE_NOMINAL_CODE_MAX,
+  PURCHASE_UNIT_LABEL_MAX,
+  expiryTypes,
+  purchaseOrderLineKinds,
+  purchaseOrderListStatuses,
+  unitCodes,
+} from "@knotworking/core";
 import { z } from "zod";
 import { ToolError, type Api } from "../api";
 import type { ToolContext } from "./shared";
@@ -15,12 +22,28 @@ const UNIT_HELP = "mg, g, kg (weight); ml, l (volume); each (count).";
 const PERSON_ONLY =
   "Sending an order (a commitment to buy), closing it short and cancelling it are a person's acts in the app; there are no tools for them unless an owner or admin allows it under Settings → API access (send_purchase_order, email_purchase_order, close_purchase_order and cancel_purchase_order then appear).";
 
-type Amount = { display: number; displayUnit: string; inLineUnit?: number | null };
+type Amount = { display: number; displayUnit: string | null; inLineUnit?: number | null };
 
-/** "15 kg", in the line's own unit when the API worked it out, else the item's unit. */
-const qty = (a: Amount, lineUnit?: string) =>
-  a.inLineUnit != null && lineUnit ? `${a.inLineUnit} ${lineUnit}` : `${a.display} ${a.displayUnit}`;
+/**
+ * "15 kg", in the line's own unit when the API worked it out, else the item's unit. A non-stock
+ * line's quantity is as entered, in its own unit ("3 visit") or bare when it has none.
+ */
+const qty = (a: Amount, lineUnit?: string | null) =>
+  a.inLineUnit != null && lineUnit
+    ? `${a.inLineUnit} ${lineUnit}`
+    : a.displayUnit
+      ? `${a.display} ${a.displayUnit}`
+      : `${a.display}`;
 const itemName = (i: { code: string; name: string }) => `${i.code} ${i.name}`;
+/** A line's name: its item, or a non-stock line's description (with the item it names, if any). */
+const lineName = (l: { item: { code: string; name: string } | null; description?: string | null }) =>
+  l.description
+    ? l.item
+      ? `${l.description} (${itemName(l.item)})`
+      : l.description
+    : l.item
+      ? itemName(l.item)
+      : "";
 const supplierName = (s: { name: string; code: string | null; approvalStatus: string }) =>
   `${s.name}${s.code ? ` (${s.code})` : ""}${s.approvalStatus === "approved" ? "" : `, ${s.approvalStatus}`}`;
 
@@ -140,13 +163,15 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
     orderLines: o.lines.map((l) => ({
       id: l.id,
       line: l.lineNo,
-      item: itemName(l.item),
+      kind: l.kind,
+      item: lineName(l),
       ordered: qty(l.ordered, l.unit),
       received: qty(l.received, l.unit),
       rejected: qty(l.rejected, l.unit),
       outstanding: qty(l.outstanding, l.unit),
       state: l.state,
-      unit: l.unit,
+      unit: l.unit ?? l.unitLabel,
+      ...(l.nominalCode ? { nominalCode: l.nominalCode } : {}),
       unitPrice: l.unitPrice,
       lineValue: l.lineValue,
       expectedOn: l.effectiveExpectedOn,
@@ -165,7 +190,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
       notes: d.notes,
       receipts: d.receipts.map((r) => ({
         line: r.lineNo,
-        item: itemName(r.item),
+        item: r.item ? itemName(r.item) : (o.lines.find((l) => l.id === r.lineId)?.description ?? null),
         outcome: r.outcome,
         quantity: qty(r.quantity),
         lot: r.lotCode,
@@ -225,7 +250,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
       resource: { name: "purchase_orders", op: "get" },
       title: "Get a purchase order",
       description:
-        "One purchase order in full by its reference (PO-2026-001) or id: header, each line (with its `id`, quantities ordered, received, rejected and outstanding, price, expected date, the date promised when the order was sent (\`promisedOn\`; supplier performance measures against it, and re-dating a line doesn't move it), and whether the item is listed for this supplier) and every delivery with its lot codes and any rejections. Quantities are shown in the unit the line was ordered in.",
+        "One purchase order in full by its reference (PO-2026-001) or id: header, each line (with its `id`, `kind` (`stock`: an item received into stock; `non_stock`: a service, subscription or goods not kept in stock, named by its description, with its nominal code), quantities ordered, received, rejected and outstanding, price, expected date, the date promised when the order was sent (\`promisedOn\`; supplier performance measures against it, and re-dating a line doesn't move it), and whether the item is listed for this supplier) and every delivery with its lot codes (stock lines) and any rejections. Quantities are shown in the unit the line was ordered in.",
       annotations: READ,
       input: {
         workspace: workspaceParam,
@@ -422,7 +447,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
     {
       module: "purchasing",
       title: "Draft or edit a purchase order",
-      description: `Create a draft purchase order, or, with \`order_id\`, edit a draft or sent order. A draft needs a supplier (id, code or exact name; suspended or rejected suppliers are refused, a pending one may be ordered from) and may have lines. Lines are ingredient or packaging items only, each an item (id or stock code), quantity and unit (${UNIT_HELP}); a price per unit is optional and defaults to the item's standard cost (\`unit_price: null\` = unknown). IMPORTANT when editing: \`lines\` replaces the whole list. Lines you leave out are removed, so pass every line you want to keep. Pass an existing line's \`id\` (from get_purchase_order) to keep and edit that line, leaving out fields you do not want to change (price, date, notes keep their values); a line without an \`id\` is new. A sent order's supplier can't change, lines with receipts can't be removed, no quantity can go below what was accepted, it must keep at least one line and an expected date for every line, and while its supplier is suspended or rejected no line can be added or increased; closed and cancelled orders can't be edited. Only the fields given change. Needs an expected date on the order or on every line before a person can send it. ${PERSON_ONLY}`,
+      description: `Create a draft purchase order, or, with \`order_id\`, edit a draft or sent order. A draft needs a supplier (id, code or exact name; suspended or rejected suppliers are refused, a pending one may be ordered from) and may have lines of two kinds. A **stock** line (the default \`kind\`) is an ingredient or packaging item received into stock: an item (id or stock code), quantity and unit (${UNIT_HELP}); a price per unit is optional and defaults to the supplier's price list or the item's standard cost (\`unit_price: null\` = unknown); it needs the stock module. A **non_stock** line is a service, subscription or goods not kept in stock (cleaning, a software licence, office supplies): a \`description\`, quantity, optional free-text \`unit\` (hour, month, visit), price, optional \`nominal_code\` (the expense account it is coded to) and optionally an \`item\` it refers to; it is received without a lot. A delivery location only applies to stock lines. IMPORTANT when editing: \`lines\` replaces the whole list. Lines you leave out are removed, so pass every line you want to keep. Pass an existing line's \`id\` (from get_purchase_order) to keep and edit that line, leaving out fields you do not want to change (price, date, notes keep their values); a line without an \`id\` is new. A sent order's supplier can't change, lines with receipts can't be removed, no quantity can go below what was accepted, it must keep at least one line and an expected date for every line, and while its supplier is suspended or rejected no line can be added or increased; closed and cancelled orders can't be edited. Only the fields given change. Needs an expected date on the order or on every line before a person can send it. ${PERSON_ONLY}`,
       annotations: DRAFT,
       input: {
         workspace: workspaceParam,
@@ -452,15 +477,45 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
                 .uuid()
                 .optional()
                 .describe("An existing line's id (editing only): keeps that line and its receipts."),
-              item: z.string().min(1).max(60).describe("Item id or stock code."),
+              kind: z
+                .enum(purchaseOrderLineKinds)
+                .optional()
+                .describe(
+                  "stock (default): an item into stock. non_stock: a service or goods not kept in stock.",
+                ),
+              item: z
+                .string()
+                .min(1)
+                .max(60)
+                .optional()
+                .describe("Item id or stock code. Required on stock lines; optional on non_stock lines."),
+              description: z
+                .string()
+                .min(1)
+                .max(500)
+                .optional()
+                .describe("non_stock lines (required): what is bought, e.g. 'Window cleaning, March'."),
               quantity: z.number().positive(),
-              unit: z.enum(unitCodes),
+              unit: z
+                .string()
+                .max(PURCHASE_UNIT_LABEL_MAX)
+                .optional()
+                .describe(
+                  `Stock lines (required): ${UNIT_HELP} non_stock lines: any unit as text (hour, month, visit), or leave out.`,
+                ),
+              nominal_code: z
+                .string()
+                .max(PURCHASE_NOMINAL_CODE_MAX)
+                .optional()
+                .describe("non_stock lines: the expense account or nominal code it is coded to (e.g. 7500)."),
               unit_price: z
                 .number()
                 .min(0)
                 .nullable()
                 .optional()
-                .describe("Per `unit`. Left out: the standard cost (new lines) or unchanged."),
+                .describe(
+                  "Per `unit`. Left out: stock lines take the price list or standard cost (new lines); otherwise unchanged or unknown.",
+                ),
               expected_on: isoDate
                 .nullable()
                 .optional()
@@ -480,15 +535,51 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
         a.delivery_location ? resolveLocationId(api, slug, a.delivery_location) : undefined,
         a.lines
           ? Promise.all(
-              a.lines.map(async (l) => ({
-                ...(l.id ? { id: l.id } : {}),
-                itemId: await resolveItemId(api, slug, l.item),
-                quantity: l.quantity,
-                unit: l.unit,
-                ...(l.unit_price !== undefined ? { unitPrice: l.unit_price } : {}),
-                ...(l.expected_on !== undefined ? { expectedOn: l.expected_on } : {}),
-                ...(l.notes !== undefined ? { notes: l.notes } : {}),
-              })),
+              a.lines.map(async (l, i) => {
+                const common = {
+                  ...(l.id ? { id: l.id } : {}),
+                  quantity: l.quantity,
+                  ...(l.unit_price !== undefined ? { unitPrice: l.unit_price } : {}),
+                  ...(l.expected_on !== undefined ? { expectedOn: l.expected_on } : {}),
+                  ...(l.notes !== undefined ? { notes: l.notes } : {}),
+                };
+                if (l.kind === "non_stock") {
+                  if (!l.description)
+                    throw new ToolError(
+                      "invalid_input",
+                      `Line ${i + 1}: a non_stock line needs a \`description\`.`,
+                    );
+                  return {
+                    ...common,
+                    kind: "non_stock" as const,
+                    description: l.description,
+                    ...(l.item ? { itemId: await resolveItemId(api, slug, l.item) } : {}),
+                    ...(l.unit ? { unit: l.unit } : {}),
+                    ...(l.nominal_code ? { nominalCode: l.nominal_code } : {}),
+                  };
+                }
+                if (!l.item)
+                  throw new ToolError(
+                    "invalid_input",
+                    `Line ${i + 1}: a stock line needs an \`item\` (or set kind: non_stock with a description).`,
+                  );
+                if (!l.unit || !(unitCodes as readonly string[]).includes(l.unit))
+                  throw new ToolError(
+                    "invalid_input",
+                    `Line ${i + 1}: a stock line's unit is one of ${unitCodes.join(", ")}; free-text units are for non_stock lines.`,
+                  );
+                if (l.description || l.nominal_code)
+                  throw new ToolError(
+                    "invalid_input",
+                    `Line ${i + 1}: description and nominal_code are for non_stock lines.`,
+                  );
+                return {
+                  ...common,
+                  kind: "stock" as const,
+                  itemId: await resolveItemId(api, slug, l.item),
+                  unit: l.unit as (typeof unitCodes)[number],
+                };
+              }),
             )
           : undefined,
       ]);
@@ -531,8 +622,20 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
     line: z.union([z.number().int().min(1), z.string().min(1)]).describe("Line number (1, 2, …) or line id."),
     outcome: z.literal("accepted"),
     quantity: z.number().positive(),
-    unit: z.enum(unitCodes).optional().describe("Default: the line's own unit."),
-    location: z.string().min(1).max(200).describe("Where it goes: location id, code or exact name."),
+    unit: z
+      .enum(unitCodes)
+      .optional()
+      .describe(
+        "Stock lines only. Default: the line's own unit. non_stock lines are counted in their own unit.",
+      ),
+    location: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "Stock lines: where it goes (location id, code or exact name); default the order's delivery location. Leave out for non_stock lines.",
+      ),
     lot_code: z.string().max(60).optional().describe("Our lot code; generated when left out."),
     supplier_lot_code: z.string().max(80).optional().describe("The supplier's own batch code."),
     expires_on: isoDate.optional(),
@@ -557,7 +660,12 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
     line: z.union([z.number().int().min(1), z.string().min(1)]).describe("Line number (1, 2, …) or line id."),
     outcome: z.literal("rejected"),
     quantity: z.number().positive(),
-    unit: z.enum(unitCodes).optional().describe("Default: the line's own unit."),
+    unit: z
+      .enum(unitCodes)
+      .optional()
+      .describe(
+        "Stock lines only. Default: the line's own unit. non_stock lines are counted in their own unit.",
+      ),
     reason: z.string().min(1).max(500).describe("Why it was refused."),
   });
 
@@ -566,7 +674,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
     {
       module: "purchasing",
       title: "Receive a delivery against an order",
-      description: `Record one delivery against a sent order. Each line is \`accepted\` (creates a lot with the order's supplier, goes into stock at a location with a goods-in movement referencing the order) or \`rejected\` (turned away at the door: recorded with a reason, creates no stock). Quantities are in \`unit\` (${UNIT_HELP} default: the line's unit). Over-delivery is allowed unless the workspace sets a tolerance: past it a line needs an over_delivery_reason. The order must be sent (not draft, closed or cancelled). Accepted goods from a supplier that is suspended or rejected are refused (a delivery of only rejected lines is still recorded); a supplier still pending approval can only be received into quarantine, so pass \`quarantine: true\` on every accepted line. Accepted lines of an item archived or no longer an ingredient or packaging are refused. Accepted lines may carry the supplier's lot code, an expiry date with its type (use_by or best_before) and the invoice price. Everything is checked first and nothing is saved if any line is wrong. ${PERSON_ONLY}`,
+      description: `Record one delivery against a sent order. Each line is \`accepted\` or \`rejected\` (turned away at the door: recorded with a reason, creates no stock). An accepted **stock** line creates a lot with the order's supplier and goes into stock at a location (default the order's delivery location) with a goods-in movement referencing the order; quantities are in \`unit\` (${UNIT_HELP} default: the line's unit). An accepted **non_stock** line (a service or goods not kept in stock) records only the quantity received, in the line's own unit: leave out unit, location and the lot fields. Over-delivery is allowed unless the workspace sets a tolerance: past it a line needs an over_delivery_reason. The order must be sent (not draft, closed or cancelled). Accepted goods from a supplier that is suspended or rejected are refused (a delivery of only rejected lines is still recorded); a supplier still pending approval can only be received into quarantine, so pass \`quarantine: true\` on every accepted line. Accepted lines of an item archived or no longer an ingredient or packaging are refused. Accepted lines may carry the supplier's lot code, an expiry date with its type (use_by or best_before) and the invoice price. Everything is checked first and nothing is saved if any line is wrong. ${PERSON_ONLY}`,
       annotations: CREATE,
       input: {
         workspace: workspaceParam,
@@ -601,21 +709,40 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
       const lines = await Promise.all(
         a.lines.map(async (l) => {
           const line = lineId(l.line);
-          const unit = l.unit ?? line.unit;
+          const stock = line.kind === "stock";
+          if (!stock && l.unit)
+            throw new ToolError(
+              "invalid_input",
+              `Line ${line.lineNo} is a non_stock line: give the quantity in its own unit${line.unitLabel ? ` (${line.unitLabel})` : ""} and leave out \`unit\`.`,
+            );
+          const unit = stock ? (l.unit ?? line.unit ?? undefined) : undefined;
           if (l.outcome === "rejected")
             return {
               lineId: line.id,
               outcome: "rejected" as const,
               quantity: l.quantity,
-              unit,
+              ...(unit ? { unit } : {}),
               reason: l.reason,
             };
+          if (
+            !stock &&
+            (l.location ||
+              l.lot_code ||
+              l.supplier_lot_code ||
+              l.expires_on ||
+              l.expiry_type ||
+              l.quarantine !== undefined)
+          )
+            throw new ToolError(
+              "invalid_input",
+              `Line ${line.lineNo} is a non_stock line: nothing goes into stock, so leave out location, lot and expiry fields.`,
+            );
           return {
             lineId: line.id,
             outcome: "accepted" as const,
             quantity: l.quantity,
-            unit,
-            locationId: await resolveLocationId(api, slug, l.location),
+            ...(unit ? { unit } : {}),
+            ...(l.location ? { locationId: await resolveLocationId(api, slug, l.location) } : {}),
             ...(l.lot_code ? { lotCode: l.lot_code } : {}),
             ...(l.supplier_lot_code ? { supplierLotCode: l.supplier_lot_code } : {}),
             ...(l.expires_on ? { expiresOn: l.expires_on } : {}),
@@ -648,7 +775,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
           const line = after.lines.find((l) => l.id === r.lineId);
           return {
             line: line?.lineNo ?? null,
-            item: itemName(r.item),
+            item: line ? lineName(line) : r.item ? itemName(r.item) : null,
             outcome: r.outcome,
             quantity: qty(r.quantity, line?.unit),
             lot: r.lotCode,
@@ -657,7 +784,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
         }),
         outstanding: after.lines
           .filter((l) => l.outstanding.base > 0)
-          .map((l) => ({ line: l.lineNo, item: itemName(l.item), outstanding: qty(l.outstanding, l.unit) })),
+          .map((l) => ({ line: l.lineNo, item: lineName(l), outstanding: qty(l.outstanding, l.unit) })),
       };
     },
   );
@@ -666,9 +793,11 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
     "suggest_purchase_orders",
     {
       module: "purchasing",
+      // The shortfall is production's (which needs stock): without it there is nothing to suggest.
+      requiresModules: ["production"],
       title: "Suggest purchase orders",
       description:
-        "What to buy to cover the planned production: the material shortfall for the window (default today to 28 days ahead, at most a year) minus what is already outstanding on sent orders, grouped by suggested supplier (the item's preferred or only supplier; items with no clear supplier come last under `supplier: null`). Each suggestion gives the shortfall, on order, on draft (shown but not subtracted), the quantity to order in its unit, the standard cost as the price, the date it is needed by and the other suppliers who could supply it. `covered` lists items sent orders already cover. `notPurchasable` lists items in the shortfall that can't be bought (reason `made_in_house` for work in progress and finished goods: plan their production instead; `archived` for archived items). Nothing is created: to order, call draft_purchase_order with the supplier and these lines (item, quantity, unit, unit_price, expected_on). Needs the production module (and read access to it); without it this is refused with `production_unavailable`. Sending the drafts is a person's act in the app.",
+        "What to buy to cover the planned production: the material shortfall for the window (default today to 28 days ahead, at most a year) minus what is already outstanding on sent orders, grouped by suggested supplier (the item's preferred or only supplier; items with no clear supplier come last under `supplier: null`). Each suggestion gives the shortfall, on order, on draft (shown but not subtracted), the quantity to order in its unit, the standard cost as the price, the date it is needed by and the other suppliers who could supply it. `covered` lists items sent orders already cover. `notPurchasable` lists items in the shortfall that can't be bought (reason `made_in_house` for work in progress and finished goods: plan their production instead; `archived` for archived items). Nothing is created: to order, call draft_purchase_order with the supplier and these lines (item, quantity, unit, unit_price, expected_on). Only offered where the production module is on and readable. Suggestions are stock lines only. Sending the drafts is a person's act in the app.",
       annotations: READ,
       input: {
         workspace: workspaceParam,
@@ -726,7 +855,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
       module: "purchasing",
       title: "Supplier performance",
       description:
-        "On-time, in-full and OTIF percentages per supplier over a period (default the last 90 days), from the lines of sent and closed orders whose promised date (the expected date when the order was sent; later re-dating doesn't move it) fell in the period, plus the deliveries received and how many had something rejected (cancelled orders' deliveries included). Percentages are null when no line was due. Suppliers sorted by name.",
+        "On-time, in-full and OTIF percentages per supplier over a period (default the last 90 days), from the lines (stock and non-stock) of sent and closed orders whose promised date (the expected date when the order was sent; later re-dating doesn't move it) fell in the period, plus the deliveries received and how many had something rejected (cancelled orders' deliveries included). Percentages are null when no line was due. Suppliers sorted by name.",
       annotations: READ,
       input: {
         workspace: workspaceParam,

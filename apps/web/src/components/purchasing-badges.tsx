@@ -112,13 +112,31 @@ export const formatPrice = (value: number, currency: string) => formatUnitMoney(
 
 /**
  * A line quantity in the unit the line was entered in ("25 kg"), falling back to the item's own
- * unit when it no longer converts.
+ * unit when it no longer converts. A non-stock line (`unit` null) is as entered, in its own
+ * free-text unit ("3 visit"), or bare when it has none.
  */
 export const formatLineAmount = (
-  amount: Pick<StockAmount, "display" | "displayUnit"> & { inLineUnit: number | null },
-  unit: UnitCode,
-) =>
-  amount.inLineUnit === null ? formatAmount(amount) : `${number(amount.inLineUnit)} ${units[unit].label}`;
+  amount: { display: number; displayUnit: string | null; inLineUnit: number | null },
+  unit: UnitCode | null,
+) => {
+  if (unit === null)
+    return `${number(amount.inLineUnit ?? amount.display)}${amount.displayUnit ? ` ${amount.displayUnit}` : ""}`;
+  return amount.inLineUnit === null
+    ? formatAmount(amount as Pick<StockAmount, "display" | "displayUnit">)
+    : `${number(amount.inLineUnit)} ${units[unit].label}`;
+};
+
+/** A line's unit label: a stock unit's label, a non-stock line's own text, or "" for none. */
+export const lineUnitLabel = (line: { unit: UnitCode | null; unitLabel?: string | null }) =>
+  line.unit ? units[line.unit].label : (line.unitLabel ?? "");
+
+/** What a line buys: its item's name, or a non-stock line's description. */
+export const lineTitle = (line: {
+  item: { name: string } | null;
+  description?: string | null;
+  kind?: string;
+}) =>
+  line.kind === "non_stock" || !line.item ? (line.description ?? line.item?.name ?? "") : line.item.name;
 
 /** How many lines have arrived in full: a bar and "1 of 3 lines in full". */
 export function ReceivedProgress({ received, total }: { received: number; total: number }) {

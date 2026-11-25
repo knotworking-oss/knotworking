@@ -4,6 +4,8 @@ import {
   canOrderFromSupplier,
   convertUnitPrice,
   PRICE_DECIMALS,
+  PURCHASE_NOMINAL_CODE_MAX,
+  PURCHASE_UNIT_LABEL_MAX,
   supplierApprovalLabels,
   units,
   unitsForItem,
@@ -43,9 +45,18 @@ interface LineDraft {
   key: string;
   /** An existing line (kept and edited by the PATCH). */
   id?: string;
+  /** `stock`: an item into stock. `non_stock`: a service or goods not kept in stock. */
+  kind: "stock" | "non_stock";
+  /** Stock lines: the item. Non-stock lines: an item it refers to, kept as it was ("" for none). */
   itemId: string;
   quantity: string;
   unit: UnitCode;
+  /** Non-stock lines: what is bought. */
+  description: string;
+  /** Non-stock lines: the unit, as free text. */
+  unitText: string;
+  /** Non-stock lines: the expense account or nominal code. */
+  nominalCode: string;
   price: string;
   /** The line's own expected date, overriding the order's; "" = the order's. */
   expectedOn: string;
@@ -73,12 +84,16 @@ function defaultPrice(item: PurchasableItem | undefined, unit: UnitCode) {
   return price === null ? "" : String(price);
 }
 
-const blankLine = (item?: PurchasableItem): LineDraft => ({
+const blankLine = (kind: LineDraft["kind"] = "stock"): LineDraft => ({
   key: key(),
-  itemId: item?.id ?? "",
+  kind,
+  itemId: "",
   quantity: "",
-  unit: item?.unit ?? "kg",
-  price: defaultPrice(item, item?.unit ?? "kg"),
+  unit: "kg",
+  description: "",
+  unitText: "",
+  nominalCode: "",
+  price: "",
   expectedOn: "",
   priceTouched: false,
   locked: false,
@@ -89,8 +104,10 @@ const supplierLabel = (s: SupplierOption) =>
   `${s.name}${s.approvalStatus === "approved" ? "" : ` · ${supplierApprovalLabels[s.approvalStatus]}`}`;
 
 /**
- * A new draft order, or an edit of a draft or sent order. Lines are ingredients and packaging; the
- * price defaults to the item's standard cost in the line's unit. Once sent, the supplier is fixed
+ * A new draft order, or an edit of a draft or sent order. Stock lines are ingredients and
+ * packaging, priced by default at the item's standard cost in the line's unit; they are offered
+ * only when the viewer can use stock. Non-stock lines (services, subscriptions, goods not kept in
+ * stock) have a description, a free-text unit, a price and a nominal code. Once sent, the supplier is fixed
  * and lines with receipts can't be removed or change item; lines on a supplier invoice can't be
  * removed or change item, unit or price (the API enforces all of these).
  */
@@ -116,7 +133,7 @@ export function OrderDialog({
   // Items on the order stay pickable even if archived or no longer purchasable.
   const items = [...options.items];
   for (const line of order?.lines ?? []) {
-    if (!items.some((i) => i.id === line.itemId))
+    if (line.kind === "stock" && line.item && !items.some((i) => i.id === line.itemId))
       items.push({
         id: line.item.id,
         code: line.item.code,
@@ -143,9 +160,17 @@ export function OrderDialog({
       ? order.lines.map((l) => ({
           key: key(),
           id: l.id,
-          itemId: l.itemId,
+          kind: l.kind,
+          itemId: l.itemId ?? "",
           quantity: String(l.ordered.inLineUnit ?? l.ordered.display),
-          unit: l.ordered.inLineUnit === null ? l.ordered.displayUnit : l.unit,
+          unit: (l.unit === null
+            ? "kg"
+            : l.ordered.inLineUnit === null
+              ? l.ordered.displayUnit
+              : l.unit) as UnitCode,
+          description: l.description ?? "",
+          unitText: l.unitLabel ?? "",
+          nominalCode: l.nominalCode ?? "",
           price: l.unitPrice === null ? "" : String(l.unitPrice),
           expectedOn: l.expectedOn ?? "",
           priceTouched: true,
@@ -153,7 +178,7 @@ export function OrderDialog({
           invoiced: l.invoiced,
           ...(l.received.base > 0 ? { receivedText: formatLineAmount(l.received, l.unit) } : {}),
         }))
-      : [blankLine()],
+      : [blankLine(options.stock ? "stock" : "non_stock")],
   );
 
   const update = (k: string, patch: Partial<LineDraft>) =>
@@ -183,11 +208,16 @@ export function OrderDialog({
         (a, b) => Number(b.supplierIds.includes(supplier.id)) - Number(a.supplierIds.includes(supplier.id)),
       )
     : items;
-  const filled = lines.filter((l) => l.itemId || l.quantity);
+  const filled = lines.filter((l) =>
+    l.kind === "stock" ? l.itemId || l.quantity : l.description.trim() || l.quantity,
+  );
   const invalid =
     !supplierId ||
     filled.some(
-      (l) => !l.itemId || !(parseNumber(l.quantity)! > 0) || (l.price && parseNumber(l.price) === null),
+      (l) =>
+        (l.kind === "stock" ? !l.itemId : !l.description.trim()) ||
+        !(parseNumber(l.quantity)! > 0) ||
+        (l.price && parseNumber(l.price) === null),
     );
 
   return (
@@ -205,18 +235,29 @@ export function OrderDialog({
       onSubmit={async () => {
         const header = {
           expectedOn: expectedOn || null,
-          deliveryLocationId: locationId === NONE ? null : locationId,
+          // Without stock the location isn't shown: leave what the order has.
+          ...(options.stock ? { deliveryLocationId: locationId === NONE ? null : locationId } : {}),
           supplierReference: supplierReference.trim() || null,
           notes: notes.trim() || null,
         };
-        const lineInput = filled.map((l) => ({
-          ...(l.id ? { id: l.id } : {}),
-          itemId: l.itemId,
-          quantity: parseNumber(l.quantity)!,
-          unit: l.unit,
-          unitPrice: parseNumber(l.price),
-          expectedOn: l.expectedOn || null,
-        }));
+        const lineInput = filled.map((l) => {
+          const common = {
+            ...(l.id ? { id: l.id } : {}),
+            quantity: parseNumber(l.quantity)!,
+            unitPrice: parseNumber(l.price),
+            expectedOn: l.expectedOn || null,
+          };
+          return l.kind === "non_stock"
+            ? {
+                ...common,
+                kind: "non_stock" as const,
+                description: l.description.trim(),
+                itemId: l.itemId || null,
+                unit: l.unitText.trim() || null,
+                nominalCode: l.nominalCode.trim() || null,
+              }
+            : { ...common, kind: "stock" as const, itemId: l.itemId, unit: l.unit };
+        });
         if (order) {
           await unwrap(
             purchasingApi().orders[":id"].$patch({
@@ -269,14 +310,16 @@ export function OrderDialog({
           />
           <FieldDescription>Needed to send, here or on every line.</FieldDescription>
         </Field>
-        <SelectField
-          id="po-location"
-          label="Deliver to"
-          value={locationId}
-          onChange={setLocationId}
-          options={[[NONE, "Not set"], ...options.locations.map((l) => [l.id, l.name] as const)]}
-          description="Where the goods-in form puts the delivery by default."
-        />
+        {options.stock && (
+          <SelectField
+            id="po-location"
+            label="Deliver to"
+            value={locationId}
+            onChange={setLocationId}
+            options={[[NONE, "Not set"], ...options.locations.map((l) => [l.id, l.name] as const)]}
+            description="Where the goods-in form puts stock lines by default."
+          />
+        )}
         <Field>
           <FieldLabel htmlFor="po-supplier-ref">Supplier&apos;s reference</FieldLabel>
           <Input
@@ -291,15 +334,27 @@ export function OrderDialog({
 
       <div className="flex flex-col gap-3">
         <div className="text-sm font-medium">Lines</div>
-        {items.length === 0 && (
+        {options.stock && items.length === 0 && (
           <Alert>
             <TriangleAlert />
             <AlertDescription>
-              Only ingredients and packaging are bought. Add them on the Items page first.
+              Stock lines are ingredients and packaging: add them on the Items page first. Services and other
+              purchases go on non-stock lines.
             </AlertDescription>
           </Alert>
         )}
         {lines.map((line, index) => {
+          if (line.kind === "non_stock")
+            return (
+              <NonStockLine
+                key={line.key}
+                line={line}
+                index={index}
+                removable={!(line.locked || line.invoiced || lines.length === 1)}
+                onChange={(patch) => update(line.key, patch)}
+                onRemove={() => setLines((all) => all.filter((l) => l.key !== line.key))}
+              />
+            );
           const item = itemOf(line.itemId);
           const unitChoices = item ? unitsForItem(item) : [line.unit];
           const unlisted = item && supplier && !item.supplierIds.includes(supplier.id);
@@ -421,14 +476,24 @@ export function OrderDialog({
             </div>
           );
         })}
-        <div>
+        <div className="flex flex-wrap gap-2">
+          {options.stock && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setLines((all) => [...all, blankLine("stock")])}
+            >
+              <Plus data-icon="inline-start" /> Add stock item
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setLines((all) => [...all, blankLine()])}
+            onClick={() => setLines((all) => [...all, blankLine("non_stock")])}
           >
-            <Plus data-icon="inline-start" /> Add line
+            <Plus data-icon="inline-start" /> Add non-stock line
           </Button>
         </div>
       </div>
@@ -444,5 +509,129 @@ export function OrderDialog({
         />
       </Field>
     </HaccpDialog>
+  );
+}
+
+/**
+ * A non-stock line: a service, subscription or goods not kept in stock. Its quantity is counted in
+ * its own free-text unit and it is received without a lot. Once on a supplier invoice its unit and
+ * price are fixed; once received, its unit.
+ */
+function NonStockLine({
+  line,
+  index,
+  removable,
+  onChange,
+  onRemove,
+}: {
+  line: LineDraft;
+  index: number;
+  removable: boolean;
+  onChange: (patch: Partial<LineDraft>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border p-3">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_7rem_auto] sm:items-end">
+        <Field>
+          <FieldLabel htmlFor={`${line.key}-desc`}>Non-stock line {index + 1}</FieldLabel>
+          <Input
+            id={`${line.key}-desc`}
+            maxLength={500}
+            placeholder="Window cleaning, software licence, office supplies…"
+            value={line.description}
+            onChange={(e) => onChange({ description: e.target.value })}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${line.key}-qty`}>Quantity</FieldLabel>
+          <Input
+            id={`${line.key}-qty`}
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="any"
+            value={line.quantity}
+            onChange={(e) => onChange({ quantity: e.target.value })}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${line.key}-unit`}>Unit</FieldLabel>
+          <Input
+            id={`${line.key}-unit`}
+            maxLength={PURCHASE_UNIT_LABEL_MAX}
+            placeholder="hour, month…"
+            disabled={line.invoiced || line.locked}
+            value={line.unitText}
+            onChange={(e) => onChange({ unitText: e.target.value })}
+          />
+        </Field>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={`Remove line ${index + 1}`}
+          title={
+            line.invoiced
+              ? "This line is on a supplier invoice and stays on the order"
+              : line.locked
+                ? "This line has had deliveries and stays on the order"
+                : undefined
+          }
+          disabled={!removable}
+          onClick={onRemove}
+        >
+          <Trash2 />
+        </Button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field>
+          <FieldLabel htmlFor={`${line.key}-price`}>
+            Price{line.unitText.trim() ? ` / ${line.unitText.trim()}` : " each"}
+          </FieldLabel>
+          <Input
+            id={`${line.key}-price`}
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="any"
+            placeholder="Unknown"
+            disabled={line.invoiced}
+            value={line.price}
+            onChange={(e) => onChange({ price: e.target.value, priceTouched: true })}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${line.key}-nominal`}>Nominal code</FieldLabel>
+          <Input
+            id={`${line.key}-nominal`}
+            maxLength={PURCHASE_NOMINAL_CODE_MAX}
+            placeholder="e.g. 7500"
+            value={line.nominalCode}
+            onChange={(e) => onChange({ nominalCode: e.target.value })}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={`${line.key}-expected`}>Expected, if not the order&apos;s date</FieldLabel>
+          <Input
+            id={`${line.key}-expected`}
+            type="date"
+            value={line.expectedOn}
+            onChange={(e) => onChange({ expectedOn: e.target.value })}
+          />
+        </Field>
+      </div>
+      {(line.receivedText || line.invoiced) && (
+        <p className="text-xs text-muted-foreground">
+          {[
+            line.invoiced &&
+              "On a supplier invoice: its unit and price are fixed (revise the invoice to correct them)",
+            line.receivedText && `${line.receivedText} received: can't go below that`,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      )}
+    </div>
   );
 }

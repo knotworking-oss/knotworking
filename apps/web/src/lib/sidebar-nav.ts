@@ -339,6 +339,8 @@ export const navAreas: readonly NavArea[] = [
             label: "Suggestions",
             path: "purchasing/suggestions",
             icon: TrendingUp,
+            // From production's shortfall: Production is a soft dependency of Purchasing.
+            show: needs("production"),
           },
           { label: "Supplier performance", path: "purchasing/suppliers", icon: Truck },
         ],

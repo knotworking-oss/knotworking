@@ -35,6 +35,7 @@ import {
   type PurchaseOrderCreateInput,
   type PurchaseOrderLineInput,
   type PurchaseOrderLineUpdateInput,
+  type PurchaseOrderNonStockLineInput,
   type PurchaseOrderListQuery,
   type PurchaseOrderSendInput,
   type PurchaseOrderStatus,
@@ -95,11 +96,16 @@ import {
 /**
  * Purchasing module: purchase orders, goods-in against them and supplier performance.
  *
- * - Quantities on lines and receipts are in the item's base unit; a line keeps the unit it was
- *   entered in (`unit`), and its price is per that unit. A receipt's price is per base unit.
+ * - A line is a `stock` line (an item received into stock as a lot; needs the stock module, see
+ *   `StockCheck`) or a `non_stock` line (a service, subscription or goods not kept in stock: a
+ *   description, its own free-text unit, an expense code; received without a lot or movement).
+ * - Stock lines' quantities on lines and receipts are in the item's base unit; a line keeps the
+ *   unit it was entered in (`unit`), and its price is per that unit. A receipt's price is per base
+ *   unit. Non-stock lines' quantities and prices are as entered, in the line's own unit.
  * - The displayed state (part received, received) is derived, never stored: received quantities
- *   are the accepted receipts whose stock movement has not been reversed (the stock module's
- *   reversal is how an accepted receipt is corrected; purchasing has no reversal of its own).
+ *   are the accepted receipts whose stock movement has not been reversed and that are not voided
+ *   (the stock module's reversal is how an accepted stock receipt is corrected; an accepted
+ *   non-stock receipt is voided).
  * - Receipts are append-only: nothing here updates or deletes one.
  * - Every write takes the workspace lock (references, balances) and records its changes.
  *
@@ -126,6 +132,27 @@ const notInFuture = (date: string, field: string, today: string) => {
 
 /** The stock movement that reverses a receipt's movement, if any. */
 const reversal = alias(stockMovements, "reversal");
+
+/**
+ * Throws unless stock lines may be used: the stock module active and readable by the caller
+ * (`404 module_inactive`, `403 module_forbidden`). Called before a stock line is created or moved
+ * to another item, a stock line is received, or a delivery location is set. Routes pass
+ * `assertModule(c, "stock", "read")`; the default allows everything (internal callers).
+ */
+export type StockCheck = () => void;
+const stockAllowed: StockCheck = () => {};
+
+/** A non-stock quantity as stored: as entered, 4 places, positive and within the column. */
+function nonStockQuantity(quantity: number) {
+  const q = roundQuantity(quantity);
+  if (q <= 0) throw badRequest("The quantity is too small to record (below 0.0001)");
+  if (q > PURCHASE_MAX_BASE_QUANTITY) {
+    throw badRequest(
+      `The quantity is too large to record (at most ${PURCHASE_MAX_BASE_QUANTITY.toLocaleString("en-GB")})`,
+    );
+  }
+  return q;
+}
 
 // ─── Sync log ────────────────────────────────────────────────────────────────
 
@@ -208,7 +235,7 @@ async function lineTotals(db: Executor, lineIds: string[]) {
   const rows = await db
     .select({
       lineId: purchaseReceipts.lineId,
-      received: sql<string>`coalesce(sum(${purchaseReceipts.quantity}) filter (where ${purchaseReceipts.outcome} = 'accepted' and ${reversal.id} is null), 0)`,
+      received: sql<string>`coalesce(sum(${purchaseReceipts.quantity}) filter (where ${purchaseReceipts.outcome} = 'accepted' and ${reversal.id} is null and ${purchaseReceipts.voidedAt} is null), 0)`,
       rejected: sql<string>`coalesce(sum(${purchaseReceipts.quantity}) filter (where ${purchaseReceipts.outcome} = 'rejected' and ${purchaseReceipts.voidedAt} is null), 0)`,
       receipts: count(),
     })
@@ -271,6 +298,26 @@ export const lineAmount = (base: number, item: ItemRow, unit: UnitCode) => {
 };
 
 /**
+ * A line's quantity as the views show it. Stock lines: `lineAmount` (base unit, the item's unit,
+ * the line's unit). Non-stock lines: as entered, in the line's free-text unit (`baseUnit` null).
+ */
+export const lineQuantity = (
+  quantity: number,
+  line: Pick<LineRow, "kind" | "unit" | "unitLabel">,
+  item: ItemRow | null,
+): {
+  base: number;
+  baseUnit: UnitCode | null;
+  display: number;
+  displayUnit: string | null;
+  inLineUnit: number | null;
+} => {
+  if (line.kind === "stock") return lineAmount(quantity, item!, line.unit!);
+  const q = roundQuantity(quantity);
+  return { base: q, baseUnit: null, display: q, displayUnit: line.unitLabel, inLineUnit: q };
+};
+
+/**
  * Lines with their progress and value, and the order's derived totals. Loads everything the list
  * and detail views share, for a page of orders at once.
  */
@@ -289,7 +336,7 @@ export async function loadOrders(db: Executor, orders: OrderRow[], today: string
       lines.map((l) => l.id),
     ),
   ]);
-  const itemIds = [...new Set(lines.map((l) => l.itemId))];
+  const itemIds = [...new Set(lines.flatMap((l) => (l.itemId ? [l.itemId] : [])))];
   const supplierIds = [...new Set(orders.map((o) => o.supplierId))];
   const locationIds = [
     ...new Set(orders.flatMap((o) => (o.deliveryLocationId ? [o.deliveryLocationId] : []))),
@@ -322,23 +369,23 @@ export async function loadOrders(db: Executor, orders: OrderRow[], today: string
   return orders.map((order) => {
     const open = order.status === "sent";
     const lineViews = (linesByOrder.get(order.id) ?? []).map((line) => {
-      const item = itemMap.get(line.itemId)!;
+      const item = line.itemId ? itemMap.get(line.itemId)! : null;
       const t = totals.get(line.id) ?? { received: 0, rejected: 0, receipts: 0 };
       const left = outstanding(line.quantity, t.received);
-      const ordered = lineAmount(line.quantity, item, line.unit);
+      const ordered = lineQuantity(line.quantity, line, item);
       const expectedOn = lineExpectedOn(line, order);
       return {
         row: line,
         view: {
           ...strip(line),
-          item: itemSummary(item),
+          item: item ? itemSummary(item) : null,
           effectiveExpectedOn: expectedOn,
           /** The promised date (set when sent) differs from the current expected date. */
           promiseMoved: line.promisedOn !== null && line.promisedOn !== expectedOn,
           ordered,
-          received: lineAmount(t.received, item, line.unit),
-          rejected: lineAmount(t.rejected, item, line.unit),
-          outstanding: lineAmount(left, item, line.unit),
+          received: lineQuantity(t.received, line, item),
+          rejected: lineQuantity(t.rejected, line, item),
+          outstanding: lineQuantity(left, line, item),
           state: lineReceiptState(line.quantity, t.received),
           lineValue:
             line.unitPrice === null || ordered.inLineUnit === null
@@ -406,7 +453,7 @@ export async function getOrder(db: Executor, workspaceId: string, id: string, to
       .orderBy(desc(purchaseOrderEmails.createdAt), desc(purchaseOrderEmails.id)),
   ];
   const [listed, receipts] = await Promise.all([
-    lines.length
+    lines.some((l) => l.itemId)
       ? db
           .select({ itemId: itemSuppliers.itemId })
           .from(itemSuppliers)
@@ -415,7 +462,7 @@ export async function getOrder(db: Executor, workspaceId: string, id: string, to
               eq(itemSuppliers.supplierId, order.supplierId),
               inArray(
                 itemSuppliers.itemId,
-                lines.map((l) => l.itemId),
+                lines.flatMap((l) => (l.itemId ? [l.itemId] : [])),
               ),
               isNull(itemSuppliers.deletedAt),
             ),
@@ -445,7 +492,7 @@ export async function getOrder(db: Executor, workspaceId: string, id: string, to
     order.sendApprovedBy,
   ]);
   const lineById = new Map(lines.map((l) => [l.id, l]));
-  const receiptItemIds = [...new Set(receipts.map((r) => r.receipt.itemId))];
+  const receiptItemIds = [...new Set(receipts.flatMap((r) => (r.receipt.itemId ? [r.receipt.itemId] : [])))];
   const itemById = new Map<string, ItemRow>(
     receiptItemIds.length
       ? (await db.select().from(items).where(inArray(items.id, receiptItemIds))).map((i) => [i.id, i])
@@ -454,18 +501,19 @@ export async function getOrder(db: Executor, workspaceId: string, id: string, to
 
   const deliveryReceipt = (
     receipt: (typeof receipts)[number]["receipt"],
-    lineNo: number | null,
-    item: ItemRow,
-    unit: UnitCode,
+    line: Pick<LineRow, "lineNo" | "kind" | "unit" | "unitLabel">,
+    item: ItemRow | null,
     lotCode: string | null,
     reversalId: string | null,
   ) => ({
     id: receipt.id,
     lineId: receipt.lineId,
-    lineNo,
-    item: itemSummary(item),
+    lineNo: line.lineNo,
+    /** The order line's kind: a non-stock receipt has no lot or movement. */
+    kind: line.kind,
+    item: item ? itemSummary(item) : null,
     outcome: receipt.outcome,
-    quantity: lineAmount(receipt.quantity, item, unit),
+    quantity: lineQuantity(receipt.quantity, line, item),
     unitPrice: receipt.unitPrice,
     lotId: receipt.lotId,
     lotCode,
@@ -492,9 +540,9 @@ export async function getOrder(db: Executor, workspaceId: string, id: string, to
     }
   >();
   for (const { receipt, lotCode, reversalId } of receipts) {
-    const item = itemById.get(receipt.itemId)!;
-    const line = lineById.get(receipt.lineId);
-    const unit = line?.unit ?? item.unit;
+    const item = receipt.itemId ? itemById.get(receipt.itemId)! : null;
+    // Lines with receipts can't be removed, so the line is there.
+    const line = lineById.get(receipt.lineId)!;
     let delivery = deliveries.get(receipt.deliveryId);
     if (!delivery) {
       delivery = {
@@ -509,7 +557,7 @@ export async function getOrder(db: Executor, workspaceId: string, id: string, to
       };
       deliveries.set(receipt.deliveryId, delivery);
     }
-    delivery.receipts.push(deliveryReceipt(receipt, line?.lineNo ?? null, item, unit, lotCode, reversalId));
+    delivery.receipts.push(deliveryReceipt(receipt, line, item, lotCode, reversalId));
   }
 
   const [supplierRow] = await db
@@ -557,7 +605,7 @@ export async function getOrder(db: Executor, workspaceId: string, id: string, to
       sentByName: name(e.sentBy),
       createdAt: e.createdAt,
     })),
-    lines: lines.map((l) => ({ ...l, supplierListed: listedItems.has(l.itemId) })),
+    lines: lines.map((l) => ({ ...l, supplierListed: l.itemId !== null && listedItems.has(l.itemId) })),
     deliveries: [...deliveries.values()],
   };
 }
@@ -588,6 +636,7 @@ export async function listOrders(
         eq(purchaseReceipts.workspaceId, workspaceId),
         eq(purchaseReceipts.outcome, "accepted"),
         isNull(reversal.id),
+        isNull(purchaseReceipts.voidedAt),
       ),
     )
     .groupBy(purchaseReceipts.lineId)
@@ -730,29 +779,65 @@ async function defaultLinePrice(
   return listed ? listed.price : defaultPrice(item, unit);
 }
 
+/** The item a non-stock line refers to: any active item (a reference only; nothing is stocked). */
+async function findReferencedItem(tx: Executor, workspaceId: string, itemId: string) {
+  const item = await findItem(tx, workspaceId, itemId);
+  if (item.status !== "active") throw new ApiError(409, "item_archived", `${item.name} is archived`);
+  return item;
+}
+
+/** A non-stock line's own columns (stock-only columns null). */
+const nonStockValues = (input: PurchaseOrderNonStockLineInput, itemId: string | null) => ({
+  kind: "non_stock" as const,
+  itemId,
+  quantity: nonStockQuantity(input.quantity),
+  unit: null,
+  description: input.description,
+  unitLabel: input.unit ?? null,
+  nominalCode: input.nominalCode ?? null,
+});
+
 /**
- * A new line's values, checked: the item may be bought and the unit converts. `promisedOn` is set
- * when the line is added to an order already sent (its effective expected date then).
+ * A new line's values, checked. A stock line: the stock module is usable (`stock`), the item may
+ * be bought and the unit converts. A non-stock line: its item, if any, is active. `promisedOn` is
+ * set when the line is added to an order already sent (its effective expected date then).
  */
 async function newLineValues(
   tx: Executor,
   workspaceId: string,
   input: PurchaseOrderLineInput,
   pricing: { supplierId: string; today: string },
+  stock: StockCheck,
   sentOrder?: Pick<OrderRow, "expectedOn">,
 ) {
+  const common = {
+    promisedOn: sentOrder ? (input.expectedOn ?? sentOrder.expectedOn) : null,
+    expectedOn: input.expectedOn ?? null,
+    notes: input.notes ?? null,
+  };
+  if (input.kind === "non_stock") {
+    const item = input.itemId ? await findReferencedItem(tx, workspaceId, input.itemId) : null;
+    return {
+      ...common,
+      ...nonStockValues(input, item?.id ?? null),
+      unitPrice: input.unitPrice ?? null,
+    };
+  }
+  stock();
   const item = await findPurchasableItem(tx, workspaceId, input.itemId);
   return {
+    ...common,
+    kind: "stock" as const,
     itemId: item.id,
     quantity: lineBase(input.quantity, input.unit, item),
-    promisedOn: sentOrder ? (input.expectedOn ?? sentOrder.expectedOn) : null,
     unit: input.unit,
+    description: null,
+    unitLabel: null,
+    nominalCode: null,
     unitPrice:
       input.unitPrice !== undefined
         ? input.unitPrice
         : await defaultLinePrice(tx, workspaceId, pricing, item, input.unit),
-    expectedOn: input.expectedOn ?? null,
-    notes: input.notes ?? null,
   };
 }
 
@@ -766,13 +851,17 @@ async function insertOrder(
   actorId: string,
   input: PurchaseOrderCreateInput,
   today: string,
+  stock: StockCheck,
 ) {
   const supplier = await findSupplier(tx, workspaceId, input.supplierId);
   assertOrderable(supplier);
-  if (input.deliveryLocationId) await findActiveLocation(tx, workspaceId, input.deliveryLocationId);
+  if (input.deliveryLocationId) {
+    stock();
+    await findActiveLocation(tx, workspaceId, input.deliveryLocationId);
+  }
   const lineValues = [];
   for (const line of input.lines)
-    lineValues.push(await newLineValues(tx, workspaceId, line, { supplierId: supplier.id, today }));
+    lineValues.push(await newLineValues(tx, workspaceId, line, { supplierId: supplier.id, today }, stock));
   const reference = await nextReference(tx, workspaceId, today);
   const [order] = await tx
     .insert(purchaseOrders)
@@ -805,12 +894,13 @@ export async function createOrder(
   actorId: string,
   input: PurchaseOrderCreateInput,
   todayOn?: string,
+  stock: StockCheck = stockAllowed,
 ) {
   const today = todayOn ?? (await workspaceToday(db, workspaceId));
   const notified: NotificationRow[] = [];
   const result = await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
-    const order = await insertOrder(tx, workspaceId, actorId, input, today);
+    const order = await insertOrder(tx, workspaceId, actorId, input, today, stock);
     notified.push(...(await notifyIfApprovalNeeded(tx, workspaceId, actorId, order, today)));
     return getOrder(tx, workspaceId, order.id, today);
   });
@@ -869,6 +959,7 @@ export async function updateOrder(
   id: string,
   patch: PurchaseOrderUpdateInput,
   todayOn?: string,
+  stock: StockCheck = stockAllowed,
 ) {
   const today = todayOn ?? (await workspaceToday(db, workspaceId));
   const notified: NotificationRow[] = [];
@@ -885,6 +976,7 @@ export async function updateOrder(
       assertOrderable(await findSupplier(tx, workspaceId, header.supplierId));
     }
     if (header.deliveryLocationId && header.deliveryLocationId !== current.deliveryLocationId) {
+      stock();
       await findActiveLocation(tx, workspaceId, header.deliveryLocationId);
     }
     // The header first: lines added to a sent order are promised its (new) expected date.
@@ -907,6 +999,7 @@ export async function updateOrder(
         ...(await replaceLines(tx, workspaceId, row!, lineInput, {
           blockedSupplier: supplier && !canOrderFromSupplier(supplier.approvalStatus) ? supplier : null,
           today,
+          stock,
         })),
       );
     }
@@ -938,7 +1031,7 @@ async function replaceLines(
   workspaceId: string,
   order: OrderRow,
   input: PurchaseOrderLineUpdateInput[],
-  options: { blockedSupplier: SupplierRow | null; today: string },
+  options: { blockedSupplier: SupplierRow | null; today: string; stock: StockCheck },
 ) {
   const sent = order.status !== "draft";
   const blocked = options.blockedSupplier;
@@ -1009,6 +1102,7 @@ async function replaceLines(
         workspaceId,
         line,
         { supplierId: order.supplierId, today: options.today },
+        options.stock,
         sent ? order : undefined,
       );
       const [row] = await tx
@@ -1019,7 +1113,84 @@ async function replaceLines(
       continue;
     }
     const t = totals.get(prior.id) ?? { received: 0, rejected: 0, receipts: 0 };
-    const sameItem = line.itemId === prior.itemId;
+    if (line.kind !== prior.kind) {
+      // Stock and non-stock quantities mean different things: only a line nothing refers to yet
+      // can change kind. It becomes a new line in its place (keeping its promise).
+      if (t.receipts > 0) {
+        throw new ApiError(
+          409,
+          "line_has_receipts",
+          `Line ${prior.lineNo} has deliveries recorded against it; it can't change between stock and non-stock`,
+        );
+      }
+      if (invoiced.has(prior.id)) throw lineInvoiced(prior, "it can't change between stock and non-stock");
+      if (blocked) throw refuseMore("other items");
+      const values = await newLineValues(
+        tx,
+        workspaceId,
+        line,
+        { supplierId: order.supplierId, today: options.today },
+        options.stock,
+      );
+      const [row] = await tx
+        .update(purchaseOrderLines)
+        .set({ ...values, promisedOn: prior.promisedOn, lineNo, updatedAt: now })
+        .where(eq(purchaseOrderLines.id, prior.id))
+        .returning();
+      changes.push(lineChange(row!));
+      continue;
+    }
+    const sameItem = (line.itemId ?? null) === prior.itemId;
+    const below = (
+      quantity: number,
+      got: () => { display: number; displayUnit: string | null },
+      name: string,
+    ) => {
+      if (roundQuantity(quantity) >= roundQuantity(t.received)) return;
+      const amount = got();
+      throw new ApiError(
+        409,
+        "below_received",
+        `Line ${prior.lineNo}: ${amount.display}${amount.displayUnit ? ` ${amount.displayUnit}` : ""} of ${name} has been received; the quantity can't go below that`,
+        { lineId: prior.id, received: amount },
+      );
+    };
+    if (line.kind === "non_stock") {
+      // The item is a reference; the unit is what quantities, receipts and invoices are counted in.
+      const unitLabel = line.unit ?? null;
+      if (unitLabel !== prior.unitLabel && t.receipts > 0) {
+        throw new ApiError(
+          409,
+          "line_has_receipts",
+          `Line ${prior.lineNo} has deliveries recorded against it; its unit can't change`,
+        );
+      }
+      if (invoiced.has(prior.id)) {
+        if (!sameItem) throw lineInvoiced(prior, "its item can't change");
+        if (unitLabel !== prior.unitLabel) throw lineInvoiced(prior, "its unit can't change");
+        if (line.unitPrice !== undefined && !samePrice(line.unitPrice, prior.unitPrice))
+          throw lineInvoiced(prior, "its price can't change");
+      }
+      if (!sameItem && blocked) throw refuseMore("other items");
+      const item = line.itemId && !sameItem ? await findReferencedItem(tx, workspaceId, line.itemId) : null;
+      const values = nonStockValues(line, item?.id ?? (sameItem ? prior.itemId : null));
+      if (blocked && values.quantity > roundQuantity(prior.quantity)) throw refuseMore("larger quantities");
+      below(values.quantity, () => lineQuantity(t.received, prior, null), line.description);
+      const [row] = await tx
+        .update(purchaseOrderLines)
+        .set({
+          ...values,
+          lineNo,
+          unitPrice: line.unitPrice !== undefined ? line.unitPrice : prior.unitPrice,
+          expectedOn: line.expectedOn !== undefined ? line.expectedOn : prior.expectedOn,
+          notes: line.notes !== undefined ? line.notes : prior.notes,
+          updatedAt: now,
+        })
+        .where(eq(purchaseOrderLines.id, prior.id))
+        .returning();
+      changes.push(lineChange(row!));
+      continue;
+    }
     if (!sameItem && t.receipts > 0) {
       throw new ApiError(
         409,
@@ -1035,21 +1206,15 @@ async function replaceLines(
     }
     if (!sameItem && blocked) throw refuseMore("other items");
     // An item already on the line may since have been archived or deleted; the line stays editable.
+    // Another item is a new stock line: the stock module must be usable.
+    if (!sameItem) options.stock();
     const item = sameItem
       ? await findLineItem(tx, workspaceId, line.itemId)
       : await findPurchasableItem(tx, workspaceId, line.itemId);
     const quantity = lineBase(line.quantity, line.unit, item);
     if (blocked && roundQuantity(quantity) > roundQuantity(prior.quantity))
       throw refuseMore("larger quantities");
-    if (roundQuantity(quantity) < roundQuantity(t.received)) {
-      const got = stockAmount(t.received, item);
-      throw new ApiError(
-        409,
-        "below_received",
-        `Line ${prior.lineNo}: ${got.display} ${got.displayUnit} of ${item.name} has been received; the quantity can't go below that`,
-        { lineId: prior.id, received: got },
-      );
-    }
+    below(quantity, () => stockAmount(t.received, item), item.name);
     const unitPrice =
       line.unitPrice !== undefined
         ? line.unitPrice
@@ -1283,12 +1448,23 @@ export async function cancelOrder(
 
 // ─── Goods-in against an order ───────────────────────────────────────────────
 
+/** Lot fields of an accepted receipt line, which only a stock line has. */
+const lotFields = ["locationId", "lotCode", "supplierLotCode", "expiresOn", "expiryType", "status"] as const;
+
 /**
- * Records one delivery against a sent order, all or nothing, under one `deliveryId`. An accepted
- * line creates a lot (supplier = the order's) and its `receipt` movement, referenced
- * `PO-2026-001 / <delivery note>`, exactly as stock goods-in would (the supplier approval rule
- * included: a pending supplier's goods go into quarantine). A rejected line records what was
- * refused at the door; no stock moves. Over-delivery is allowed.
+ * Records one delivery against a sent order, all or nothing, under one `deliveryId`.
+ *
+ * - An accepted **stock** line creates a lot (supplier = the order's) and its `receipt` movement,
+ *   referenced `PO-2026-001 / <delivery note>`, exactly as stock goods-in would (the supplier
+ *   approval rule included: a pending supplier's goods go into quarantine). It needs the stock
+ *   module (`stock`); the location defaults to the order's delivery location and the unit to the
+ *   line's.
+ * - An accepted **non-stock** line records the quantity received (in the line's own unit), when and
+ *   who: no lot, no movement. Suspended and rejected suppliers' deliveries are refused, as for
+ *   goods; there is no quarantine. It can be voided if recorded in error.
+ * - A rejected line records what was refused at the door; nothing moves.
+ *
+ * Over-delivery is allowed (with a reason past the workspace's tolerance) for both kinds.
  */
 export async function receiveOrder(
   db: Database,
@@ -1297,6 +1473,7 @@ export async function receiveOrder(
   id: string,
   input: PurchaseReceiveInput,
   todayOn?: string,
+  stock: StockCheck = stockAllowed,
 ) {
   const today = todayOn ?? (await workspaceToday(db, workspaceId));
   notInFuture(input.receivedOn, "receivedOn", today);
@@ -1311,15 +1488,47 @@ export async function receiveOrder(
       );
     }
     const lines = new Map((await liveLines(tx, [id])).map((l) => [l.id, l]));
-    for (const line of input.lines) {
-      if (!lines.has(line.lineId)) throw badRequest(`Line ${line.lineId} is not on ${order.reference}`);
+    for (const entry of input.lines) {
+      const line = lines.get(entry.lineId);
+      if (!line) throw badRequest(`Line ${entry.lineId} is not on ${order.reference}`);
+      if (line.kind === "stock") {
+        stock();
+        continue;
+      }
+      // A non-stock line is counted in its own unit and never enters stock.
+      if (entry.unit !== undefined) {
+        throw badRequest(
+          `Line ${line.lineNo} is a non-stock line: give the quantity in its own unit${line.unitLabel ? ` (${line.unitLabel})` : ""} and leave out \`unit\``,
+        );
+      }
+      if (entry.outcome === "accepted") {
+        const given = lotFields.filter((f) => entry[f] !== undefined && entry[f] !== null);
+        if (given.length) {
+          throw badRequest(
+            `Line ${line.lineNo} is a non-stock line: nothing goes into stock, so leave out ${given.map((f) => `\`${f}\``).join(", ")}`,
+          );
+        }
+      }
     }
-    // The approval rule, once per lot status the accepted lines use. A delivery made only of
+    // The approval rule, once per lot status the accepted stock lines use. A delivery made only of
     // refusals is recorded whatever the supplier's approval: nothing enters stock.
     const statuses = new Set(
-      input.lines.flatMap((l) => (l.outcome === "accepted" ? [l.status ?? "available"] : [])),
+      input.lines.flatMap((l) =>
+        l.outcome === "accepted" && lines.get(l.lineId)!.kind === "stock" ? [l.status ?? "available"] : [],
+      ),
     );
     for (const status of statuses) await assertSupplierCanDeliver(tx, workspaceId, order.supplierId, status);
+    // Non-stock deliveries: nothing is accepted from a suspended or rejected supplier either.
+    if (input.lines.some((l) => l.outcome === "accepted" && lines.get(l.lineId)!.kind === "non_stock")) {
+      const supplier = await findSupplier(tx, workspaceId, order.supplierId);
+      if (!canOrderFromSupplier(supplier.approvalStatus)) {
+        throw new ApiError(
+          409,
+          "supplier_not_approved",
+          `${supplier.name} is ${supplier.approvalStatus}; nothing can be accepted from them`,
+        );
+      }
+    }
 
     // Over-delivery: with a tolerance set, an accepted line past ordered + tolerance needs a reason.
     const { overDeliveryTolerancePercent: tolerance } = await getOrderSettings(tx, workspaceId);
@@ -1331,17 +1540,21 @@ export async function receiveOrder(
     const reference = purchaseReceiptMovementReference(order.reference, input.deliveryReference);
     const now = new Date();
     const changes: ChangeInput[] = [];
-    const created: { receipt: ReceiptRow; lotCode: string | null; item: ItemRow; unit: UnitCode }[] = [];
+    const created: { receipt: ReceiptRow; lotCode: string | null; item: ItemRow | null; line: LineRow }[] =
+      [];
     for (const entry of input.lines) {
       const line = lines.get(entry.lineId)!;
+      const isStock = line.kind === "stock";
       // Found even if deleted since; goods-in's item rule refuses it below if it is accepted.
-      const item = await findLineItem(tx, workspaceId, line.itemId);
-      const quantity = lineBase(entry.quantity, entry.unit, item);
+      const item = line.itemId ? await findLineItem(tx, workspaceId, line.itemId) : null;
+      const unit = entry.unit ?? line.unit;
+      const quantity = isStock ? lineBase(entry.quantity, unit!, item!) : nonStockQuantity(entry.quantity);
+      const name = item?.name ?? line.description ?? `line ${line.lineNo}`;
       const common = {
         workspaceId,
         purchaseOrderId: order.id,
         lineId: line.id,
-        itemId: item.id,
+        itemId: line.itemId,
         deliveryId,
         quantity,
         receivedOn: input.receivedOn,
@@ -1355,11 +1568,11 @@ export async function receiveOrder(
           .values({ ...common, outcome: "rejected", reason: entry.reason })
           .returning();
         changes.push(receiptChange(receipt!));
-        created.push({ receipt: receipt!, lotCode: null, item, unit: line.unit });
+        created.push({ receipt: receipt!, lotCode: null, item, line });
         continue;
       }
       // Stock goods-in's item rule: active ingredients and packaging only.
-      assertItemReceivable(item);
+      if (isStock) assertItemReceivable(item!);
       const before = roundQuantity((running.get(line.id)?.received ?? 0) + (accepted.get(line.id) ?? 0));
       accepted.set(line.id, roundQuantity((accepted.get(line.id) ?? 0) + quantity));
       const over = isOverDeliveryTolerance({
@@ -1372,12 +1585,34 @@ export async function receiveOrder(
         throw new ApiError(
           409,
           "over_delivery_reason_required",
-          `Line ${line.lineNo}: ${item.name} would go more than ${tolerance}% over what was ordered; say why it is accepted`,
+          `Line ${line.lineNo}: ${name} would go more than ${tolerance}% over what was ordered; say why it is accepted`,
           { lineId: line.id, tolerancePercent: tolerance },
         );
       }
-      const location = await findActiveLocation(tx, workspaceId, entry.locationId);
-      const lot = await createLot(tx, workspaceId, actorId, item, {
+      const overDeliveryReason = over ? (entry.overDeliveryReason ?? null) : null;
+      if (!isStock) {
+        // Received, with no lot or movement: the price stays per the line's own unit.
+        const [receipt] = await tx
+          .insert(purchaseReceipts)
+          .values({
+            ...common,
+            outcome: "accepted",
+            unitPrice: entry.unitPrice ?? line.unitPrice,
+            overDeliveryReason,
+          })
+          .returning();
+        changes.push(receiptChange(receipt!));
+        created.push({ receipt: receipt!, lotCode: null, item, line });
+        continue;
+      }
+      const locationId = entry.locationId ?? order.deliveryLocationId;
+      if (!locationId) {
+        throw badRequest(
+          `Line ${line.lineNo}: say where ${name} goes (\`locationId\`); the order has no delivery location`,
+        );
+      }
+      const location = await findActiveLocation(tx, workspaceId, locationId);
+      const lot = await createLot(tx, workspaceId, actorId, item!, {
         lotCode: entry.lotCode ?? null,
         receivedOn: input.receivedOn,
         expiresOn: entry.expiresOn ?? null,
@@ -1391,7 +1626,7 @@ export async function receiveOrder(
       const [movement] = await insertMovements(tx, workspaceId, [
         {
           lotId: lot.id,
-          itemId: item.id,
+          itemId: item!.id,
           locationId: location.id,
           quantity,
           type: "receipt",
@@ -1400,12 +1635,12 @@ export async function receiveOrder(
           occurredAt: now,
         },
       ]);
-      const baseUnit = itemBaseUnit(item);
+      const baseUnit = itemBaseUnit(item!);
       const unitPrice =
         entry.unitPrice !== undefined && entry.unitPrice !== null
-          ? convertUnitPrice(entry.unitPrice, entry.unit, baseUnit, item, BASE_PRICE_DECIMALS)
+          ? convertUnitPrice(entry.unitPrice, unit!, baseUnit, item!, BASE_PRICE_DECIMALS)
           : line.unitPrice !== null
-            ? convertUnitPrice(line.unitPrice, line.unit, baseUnit, item, BASE_PRICE_DECIMALS)
+            ? convertUnitPrice(line.unitPrice, line.unit!, baseUnit, item!, BASE_PRICE_DECIMALS)
             : null;
       const [receipt] = await tx
         .insert(purchaseReceipts)
@@ -1415,21 +1650,22 @@ export async function receiveOrder(
           lotId: lot.id,
           stockMovementId: movement!.id,
           unitPrice,
-          overDeliveryReason: over ? (entry.overDeliveryReason ?? null) : null,
+          overDeliveryReason,
         })
         .returning();
       changes.push(lotChange(lot), movementChange(movement!), receiptChange(receipt!));
-      created.push({ receipt: receipt!, lotCode: lot.lotCode, item, unit: line.unit });
+      created.push({ receipt: receipt!, lotCode: lot.lotCode, item, line });
     }
     await recordChanges(tx, workspaceId, actorId, changes);
     return {
       deliveryId,
-      receipts: created.map(({ receipt, lotCode, item, unit }) => ({
+      receipts: created.map(({ receipt, lotCode, item, line }) => ({
         id: receipt.id,
         lineId: receipt.lineId,
-        item: itemSummary(item),
+        kind: line.kind,
+        item: item ? itemSummary(item) : null,
         outcome: receipt.outcome,
-        quantity: lineAmount(receipt.quantity, item, unit),
+        quantity: lineQuantity(receipt.quantity, line, item),
         unitPrice: receipt.unitPrice,
         lotId: receipt.lotId,
         lotCode,
@@ -1471,6 +1707,8 @@ export async function getSuggestions(
               isNull(purchaseOrders.deletedAt),
               isNull(purchaseOrderLines.deletedAt),
               inArray(purchaseOrders.status, ["draft", "sent"]),
+              // Only stock lines cover a shortfall: a non-stock line naming the item isn't stock.
+              eq(purchaseOrderLines.kind, "stock"),
               inArray(purchaseOrderLines.itemId, itemIds),
             ),
           ),
@@ -1495,7 +1733,7 @@ export async function getSuggestions(
     openLines.map((l) => l.line.id),
   );
   const onOrder = openLines.map(({ line, status }) => ({
-    itemId: line.itemId,
+    itemId: line.itemId!,
     status: status as PurchaseOrderStatus,
     outstanding: outstanding(line.quantity, totals.get(line.id)?.received ?? 0),
   }));
@@ -1590,6 +1828,7 @@ export async function createSuggestedOrders(
   actorId: string,
   input: PurchaseSuggestionsCreateInput,
   todayOn?: string,
+  stock: StockCheck = stockAllowed,
 ) {
   const today = todayOn ?? (await workspaceToday(db, workspaceId));
   return db.transaction(async (tx) => {
@@ -1606,7 +1845,7 @@ export async function createSuggestedOrders(
     const orders: OrderRow[] = [];
     for (const [index, entry] of input.orders.entries()) {
       try {
-        orders.push(await insertOrder(tx, workspaceId, actorId, entry, today));
+        orders.push(await insertOrder(tx, workspaceId, actorId, entry, today, stock));
       } catch (err) {
         if (!(err instanceof ApiError)) throw err;
         throw new ApiError(

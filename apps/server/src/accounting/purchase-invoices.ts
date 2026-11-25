@@ -9,6 +9,7 @@ import {
   items,
   purchaseInvoiceLines,
   purchaseInvoices,
+  purchaseOrderLines,
   suppliers,
   workspaces,
   type Database,
@@ -84,9 +85,16 @@ async function findApprovedSource(db: Executor, ws: string, invoiceId: string) {
     );
   if (!row) throw notFound("Invoice");
   const lines = await db
-    .select({ line: purchaseInvoiceLines, itemName: items.name })
+    .select({
+      line: purchaseInvoiceLines,
+      itemName: items.name,
+      // A non-stock order line's description and the expense or nominal code it was ordered against.
+      orderDescription: purchaseOrderLines.description,
+      nominalCode: purchaseOrderLines.nominalCode,
+    })
     .from(purchaseInvoiceLines)
     .leftJoin(items, eq(items.id, purchaseInvoiceLines.itemId))
+    .leftJoin(purchaseOrderLines, eq(purchaseOrderLines.id, purchaseInvoiceLines.orderLineId))
     .where(and(eq(purchaseInvoiceLines.invoiceId, invoiceId), isNull(purchaseInvoiceLines.deletedAt)))
     .orderBy(asc(purchaseInvoiceLines.lineNo), asc(purchaseInvoiceLines.id));
   return { ...row, lines };
@@ -216,13 +224,17 @@ export async function getPreparableInvoice(
     );
   const others = await otherVersionPostings(db, ws, connectionId, source.invoice);
   const vat = vatMinor(source.invoice.vat, digits);
-  const lines = source.lines.map(({ line, itemName }) => {
+  const lines = source.lines.map(({ line, itemName, orderDescription, nominalCode }) => {
     const exact = exactValue(line);
     return {
       id: line.id,
       lineNo: line.lineNo,
       kind: line.kind,
-      description: line.description ?? itemName ?? `Line ${line.lineNo}`,
+      description: line.description ?? orderDescription ?? itemName ?? `Line ${line.lineNo}`,
+      /** The expense or nominal code text a non-stock order line carries, for the reviewer. */
+      nominalCode,
+      /** That code, when it is the local key of an enabled account mapping: a suggestion only. */
+      suggestedAccountKey: nominalCode && mapped.account.has(nominalCode) ? nominalCode : null,
       quantity: line.quantity,
       unit: line.unit,
       unitPrice: line.unitPrice,

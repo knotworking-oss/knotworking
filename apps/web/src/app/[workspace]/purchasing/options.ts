@@ -6,7 +6,8 @@ const purchasable = (type: ItemType) => (receivableItemTypes as readonly ItemTyp
 
 /**
  * What the order and receive forms pick from: active ingredients and packaging, suppliers and
- * active stock locations. Each list is empty when the viewer can't read the module it comes from.
+ * active stock locations, and whether stock lines can be used. Each list is empty when the viewer
+ * can't read the module it comes from.
  */
 export async function loadOrderOptions(slug: string): Promise<OrderOptions> {
   const [canItems, canStock] = await Promise.all([
@@ -39,5 +40,6 @@ export async function loadOrderOptions(slug: string): Promise<OrderOptions> {
       approvalStatus: s.approvalStatus,
     })),
     locations: locations.map((l) => ({ id: l.id, name: l.name })),
+    stock: canStock,
   };
 }

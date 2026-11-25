@@ -38,6 +38,9 @@ describe("module manifest", () => {
     expect(modules.production.enhancedBy).toContain("demand");
     expect(modules.quality.dependsOn).toEqual([]);
     expect(modules.quality.enhancedBy).toEqual(expect.arrayContaining(["items", "stock"]));
+    expect(modules.purchasing.dependsOn).toEqual(["items"]);
+    expect(modules.purchasing.enhancedBy).toEqual(expect.arrayContaining(["stock", "production"]));
+    expect(parseActiveModules("items,purchasing")).toEqual(["items", "purchasing"]);
   });
 
   it("gives every sync entity at most one owner, and only known entity types", () => {

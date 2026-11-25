@@ -164,10 +164,10 @@ export async function emailOrder(
     complete: loaded!.summary.valueComplete,
     lines: loaded!.lines.map((l) => ({
       lineNo: l.lineNo,
-      code: l.item.code,
-      name: l.item.name,
+      code: l.item?.code ?? null,
+      name: l.kind === "non_stock" ? (l.description ?? "") : (l.item?.name ?? ""),
       quantity: l.ordered.inLineUnit ?? l.ordered.display,
-      unit: l.unit,
+      unit: l.unit ?? l.unitLabel ?? "",
       unitPrice: l.unitPrice,
       value: l.lineValue,
       expectedOn: l.effectiveExpectedOn,
@@ -229,10 +229,11 @@ export async function emailOrder(
 // ─── Voiding a rejected receipt ──────────────────────────────────────────────
 
 /**
- * Voids a rejected receipt recorded in error (a refusal that never happened, or against the wrong
- * line): it stays on the order, struck through, and no longer counts as a refusal anywhere
- * (supplier performance included). The record is never edited or deleted; record the right one as
- * a new delivery. An accepted receipt can't be voided: its stock movement is reversed instead.
+ * Voids a receipt recorded in error: a rejected one (a refusal that never happened, or against the
+ * wrong line) or an accepted one of a non-stock line (nothing entered stock). It stays on the order,
+ * struck through, and no longer counts anywhere (received quantities, invoice matching and supplier
+ * performance included). The record is never edited or deleted; record the right one as a new
+ * delivery. An accepted stock receipt can't be voided: its stock movement is reversed instead.
  */
 export async function voidRejectedReceipt(
   db: Database,
@@ -258,14 +259,15 @@ export async function voidRejectedReceipt(
         ),
       );
     if (!receipt) throw notFound("Receipt");
-    if (receipt.outcome !== "rejected") {
+    // An accepted stock receipt put a lot into stock: its movement is reversed instead.
+    if (receipt.outcome !== "rejected" && receipt.lotId !== null) {
       throw new ApiError(
         409,
         "receipt_not_rejected",
-        "Only a refused delivery line can be voided; reverse an accepted receipt's stock movement on the lot page",
+        "Only a refused delivery line or a non-stock receipt can be voided; reverse an accepted receipt's stock movement on the lot page",
       );
     }
-    if (receipt.voidedAt) throw new ApiError(409, "already_voided", "This refusal has already been voided");
+    if (receipt.voidedAt) throw new ApiError(409, "already_voided", "This receipt has already been voided");
     const [row] = await tx
       .update(purchaseReceipts)
       .set({ voidedAt: new Date(), voidedBy: actorId, voidReason: input.reason, updatedAt: new Date() })

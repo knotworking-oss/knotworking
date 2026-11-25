@@ -233,9 +233,12 @@ export type PurchaseOrderEmailInput = z.infer<typeof purchaseOrderEmailSchema>;
 
 export interface PurchaseOrderEmailLine {
   lineNo: number;
-  code: string;
+  /** The item's code; null for a non-stock line without an item. */
+  code: string | null;
+  /** The item's name, or a non-stock line's description. */
   name: string;
   quantity: number;
+  /** A unit code, a non-stock line's own unit, or "" for none. */
   unit: string;
   unitPrice: number | null;
   value: number | null;
@@ -294,7 +297,7 @@ export function renderPurchaseOrderEmail(input: PurchaseOrderEmailContent) {
   const textLines = input.lines.map((l) => {
     const date = l.expectedOn ? ` - for ${l.expectedOn}` : "";
     const cost = l.unitPrice === null ? "" : ` @ ${price(l.unitPrice)} = ${amount(l.value)}`;
-    return `${l.lineNo}. ${l.code} ${l.name}: ${plain(l.quantity, 4)} ${l.unit}${cost}${date}`;
+    return `${l.lineNo}. ${l.code ? `${l.code} ` : ""}${l.name}: ${plain(l.quantity, 4)}${l.unit ? ` ${l.unit}` : ""}${cost}${date}`;
   });
   const text = [
     `Purchase order ${input.reference}`,
@@ -331,7 +334,7 @@ export function renderPurchaseOrderEmail(input: PurchaseOrderEmailContent) {
     `<tr>${head("#")}${head("Item")}${head("Quantity", "right")}${head("Unit price", "right")}${head("Value", "right")}${head("Needed by")}</tr>`,
     ...input.lines.map(
       (l) =>
-        `<tr>${cell(String(l.lineNo))}${cell(`${l.code} ${l.name}`)}${cell(`${plain(l.quantity, 4)} ${l.unit}`, "right")}${cell(price(l.unitPrice), "right")}${cell(amount(l.value), "right")}${cell(l.expectedOn ?? "")}</tr>`,
+        `<tr>${cell(String(l.lineNo))}${cell(`${l.code ? `${l.code} ` : ""}${l.name}`)}${cell(`${plain(l.quantity, 4)}${l.unit ? ` ${l.unit}` : ""}`, "right")}${cell(price(l.unitPrice), "right")}${cell(amount(l.value), "right")}${cell(l.expectedOn ?? "")}</tr>`,
     ),
     `</table>`,
     `<p style="margin:8px 0"><strong>Total: ${escapeHtml(total)}</strong></p>`,

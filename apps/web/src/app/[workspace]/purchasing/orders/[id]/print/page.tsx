@@ -1,8 +1,8 @@
-import { purchaseOrderStatusLabels, units } from "@knotworking/core";
+import { purchaseOrderStatusLabels } from "@knotworking/core";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PrintHeading, PrintNotice, PrintPage, SignatureLine } from "@/components/print-page";
-import { formatLineAmount, formatPrice } from "@/components/purchasing-badges";
+import { formatLineAmount, formatPrice, lineTitle, lineUnitLabel } from "@/components/purchasing-badges";
 import { getWorkspaceCurrency, getBootstrap, getPurchaseOrder, getSuppliers } from "@/lib/api";
 import { printDate, printDateTime } from "@/lib/print";
 
@@ -127,8 +127,8 @@ export default async function PrintPurchaseOrderPage({
             <tr key={l.id} className="border-b border-black/30 align-top">
               <td className="py-1.5 pr-2 tabular-nums">{l.lineNo}</td>
               <td className="py-1.5 pr-2">
-                <span className="font-medium">{l.item.name}</span>{" "}
-                <span className="font-mono text-[11px] text-muted-foreground">{l.item.code}</span>
+                <span className="font-medium">{lineTitle(l)}</span>{" "}
+                {l.item && <span className="font-mono text-[11px] text-muted-foreground">{l.item.code}</span>}
                 {l.notes && <div className="text-[11px] text-muted-foreground">{l.notes}</div>}
               </td>
               <td className="py-1.5 pr-2 text-right whitespace-nowrap tabular-nums">
@@ -137,7 +137,7 @@ export default async function PrintPurchaseOrderPage({
               <td className="py-1.5 pr-2 text-right whitespace-nowrap tabular-nums">
                 {l.unitPrice === null
                   ? "—"
-                  : `${formatPrice(l.unitPrice, currency)} / ${units[l.unit].label}`}
+                  : `${formatPrice(l.unitPrice, currency)}${lineUnitLabel(l) ? ` / ${lineUnitLabel(l)}` : ""}`}
               </td>
               <td className="py-1.5 pr-2 text-right whitespace-nowrap tabular-nums">
                 {l.lineValue === null ? "—" : formatPrice(l.lineValue, currency)}

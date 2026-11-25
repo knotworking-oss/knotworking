@@ -155,6 +155,8 @@ async function loadNotes(db: Executor, notes: NoteRow[]) {
             item: items,
             orderReference: purchaseOrders.reference,
             orderLineNo: purchaseOrderLines.lineNo,
+            orderUnitLabel: purchaseOrderLines.unitLabel,
+            orderDescription: purchaseOrderLines.description,
           })
           .from(purchaseInvoiceLines)
           .leftJoin(items, eq(items.id, purchaseInvoiceLines.itemId))
@@ -182,6 +184,8 @@ async function loadNotes(db: Executor, notes: NoteRow[]) {
         reason: l.reason,
         quantity: l.quantity,
         unit: inv?.line.unit ?? null,
+        /** A non-stock order line's own (free-text) unit. */
+        unitLabel: inv?.orderUnitLabel ?? null,
         unitPrice: l.unitPrice,
         value: creditLineValue(l.quantity, l.unitPrice),
         description: l.description,
@@ -193,6 +197,8 @@ async function loadNotes(db: Executor, notes: NoteRow[]) {
               unitPrice: inv.line.unitPrice,
               orderReference: inv.orderReference,
               item: inv.item ? itemSummary(inv.item) : null,
+              /** What a non-stock order line bought. */
+              description: inv.line.description ?? inv.orderDescription,
             }
           : null,
       };

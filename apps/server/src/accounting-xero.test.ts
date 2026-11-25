@@ -19,7 +19,9 @@ const tenantId = newId(),
   organisationId = newId(),
   remoteId = newId(),
   contactId = newId(),
-  otherTenant = newId();
+  otherTenant = newId(),
+  otherRemoteId = newId(),
+  authEventId = newId();
 
 type Invoice = {
   InvoiceNumber: string;
@@ -44,6 +46,15 @@ function mockXero() {
     archivedContact: false,
     postCalls: 0,
     deletes: 0,
+    /** Connections to organisations this setup didn't choose, removed after confirmation. */
+    released: [] as string[],
+    /** The organisation was disconnected in Xero; the refresh token still works. */
+    organisationRemoved: false,
+    /** Accounting API calls refused with 429 before Xero allows more. */
+    rateLimited: 0,
+    /** Accounting API calls refused with 401 even though the token is current. */
+    expireAccess: 0,
+    apiCalls: 0,
   };
   let grantedAccess = "";
   let grantedRefresh = "";
@@ -78,17 +89,49 @@ function mockXero() {
     const authorization = headers.get("authorization");
     if (state.revoked || authorization !== `Bearer ${grantedAccess}`)
       return Response.json({}, { status: 401 });
-    if (url.pathname === "/connections")
-      return Response.json([
-        { id: remoteId, tenantId, tenantType: "ORGANISATION", tenantName: "Test Manufacturing" },
-        { id: newId(), tenantId: otherTenant, tenantType: "ORGANISATION", tenantName: "Other Company" },
-      ]);
+    if (url.pathname === "/connections") {
+      const event = url.searchParams.get("authEventId");
+      if (event) expect(event).toBe(authEventId);
+      return Response.json(
+        [
+          {
+            id: remoteId,
+            tenantId,
+            tenantType: "ORGANISATION",
+            tenantName: "Test Manufacturing",
+            authEventId,
+          },
+          {
+            id: otherRemoteId,
+            tenantId: otherTenant,
+            tenantType: "ORGANISATION",
+            tenantName: "Other Company",
+            authEventId,
+          },
+        ].filter((entry) => !(state.organisationRemoved && entry.tenantId === tenantId)),
+      );
+    }
     if (url.pathname === `/connections/${remoteId}` && init?.method === "DELETE") {
       state.deletes++;
       return new Response(null, { status: 204 });
     }
+    if (url.pathname === `/connections/${otherRemoteId}` && init?.method === "DELETE") {
+      state.released.push(otherRemoteId);
+      return new Response(null, { status: 204 });
+    }
     expect(url.host).toBe("api.xero.com");
     expect(headers.get("xero-tenant-id")).toBe(tenantId);
+    state.apiCalls++;
+    if (state.organisationRemoved)
+      return Response.json({ Type: "AuthorizationUnsuccessful" }, { status: 403 });
+    if (state.rateLimited > 0) {
+      state.rateLimited--;
+      return new Response(null, { status: 429, headers: { "retry-after": "30" } });
+    }
+    if (state.expireAccess > 0) {
+      state.expireAccess--;
+      return Response.json({}, { status: 401 });
+    }
     switch (url.pathname.replace("/api.xro/2.0", "")) {
       case "/Organisation":
         return Response.json({

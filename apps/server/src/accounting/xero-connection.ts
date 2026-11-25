@@ -8,7 +8,7 @@ import {
   type Executor,
   type Transaction,
 } from "@knotworking/db";
-import { and, eq, gt, isNull, isNotNull, lte, ne, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, isNotNull, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { ApiError } from "../errors";
 import { executeLedgerCommand } from "../services/ledger-command";
@@ -65,9 +65,22 @@ const grantContext = (
 
 export function createXeroConnectionService(
   db: Database,
-  options: Parameters<typeof createXeroOAuthClient>[0] & { secret: string },
+  options: Parameters<typeof createXeroOAuthClient>[0] & {
+    secret: string;
+    log?: Pick<Console, "error">;
+  },
 ) {
   const oauth = createXeroOAuthClient(options);
+  const log = options.log ?? console;
+  // Bills link back to APP_URL and recovery searches Xero for that exact link, so it must be a
+  // bare origin that stays the same. Say so at startup rather than leave bills quietly queued.
+  const appUrlProblem = (() => {
+    const url = new URL(options.appUrl);
+    return url.pathname === "/" && !url.search && !url.hash
+      ? null
+      : `Xero posting is off: APP_URL (${url.origin}${url.pathname}) must be the application origin alone, with no path`;
+  })();
+  if (appUrlProblem) log.error(`[accounting] ${appUrlProblem}`);
   const key = createHmac("sha256", options.secret)
     .update(`knotworking:xero-oauth:v1:${options.clientId}`)
     .digest();
@@ -193,6 +206,45 @@ export function createXeroConnectionService(
     }
   }
 
+  /**
+   * One Xero sign-in can authorise several organisations, and only the confirmed one is used.
+   * Remove the others from the same sign-in in Xero, unless another setup uses that connection.
+   * Best-effort: a failure is logged and changes nothing here.
+   */
+  async function releaseOthers(access: string, choice: Tenant) {
+    if (!choice.authEventId) return;
+    try {
+      const authorised = await oauth.tenants(access, choice.authEventId);
+      const others = authorised.filter(
+        (entry) => entry.id !== choice.id && entry.tenantId !== choice.tenantId,
+      );
+      if (!others.length) return;
+      const used = await db
+        .select({ id: grants.remoteConnectionId })
+        .from(grants)
+        .where(
+          inArray(
+            grants.remoteConnectionId,
+            others.map((entry) => entry.id),
+          ),
+        );
+      for (const entry of others) {
+        if (used.some((row) => row.id === entry.id)) continue;
+        await oauth.disconnect(entry.id, access).catch((error: unknown) => {
+          log.error(
+            `[accounting] couldn't remove an unused Xero organisation connection (${entry.id}) from this sign-in`,
+            error instanceof XeroHttpError ? `HTTP ${error.status}` : "request failed",
+          );
+        });
+      }
+    } catch (error) {
+      log.error(
+        "[accounting] couldn't list the other Xero organisations from this sign-in",
+        error instanceof XeroHttpError ? `HTTP ${error.status}` : "request failed",
+      );
+    }
+  }
+
   function chooseTenant(value: NonNullable<Awaited<ReturnType<typeof pending>>>, tenantId: string): Tenant {
     const match = value.tenants.filter((entry) => entry.tenantId === tenantId);
     if (match.length !== 1) throw conflict("Choose an organisation authorised in this sign-in.");
@@ -218,6 +270,14 @@ export function createXeroConnectionService(
   }
 
   return {
+    /** Deletes sign-in attempts past their expiry, with any unconfirmed credentials they hold. */
+    async sweepExpiredAttempts() {
+      const removed = await db
+        .delete(flows)
+        .where(lte(flows.expiresAt, new Date()))
+        .returning({ id: flows.id });
+      return removed.length;
+    },
     async status(dest: SessionDestination) {
       const current = await connection(db, dest);
       const [row, flow] = await Promise.all([findGrant(db, dest), pending(db, dest)]);
@@ -338,7 +398,20 @@ export function createXeroConnectionService(
         commandId: string;
       },
     ) {
-      return executeLedgerCommand(
+      // Read the organisation from Xero before taking the workspace lock; the transaction checks
+      // the attempt, the setup revision and the destination again before committing. A replayed
+      // command finds no attempt here and returns its first result.
+      const attempt = await pending(db, dest);
+      let inspected: { choice: Tenant; organisation: Awaited<ReturnType<typeof oauth.organisation>> } | null =
+        null;
+      if (attempt && attempt.row.id === input.flowId) {
+        const choice = chooseTenant(attempt, input.tenantId);
+        const organisation = await oauth.organisation(choice.tenantId, attempt.tokens.access).catch(() => {
+          throw unavailable();
+        });
+        inspected = { choice, organisation };
+      }
+      const result = await executeLedgerCommand(
         db,
         dest.workspaceId,
         actor,
@@ -350,13 +423,12 @@ export function createXeroConnectionService(
           if (current.revision !== input.expectedRevision)
             throw conflict("This setup changed. Reload and review it.");
           const flow = await pending(tx, dest, true);
-          if (!flow || flow.row.id !== input.flowId) throw invalidFlow();
+          if (!flow || flow.row.id !== input.flowId || !inspected) throw invalidFlow();
           const choice = chooseTenant(flow, input.tenantId);
+          if (choice.id !== inspected.choice.id) throw invalidFlow();
           if (current.companyId && current.companyId.toLowerCase() !== choice.tenantId)
             throw conflict("Reconnect the original Xero organisation for this setup.");
-          const organisation = await oauth.organisation(choice.tenantId, flow.tokens.access).catch(() => {
-            throw unavailable();
-          });
+          const { organisation } = inspected;
           if (
             organisation.OrganisationID !== input.organisationId ||
             organisation.BaseCurrency !== input.baseCurrency
@@ -440,6 +512,8 @@ export function createXeroConnectionService(
           throw conflict("This Xero authorisation is already used by another setup.");
         throw error;
       });
+      if (inspected && attempt) await releaseOthers(attempt.tokens.access, inspected.choice);
+      return result;
     },
     async verify(dest: Destination, workspace: Workspace) {
       await connection(db, dest);
@@ -477,6 +551,19 @@ export function createXeroConnectionService(
       actor: string,
       input: { expectedRevision: number; commandId: string },
     ) {
+      // Remove the connection in Xero before taking the workspace lock. A replayed command finds
+      // the grant already cleared and makes no request.
+      const current = await connection(db, dest);
+      const before = await findGrant(db, dest);
+      let removed: string | null = null;
+      if (before?.remoteConnectionId && current.revision === input.expectedRevision) {
+        try {
+          await withAccess(before, (token) => oauth.disconnect(before.remoteConnectionId!, token));
+          removed = before.remoteConnectionId;
+        } catch {
+          // Local access must be removable even when the provider is unavailable.
+        }
+      }
       return executeLedgerCommand(
         db,
         dest.workspaceId,
@@ -486,21 +573,13 @@ export function createXeroConnectionService(
         { ...dest, ...input },
         async (tx) => {
           const current = await connection(tx, dest);
-          if (current.revision !== input.expectedRevision)
-            throw conflict("This setup changed. Reload and review it.");
           const row = await lockedGrant(tx, dest);
+          // Once the connection is gone in Xero, its local credentials go too, whatever changed.
+          const remoteRemoved = removed !== null && row?.remoteConnectionId === removed;
+          if (current.revision !== input.expectedRevision && !remoteRemoved)
+            throw conflict("This setup changed. Reload and review it.");
           const cancelled = await tx.delete(flows).where(flowScope(dest)).returning({ id: flows.id });
           if (!row?.remoteConnectionId) return { remoteRemoved: cancelled.length === 0 };
-          let remoteRemoved = false;
-          try {
-            const tokens = await getTokens(tx, row);
-            if (tokens) {
-              await oauth.disconnect(row.remoteConnectionId, tokens.access);
-              remoteRemoved = true;
-            }
-          } catch {
-            // Local access must be removable even when the provider is unavailable.
-          }
           await tx.update(grants).set({ ciphertext: null, remoteConnectionId: null }).where(grantScope(dest));
           const revision = current.revision + 1;
           await tx
@@ -522,6 +601,7 @@ export function createXeroConnectionService(
       );
     },
     async adapter(binding: AccountingBinding) {
+      if (appUrlProblem) throw new ApiError(503, "xero_misconfigured", appUrlProblem);
       const row = await findGrant(db, binding);
       if (
         !row?.remoteConnectionId ||
@@ -547,3 +627,18 @@ export function createXeroConnectionService(
   };
 }
 export type XeroConnectionService = ReturnType<typeof createXeroConnectionService>;
+
+/** Sweeps expired Xero sign-in attempts in this process on an interval. */
+export function startXeroAttemptSweep(
+  service: Pick<XeroConnectionService, "sweepExpiredAttempts">,
+  options: { intervalMs: number },
+  log: Pick<Console, "error"> = console,
+) {
+  const timer = setInterval(() => {
+    service.sweepExpiredAttempts().catch((error: unknown) => {
+      log.error("[accounting] Xero sign-in sweep failed", error instanceof Error ? error.message : error);
+    });
+  }, options.intervalMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}

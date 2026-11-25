@@ -29,6 +29,8 @@ const tenant = z.object({
   tenantId: z.uuid().transform((id) => id.toLowerCase()),
   tenantType: z.string(),
   tenantName: z.string().nullable(),
+  /** The sign-in that authorised this connection; older stored attempts lack it. */
+  authEventId: z.uuid().nullish(),
 });
 export const xeroTenants = z.array(tenant).max(100);
 export const xeroOrganisation = z.object({
@@ -162,8 +164,9 @@ export function createXeroOAuthClient(options: {
     exchange: (code: string) =>
       tokens({ grant_type: "authorization_code", code, redirect_uri: redirectUri.href }),
     refresh: (refresh_token: string) => tokens({ grant_type: "refresh_token", refresh_token }),
-    async tenants(token: string) {
-      const response = await connections(token);
+    async tenants(token: string, authEventId?: string) {
+      const query = authEventId ? `?${new URLSearchParams({ authEventId })}` : "";
+      const response = await connections(token, query);
       return xeroTenants.parse(await response.json()).filter((row) => row.tenantType === "ORGANISATION");
     },
     organisation(tenantId: string, token: string) {

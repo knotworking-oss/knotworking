@@ -9,7 +9,7 @@ import { createCalendarDeps } from "./calendar";
 import { startCalendarScheduler } from "./calendar/scheduler";
 import { startNotificationSweep } from "./services/notification-sweep";
 import { startAccountingDispatcher } from "./accounting/dispatcher";
-import { createXeroConnectionService } from "./accounting/xero-connection";
+import { createXeroConnectionService, startXeroAttemptSweep } from "./accounting/xero-connection";
 import { createAccountingAdapterRegistry } from "./accounting/registry";
 import { needsSetup } from "./services/setup";
 import { loadConfig } from "./config";
@@ -70,6 +70,9 @@ const stopSweep = config.notificationSweepIntervalMs
 
 const stopEmails = startNotificationEmailWorker(handle.db);
 
+// Abandoned Xero sign-ins hold encrypted, unconfirmed credentials until they are deleted.
+const stopXeroSweep = xero ? startXeroAttemptSweep(xero, { intervalMs: 10 * 60_000 }) : () => {};
+
 const accountingDispatch =
   config.activeModules.includes("accounting") &&
   accountingAdapters.providers.length > 0 &&
@@ -110,6 +113,7 @@ const shutdown = async () => {
   stopCalendar();
   stopSweep();
   stopAccounting();
+  stopXeroSweep();
   await stopEmails();
   server.close();
   await handle.close();

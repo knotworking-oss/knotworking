@@ -34,6 +34,7 @@ export function SiteNav({ slug, waiting = {} }: { slug: string; waiting?: SiteNa
       <span className="mr-2 shrink-0 font-medium">Site</span>
       {sections.map(([path, label]) => {
         const isMaintenance = path === "/maintenance";
+        if (path === "/checks" && workspace && !workspace.can("checklists")) return null;
         if (isMaintenance && workspace && !workspace.can("maintenance")) return null;
         const href = isMaintenance ? `/${slug}/maintenance` : `${base}${path}`;
         const canManage = workspace?.can(isMaintenance ? "maintenance" : "site", "manage") ?? true;

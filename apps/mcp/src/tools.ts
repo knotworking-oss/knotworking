@@ -42,6 +42,7 @@ import { registerQualityTools } from "./tools/quality";
 import { registerRecipeTools } from "./tools/recipes";
 import { PRIORITY_NUMBER, READ, snapshotNote, workspaceParam } from "./tools/shared";
 import { registerMaintenanceTools } from "./tools/maintenance";
+import { registerChecklistTools } from "./tools/checklists";
 import { registerSiteTools } from "./tools/site";
 import { registerSopTools } from "./tools/sops";
 import { registerStockTools } from "./tools/stock";
@@ -428,6 +429,7 @@ export function createKnotworkingServer(options: ToolsOptions): McpServer {
   registerPurchaseInvoiceTools({ define, slugOf, workspaceParam });
   registerCostingTools({ define, slugOf, workspaceParam });
   registerSiteTools({ define, slugOf, workspaceParam });
+  registerChecklistTools({ define, slugOf, workspaceParam });
   registerMaintenanceTools({ define, slugOf, workspaceParam });
   registerLabelTools({ define, slugOf, workspaceParam });
   registerSpecificationTools({ define, slugOf, workspaceParam });

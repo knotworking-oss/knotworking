@@ -724,6 +724,11 @@ function scope(workspaceId: string, userId: string, see: NotificationVisibility 
   if (!see.tasks) where.push(isNull(notifications.taskId));
   if (!see.documents) where.push(sql`(${notifications.data}->>'documentId') is null`);
   if (see.modules) {
+    if (!see.modules.includes("checklists")) {
+      where.push(
+        sql`not (${notifications.type} = 'site_check_due' and coalesce(${notifications.data}->>'checkKind', '') = 'checklist')`,
+      );
+    }
     where.push(
       see.modules.length
         ? or(isNull(notifications.module), inArray(notifications.module, [...see.modules]))!
@@ -981,7 +986,10 @@ export async function sendNotificationEmails(
       if (
         !recipient?.enabled ||
         preference?.email === false ||
-        (owner && !hasModuleLevel(access?.[owner], "read"))
+        (owner && !hasModuleLevel(access?.[owner], "read")) ||
+        (n.type === "site_check_due" &&
+          n.data.checkKind === "checklist" &&
+          !hasModuleLevel(access?.checklists, "read"))
       ) {
         await db
           .update(notifications)

@@ -202,7 +202,7 @@ async function sweepWorkspace(
     if (active.has("training")) await sweepTraining(ctx);
     if (active.has("haccp")) await sweepHaccp(ctx, active.has("production"));
     if (active.has("maintenance")) await sweepMaintenance(ctx);
-    if (active.has("site")) await sweepSite(ctx);
+    if (active.has("site")) await sweepSite(ctx, active.has("checklists"), active.has("production"));
     if (active.has("recipes")) await sweepRecipes(ctx);
     if (active.has("quality")) await sweepQuality(ctx);
     if (active.has("labels")) await sweepLabels(ctx);
@@ -452,15 +452,17 @@ const siteTypes = {
  * overdue, and corrective actions left open: to site managers. Storage readings are left out: they
  * come round every few hours, and an out-of-limit reading notifies as it is recorded.
  */
-async function sweepSite(ctx: Ctx) {
+async function sweepSite(ctx: Ctx, withChecklists: boolean, withProduction: boolean) {
   const managers = audience(ctx.access, "site", "manage");
   if (managers.length === 0) return;
+  const checklistReaders = new Set(audience(ctx.access, "checklists", "read"));
+  const productionReaders = new Set(audience(ctx.access, "production", "read"));
   const glassLatestDueOn = new Map<string, string>();
   const due = await getSiteDue(
     ctx.db,
     ctx.workspaceId,
     { include: "due" },
-    { now: ctx.now, glassLatestDueOn },
+    { now: ctx.now, glassLatestDueOn, withChecklists, withProduction },
   );
   for (const item of due.items) {
     if (item.programme === "storage" || item.programme === "maintenance" || !DUE_STATES.includes(item.state))
@@ -473,7 +475,13 @@ async function sweepSite(ctx: Ctx) {
         ? { ...item, dueOn: glassLatestDueOn.get(item.subjectId) ?? item.dueOn }
         : item;
     if (tooOld(ctx, keyed)) continue;
-    push(ctx, managers, {
+    const recipients =
+      item.programme === "checklist"
+        ? managers.filter(
+            (id) => checklistReaders.has(id) && (!item.duringProduction || productionReaders.has(id)),
+          )
+        : managers;
+    push(ctx, recipients, {
       type: siteTypes[item.programme],
       module: "site",
       data: {

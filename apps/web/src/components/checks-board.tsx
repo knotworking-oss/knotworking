@@ -4,7 +4,7 @@ import {
   checkItemResultLabels,
   checkItemResults,
   checklistKindLabels,
-  checklistKinds,
+  siteChecklistKinds,
   type CheckItemResult,
   type ChecklistKind,
 } from "@knotworking/core";
@@ -34,6 +34,7 @@ import {
   useDateTime,
   frequencyBody,
   siteApi,
+  checklistApi,
   text,
   type FrequencyState,
 } from "@/components/site-forms";
@@ -44,7 +45,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 
 type BatchOption = { id: string; label: string };
 type Dialog =
-  | { kind: "template" }
+  | { kind: "template"; template?: ChecklistTemplate }
   | { kind: "check"; template: ChecklistTemplate }
   | { kind: "signoff"; check: ChecklistCheck }
   | { kind: "correct"; check: ChecklistCheck };
@@ -60,8 +61,12 @@ export function ChecksBoard({
   checks,
   areas,
   batches,
+  general = false,
+  withProduction = false,
 }: {
   slug: string;
+  general?: boolean;
+  withProduction?: boolean;
   templates: ChecklistTemplate[];
   checks: ChecklistCheck[];
   areas: SiteArea[];
@@ -69,15 +74,17 @@ export function ChecksBoard({
 }) {
   const dateTime = useDateTime();
   const { can } = useWorkspace();
-  const canWrite = can("site", "write");
-  const canManage = can("site", "manage");
+  const canWrite = can("checklists", "write") && (general || can("site", "write"));
+  const canManage = !general && canWrite && can("site", "manage");
   const [dialog, setDialog] = useState<Dialog | null>(null);
-  const live = templates.filter((t) => t.status === "active");
+  const live = general ? templates : templates.filter((t) => t.status === "active");
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 className="text-xl font-semibold tracking-tight">Pre-start and changeover checks</h2>
+        <h2 className="text-xl font-semibold tracking-tight">
+          {general ? "Checklists" : "Pre-start and changeover checks"}
+        </h2>
         {canWrite && (
           <Button onClick={() => setDialog({ kind: "template" })}>
             <Plus data-icon="inline-start" /> Add checklist
@@ -94,7 +101,7 @@ export function ChecksBoard({
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">Checklist</TableHead>
-                  <TableHead>Kind</TableHead>
+                  {!general && <TableHead>Kind</TableHead>}
                   <TableHead>Where</TableHead>
                   <TableHead>Items</TableHead>
                   <TableHead>Next</TableHead>
@@ -104,8 +111,13 @@ export function ChecksBoard({
               <TableBody>
                 {live.map((t) => (
                   <TableRow key={t.id}>
-                    <TableCell className="pl-4 font-medium">{t.name}</TableCell>
-                    <TableCell>{checklistKindLabels[t.kind]}</TableCell>
+                    <TableCell className="pl-4 font-medium">
+                      {t.name}
+                      {t.status === "archived" && (
+                        <span className="block text-xs text-muted-foreground">Archived</span>
+                      )}
+                    </TableCell>
+                    {!general && <TableCell>{checklistKindLabels[t.kind]}</TableCell>}
                     <TableCell>{t.line ?? t.area?.name ?? "—"}</TableCell>
                     <TableCell>{t.items.length}</TableCell>
                     <TableCell>
@@ -119,7 +131,16 @@ export function ChecksBoard({
                       )}
                     </TableCell>
                     <TableCell className="pr-4 text-right">
-                      {canWrite && (
+                      {canWrite && general && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setDialog({ kind: "template", template: t })}
+                        >
+                          Edit
+                        </Button>
+                      )}
+                      {canWrite && t.status === "active" && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -137,7 +158,7 @@ export function ChecksBoard({
         </CardContent>
       </Card>
 
-      <Card className="py-0">
+      <Card id="completed-checks" className="py-0">
         <CardHeader className="pt-4">
           <CardTitle>Completed checks</CardTitle>
         </CardHeader>
@@ -151,7 +172,7 @@ export function ChecksBoard({
                   <TableHead className="pl-4">When</TableHead>
                   <TableHead>Checklist</TableHead>
                   <TableHead>Result</TableHead>
-                  <TableHead>Sign-off</TableHead>
+                  {!general && <TableHead>Sign-off</TableHead>}
                   <TableHead className="pr-4" />
                 </TableRow>
               </TableHeader>
@@ -172,23 +193,39 @@ export function ChecksBoard({
                       {c.allergenRisk && c.allergenRisk.status === "review" && (
                         <AllergenRiskNote warnings={c.allergenRisk.warnings} />
                       )}
-                      {c.results
-                        .filter((r) => r.result === "fail")
-                        .map((r) => (
-                          <div key={r.id} className="text-xs text-destructive">
-                            {r.prompt}: {r.note}
-                          </div>
-                        ))}
+                      {general && (
+                        <details className="text-xs">
+                          <summary className="cursor-pointer text-muted-foreground">Item results</summary>
+                          <ul className="mt-1 space-y-1">
+                            {c.results.map((r) => (
+                              <li key={r.id}>
+                                {r.prompt} · {checkItemResultLabels[r.result]}
+                                {r.note ? ` · ${r.note}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                      {!general &&
+                        c.results
+                          .filter((r) => r.result === "fail")
+                          .map((r) => (
+                            <div key={r.id} className="text-xs text-destructive">
+                              {r.prompt}: {r.note}
+                            </div>
+                          ))}
                     </TableCell>
                     <TableCell>
                       <OutcomeBadge outcome={c.outcome} />
                     </TableCell>
-                    <TableCell className="whitespace-normal">
-                      <SignOffBadge status={c.signOffStatus} />
-                      {c.signedOffByName && (
-                        <div className="text-xs text-muted-foreground">{c.signedOffByName}</div>
-                      )}
-                    </TableCell>
+                    {!general && (
+                      <TableCell className="whitespace-normal">
+                        <SignOffBadge status={c.signOffStatus} />
+                        {c.signedOffByName && (
+                          <div className="text-xs text-muted-foreground">{c.signedOffByName}</div>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell className="pr-4 text-right">
                       {canWrite && !c.correctedByCheckId && (
                         <Button
@@ -220,7 +257,14 @@ export function ChecksBoard({
       </Card>
 
       {dialog?.kind === "template" && (
-        <TemplateDialog slug={slug} areas={areas} onClose={() => setDialog(null)} />
+        <TemplateDialog
+          slug={slug}
+          areas={areas}
+          general={general}
+          withProduction={withProduction}
+          template={dialog.template}
+          onClose={() => setDialog(null)}
+        />
       )}
       {dialog?.kind === "check" && (
         <CheckDialog
@@ -254,27 +298,66 @@ function AllergenRiskNote({ warnings }: { warnings: string[] }) {
   );
 }
 
-function TemplateDialog({ slug, areas, onClose }: { slug: string; areas: SiteArea[]; onClose: () => void }) {
-  const [name, setName] = useState("");
+function TemplateDialog({
+  slug,
+  areas,
+  general,
+  withProduction,
+  template,
+  onClose,
+}: {
+  slug: string;
+  areas: SiteArea[];
+  general: boolean;
+  withProduction: boolean;
+  template?: ChecklistTemplate | undefined;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(template?.name ?? "");
   const [kind, setKind] = useState<ChecklistKind>("prestart");
   const [area, setArea] = useState(NONE);
-  const [line, setLine] = useState("");
-  const [scheduled, setScheduled] = useState(true);
-  const [frequency, setFrequency] = useState<FrequencyState>({ every: "1", unit: "day" });
+  const [line, setLine] = useState(template?.line ?? "");
+  const [scheduled, setScheduled] = useState(template ? !!template.frequency : true);
+  const [frequency, setFrequency] = useState<FrequencyState>({
+    every: String(template?.frequency?.every ?? 1),
+    unit: template?.frequency?.unit ?? "day",
+  });
+  const [status, setStatus] = useState<"active" | "archived">(template?.status ?? "active");
   const [during, setDuring] = useState(false);
-  const [items, setItems] = useState("");
+  const [items, setItems] = useState(template?.items.map((item) => item.prompt).join("\n") ?? "");
   const prompts = items
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
   return (
     <SiteDialog
-      title="Add checklist"
+      title={template ? "Edit checklist" : "Add checklist"}
       description="One item per line. Checks done against it keep the wording they were done with."
-      submitLabel="Add checklist"
+      submitLabel={template ? "Save checklist" : "Add checklist"}
       disabled={prompts.length === 0}
       onClose={onClose}
       onSubmit={async () => {
+        if (general) {
+          const previousItems = new Map(template?.items.map((item) => [item.prompt.toLowerCase(), item]));
+          const json = {
+            name: name.trim(),
+            line: text(line) ?? null,
+            frequency: scheduled ? frequencyBody(frequency) : null,
+            items: prompts.map((prompt) => {
+              const previous = previousItems.get(prompt.toLowerCase());
+              return previous ? { id: previous.id, prompt, guidance: previous.guidance } : { prompt };
+            }),
+          };
+          await unwrap(
+            template
+              ? checklistApi().templates[":id"].$patch({
+                  param: { slug, id: template.id },
+                  json: { ...json, status },
+                })
+              : checklistApi().templates.$post({ param: { slug }, json }),
+          );
+          return template ? "Checklist saved" : "Checklist added";
+        }
         await unwrap(
           siteApi().checklists.templates.$post({
             param: { slug },
@@ -292,21 +375,37 @@ function TemplateDialog({ slug, areas, onClose }: { slug: string; areas: SiteAre
       }}
     >
       <TextField id="ct-name" label="Name" required value={name} onChange={setName} />
-      <SelectField
-        id="ct-kind"
-        label="Kind"
-        value={kind}
-        onChange={(v) => setKind(v as ChecklistKind)}
-        options={checklistKinds.map((k) => [k, checklistKindLabels[k]] as const)}
-      />
-      <SelectField
-        id="ct-area"
-        label="Area"
-        value={area}
-        onChange={setArea}
-        options={[[NONE, "No area"], ...areas.map((a) => [a.id, a.name] as const)]}
-      />
-      <TextField id="ct-line" label="Line" value={line} onChange={setLine} placeholder="Line 2" />
+      {!general && (
+        <>
+          <SelectField
+            id="ct-kind"
+            label="Kind"
+            value={kind}
+            onChange={(v) => setKind(v as ChecklistKind)}
+            options={siteChecklistKinds.map((k) => [k, checklistKindLabels[k]] as const)}
+          />
+          <SelectField
+            id="ct-area"
+            label="Area"
+            value={area}
+            onChange={setArea}
+            options={[[NONE, "No area"], ...areas.map((a) => [a.id, a.name] as const)]}
+          />
+        </>
+      )}
+      <TextField id="ct-line" label={general ? "Location" : "Line"} value={line} onChange={setLine} />
+      {template && (
+        <SelectField
+          id="ct-status"
+          label="Status"
+          value={status}
+          onChange={(v) => setStatus(v as typeof status)}
+          options={[
+            ["active", "Active"],
+            ["archived", "Archived"],
+          ]}
+        />
+      )}
       <Field orientation="horizontal">
         <Checkbox id="ct-sched" checked={scheduled} onCheckedChange={(v) => setScheduled(v === true)} />
         <FieldLabel htmlFor="ct-sched">On a schedule (otherwise it is done when needed)</FieldLabel>
@@ -314,10 +413,12 @@ function TemplateDialog({ slug, areas, onClose }: { slug: string; areas: SiteAre
       {scheduled && (
         <>
           <FrequencyField id="ct-freq" label="Needed every" value={frequency} onChange={setFrequency} />
-          <Field orientation="horizontal">
-            <Checkbox id="ct-during" checked={during} onCheckedChange={(v) => setDuring(v === true)} />
-            <FieldLabel htmlFor="ct-during">Only while something is in production</FieldLabel>
-          </Field>
+          {withProduction && (
+            <Field orientation="horizontal">
+              <Checkbox id="ct-during" checked={during} onCheckedChange={(v) => setDuring(v === true)} />
+              <FieldLabel htmlFor="ct-during">Only while something is in production</FieldLabel>
+            </Field>
+          )}
         </>
       )}
       <TextAreaField id="ct-items" label="Items" required rows={6} value={items} onChange={setItems} />
@@ -363,7 +464,9 @@ function CheckDialog({
     };
   }, [slug, template.kind, previous, next]);
   const of = (id: string) => results[id] ?? { result: "pass" as CheckItemResult, note: "" };
-  const changeover = template.kind === "allergen_changeover";
+  const general = template.kind === "general";
+  const missingResult = general && template.items.some((item) => !results[item.id]);
+  const changeover = template.kind === "allergen_changeover" && batches.length > 0;
   const batchOptions = [[NONE, "Not recorded"], ...batches.map((b) => [b.id, b.label] as const)] as const;
   return (
     <SiteDialog
@@ -372,24 +475,33 @@ function CheckDialog({
       description="Record a result for every item. A failed item needs a note of what was found and done."
       submitLabel="Record check"
       onClose={onClose}
+      disabled={missingResult}
       onSubmit={async () => {
+        if (missingResult) throw new Error("Select a result for every item");
+        const json = {
+          templateId: template.id,
+          results: template.items.map((i) => ({
+            itemId: i.id,
+            result: of(i.id).result,
+            note: text(of(i.id).note),
+          })),
+          note: text(note),
+        };
+        if (general) {
+          const recorded = await unwrap(checklistApi().checks.$post({ param: { slug }, json }));
+          return recorded.outcome === "failed" ? "Check recorded and follow-up opened" : "Check recorded";
+        }
         await unwrap(
           siteApi().checklists.checks.$post({
             param: { slug },
             json: {
-              templateId: template.id,
-              results: template.items.map((i) => ({
-                itemId: i.id,
-                result: of(i.id).result,
-                ...(text(of(i.id).note) ? { note: text(of(i.id).note)! } : {}),
-              })),
-              ...(text(note) ? { note: text(note)! } : {}),
+              ...json,
               ...(changeover && previous !== NONE ? { previousBatchId: previous } : {}),
               ...(changeover && next !== NONE ? { nextBatchId: next } : {}),
             },
           }),
         );
-        return "Check recorded: it now awaits sign-off";
+        return "Check recorded and awaiting sign-off";
       }}
     >
       {changeover && (
@@ -420,11 +532,15 @@ function CheckDialog({
           <SelectField
             id={`ck-${i.id}`}
             label="Result"
-            value={of(i.id).result}
+            value={general && !results[i.id] ? NONE : of(i.id).result}
             onChange={(v) =>
+              v !== NONE &&
               setResults((r) => ({ ...r, [i.id]: { ...of(i.id), result: v as CheckItemResult } }))
             }
-            options={checkItemResults.map((r) => [r, checkItemResultLabels[r]] as const)}
+            options={[
+              ...(general ? [[NONE, "Select a result"] as const] : []),
+              ...checkItemResults.map((r) => [r, checkItemResultLabels[r]] as const),
+            ]}
           />
           <TextField
             id={`ck-note-${i.id}`}

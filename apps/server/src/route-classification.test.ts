@@ -34,6 +34,17 @@ type Classification =
  * Keys are "METHOD path" exactly as Hono registers them.
  */
 const ROUTES: Record<string, Classification> = {
+  "GET /v1/workspaces/:slug/checklists/due": "token-ok",
+  "GET /v1/workspaces/:slug/checklists/templates": "token-ok",
+  "GET /v1/workspaces/:slug/checklists/templates/:id": "token-ok",
+  "POST /v1/workspaces/:slug/checklists/templates": "token-ok",
+  "PATCH /v1/workspaces/:slug/checklists/templates/:id": "token-ok",
+  "GET /v1/workspaces/:slug/checklists/checks": "token-ok",
+  "GET /v1/workspaces/:slug/checklists/checks/:id": "token-ok",
+  "POST /v1/workspaces/:slug/checklists/checks": "token-forbidden",
+  "POST /v1/workspaces/:slug/checklists/checks/:id/correct": "token-forbidden",
+  "GET /v1/workspaces/:slug/checklists/actions": "token-ok",
+  "POST /v1/workspaces/:slug/checklists/actions/:id/resolve": "token-forbidden",
   "GET /v1/workspaces/:slug/bi/datasets": "token-ok",
   "GET /v1/workspaces/:slug/bi/query": "token-ok",
   "GET /v1/workspaces/:slug/bi/dashboards": "token-ok",
@@ -991,6 +1002,9 @@ const TOKEN_ACTION_ROUTES: Record<string, TokenActionId> = {
  * `forbidTokens` route fails the accounting test until it is listed here or made a token action.
  */
 const PERSON_ONLY_ROUTES: Record<string, string> = {
+  "POST /v1/workspaces/:slug/checklists/checks": "Record completed checklists",
+  "POST /v1/workspaces/:slug/checklists/checks/:id/correct": "Correct checklist results",
+  "POST /v1/workspaces/:slug/checklists/actions/:id/resolve": "Resolve checklist follow-ups",
   "POST /v1/workspaces/:slug/purchase-requests/:id/decision": "Decide or withdraw purchase requests",
   "POST /v1/workspaces/:slug/client-services/:id/decision":
     "Sign client service quote and delivery decisions",

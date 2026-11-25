@@ -84,6 +84,7 @@ export function OutcomeBadge({ outcome }: { outcome: CheckOutcome }) {
 }
 
 const signOffClasses: Record<CheckSignOffStatus, string> = {
+  not_required: "text-muted-foreground",
   pending: "bg-label-yellow-bg text-label-yellow",
   approved: "bg-label-green-bg text-label-green",
   rejected: "bg-label-red-bg text-label-red",

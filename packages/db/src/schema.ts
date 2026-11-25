@@ -544,6 +544,7 @@ export * from "./schema/attendance";
 export * from "./schema/quality";
 export * from "./schema/purchasing";
 export * from "./schema/site";
+export * from "./schema/checklists";
 export * from "./schema/maintenance";
 export * from "./schema/labels";
 export * from "./schema/specifications";

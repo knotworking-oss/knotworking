@@ -53,11 +53,13 @@ export default async function SiteRecordsPage({
               rows={storageReadingsCsv(records.readings)}
               label="Storage CSV"
             />
-            <ExportCsvButton
-              name="Site checks"
-              rows={checklistChecksCsv(records.checks)}
-              label="Checks CSV"
-            />
+            {records.checks && (
+              <ExportCsvButton
+                name="Site checks"
+                rows={checklistChecksCsv(records.checks)}
+                label="Checks CSV"
+              />
+            )}
             <ExportCsvButton
               name="Glass checks"
               rows={glassChecksCsv(records.glassChecks)}
@@ -88,7 +90,7 @@ export default async function SiteRecordsPage({
         timeZone={timeZone}
         workspace={boot.workspace.name}
         title="Site records"
-        subtitle={`Storage, checks, glass, pest control${records.maintenance ? ", maintenance" : ""} · ${describeRange(range)}`}
+        subtitle={`Storage, glass, pest control${records.checks ? ", checks" : ""}${records.maintenance ? ", maintenance" : ""} · ${describeRange(range)}`}
       />
       {records.truncated && (
         <div className="mb-2">
@@ -99,10 +101,12 @@ export default async function SiteRecordsPage({
         title="Storage temperatures"
         entries={storageReadingEntries(records.readings, timeZone)}
       />
-      <AuditRecordList
-        title="Pre-start and changeover checks"
-        entries={checklistCheckEntries(records.checks, timeZone)}
-      />
+      {records.checks && (
+        <AuditRecordList
+          title="Pre-start and changeover checks"
+          entries={checklistCheckEntries(records.checks, timeZone)}
+        />
+      )}
       <AuditRecordList
         title="Glass and brittle plastics checks"
         entries={glassCheckEntries(records.glassChecks, timeZone)}

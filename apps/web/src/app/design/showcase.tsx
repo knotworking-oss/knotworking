@@ -18,7 +18,7 @@ import {
   productLabelStatuses,
   d,
   demandSources,
-  checkSignOffStatuses,
+  siteCheckSignOffStatuses,
   dueStates,
   glassConditions,
   pestActivityLevels,
@@ -1446,7 +1446,7 @@ export function Showcase() {
                 <div className="flex flex-wrap gap-2">
                   <OutcomeBadge outcome="passed" />
                   <OutcomeBadge outcome="failed" />
-                  {checkSignOffStatuses.map((status) => (
+                  {siteCheckSignOffStatuses.map((status) => (
                     <SignOffBadge key={status} status={status} />
                   ))}
                 </div>

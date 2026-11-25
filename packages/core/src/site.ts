@@ -152,9 +152,11 @@ export type SiteActionStatus = (typeof siteActionStatuses)[number];
 export const siteActionStatusLabels: Record<SiteActionStatus, string> = { open: "Open", closed: "Closed" };
 
 /** Checklists: before production starts (per line or area) and between products with different allergens. */
-export const checklistKinds = ["prestart", "allergen_changeover"] as const;
+export const siteChecklistKinds = ["prestart", "allergen_changeover"] as const;
+export const checklistKinds = ["general", ...siteChecklistKinds] as const;
 export type ChecklistKind = (typeof checklistKinds)[number];
 export const checklistKindLabels: Record<ChecklistKind, string> = {
+  general: "General checklist",
   prestart: "Pre-start check",
   allergen_changeover: "Allergen changeover check",
 };
@@ -173,12 +175,14 @@ export type CheckOutcome = (typeof checkOutcomes)[number];
 export const checkOutcomeLabels: Record<CheckOutcome, string> = { passed: "Passed", failed: "Failed" };
 
 /** Where a check stands before production starts. A person signs it off; a failed check can only be held. */
-export const checkSignOffStatuses = ["pending", "approved", "rejected"] as const;
+export const siteCheckSignOffStatuses = ["pending", "approved", "rejected"] as const;
+export const checkSignOffStatuses = [...siteCheckSignOffStatuses, "not_required"] as const;
 export type CheckSignOffStatus = (typeof checkSignOffStatuses)[number];
 export const checkSignOffLabels: Record<CheckSignOffStatus, string> = {
   pending: "Awaiting sign-off",
   approved: "Signed off",
   rejected: "Held",
+  not_required: "No sign-off required",
 };
 
 /**
@@ -438,6 +442,8 @@ export interface SiteDueItem {
    * pest control with no next visit set, or no visit recorded although devices exist.
    */
   reason?: SiteDueReason | null;
+  /** This checklist is scheduled only while production is running. */
+  duringProduction?: true;
 }
 
 export const siteDueReasons = ["no_next_visit", "no_visit_recorded"] as const;
@@ -1178,6 +1184,25 @@ export const checklistTemplateCreateSchema = z.object({
   duringProduction: templateFields.duringProduction.default(false),
   items: templateItems,
 });
+export const generalChecklistTemplateCreateSchema = checklistTemplateCreateSchema
+  .omit({
+    kind: true,
+    areaId: true,
+    duringProduction: true,
+  })
+  .strict();
+export const generalChecklistTemplateUpdateSchema = z
+  .object({
+    name: templateFields.name,
+    line: templateFields.line,
+    frequency: templateFields.frequency,
+    status: z.enum(siteStatuses),
+    items: templateItems,
+  })
+  .partial()
+  .strict()
+  .refine(nonEmptyPatch, "Nothing to update");
+
 export type ChecklistTemplateCreateInput = z.infer<typeof checklistTemplateCreateSchema>;
 
 /** Editing replaces the item list when `items` is sent. Past checks keep the wording they were done against. */
@@ -1226,6 +1251,13 @@ export const checklistCheckCreateSchema = z.object({
   previousBatchId: z.uuid().nullable().optional(),
   nextBatchId: z.uuid().nullable().optional(),
 });
+export const generalChecklistCheckCreateSchema = checklistCheckCreateSchema
+  .omit({
+    previousBatchId: true,
+    nextBatchId: true,
+  })
+  .strict();
+
 export type ChecklistCheckCreateInput = z.infer<typeof checklistCheckCreateSchema>;
 
 export const checklistCheckCorrectSchema = z.object({
@@ -1241,13 +1273,31 @@ export const checklistCheckListQuerySchema = z
     kind: z.enum(checklistKinds).optional(),
     ...recordRange,
     outcome: z.enum(checkOutcomes).optional(),
-    signOff: z.enum(checkSignOffStatuses).optional(),
+    signOff: z.enum(siteCheckSignOffStatuses).optional(),
     batchId: z.uuid().optional(),
     includeCorrected: booleanQuery.default(true),
     ...paging,
   })
   .refine(dateRange, dateRangeMessage);
 export type ChecklistCheckListQuery = z.infer<typeof checklistCheckListQuerySchema>;
+export const generalChecklistCheckListQuerySchema = z
+  .object({
+    templateId: z.uuid().optional(),
+    ...recordRange,
+    outcome: z.enum(checkOutcomes).optional(),
+    includeCorrected: booleanQuery.default(true),
+    ...paging,
+  })
+  .refine(dateRange, dateRangeMessage);
+
+export const checklistActionStatuses = ["open", "resolved", "superseded"] as const;
+export type ChecklistActionStatus = (typeof checklistActionStatuses)[number];
+export const checklistActionListQuerySchema = z.object({
+  status: z.enum([...checklistActionStatuses, "all"]).default("open"),
+  ...paging,
+});
+export type ChecklistActionListQuery = z.infer<typeof checklistActionListQuerySchema>;
+export const resolveChecklistActionSchema = z.object({ note: requiredText(2000) });
 
 /** A person with `manage` signs a check off (production may start) or holds it (it may not). */
 export const checkSignOffSchema = z

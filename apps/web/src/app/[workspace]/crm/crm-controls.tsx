@@ -646,14 +646,18 @@ type QuoteOptions = {
   services: { id: string; reference: string; title: string; status: string; currency: string }[];
 };
 
-/** Links the opportunity to a quote of its customer in Sales or Client services. */
+/**
+ * Links the open opportunity to one quote of its customer in Sales or Client services; linking the
+ * other kind replaces the current link. The link is fixed once the deal is closed or handed off.
+ */
 export function QuoteLink({ opportunity }: { opportunity: CrmOpportunity }) {
   const { slug, can } = useWorkspace();
   const [options, setOptions] = useState<QuoteOptions | null>(null);
   const { pending, run } = useSubmit();
   const sales = can("sales");
   const services = can("client_services");
-  if (!can("crm", "write") || opportunity.status !== "open" || (!sales && !services)) return null;
+  if (!can("crm", "write") || opportunity.status !== "open" || opportunity.handoff || (!sales && !services))
+    return null;
   if (!opportunity.customerId)
     return <p className="text-sm text-muted-foreground">Convert the lead to link a quote.</p>;
 
@@ -710,11 +714,12 @@ export function QuoteLink({ opportunity }: { opportunity: CrmOpportunity }) {
         open={options !== null}
         onClose={() => setOptions(null)}
         title="Link a quote"
-        description={`Quotes for ${opportunity.customer?.name ?? "this customer"} not linked to another opportunity.`}
+        description={`Quotes for ${opportunity.customer?.name ?? "this customer"} not linked to another opportunity or handed off yet. Linking one replaces the current quote.`}
       >
         {options && (
           <div className="space-y-4 text-sm">
-            {sales && (
+            {/* A link in a module the member can't open can't be replaced by them either. */}
+            {sales && !(opportunity.serviceQuoteId && !services) && (
               <section className="space-y-2">
                 <h3 className="font-medium">Sales quotes</h3>
                 {options.sales.length === 0 && <p className="text-muted-foreground">None available.</p>}
@@ -726,7 +731,15 @@ export function QuoteLink({ opportunity }: { opportunity: CrmOpportunity }) {
                     <Button
                       size="sm"
                       disabled={pending || quote.id === opportunity.salesQuoteId}
-                      onClick={() => link({ salesQuoteId: quote.id }, "Quote linked")}
+                      onClick={() =>
+                        link(
+                          {
+                            salesQuoteId: quote.id,
+                            ...(opportunity.serviceQuoteId && { serviceQuoteId: null }),
+                          },
+                          "Quote linked",
+                        )
+                      }
                     >
                       Link
                     </Button>
@@ -739,7 +752,7 @@ export function QuoteLink({ opportunity }: { opportunity: CrmOpportunity }) {
                 )}
               </section>
             )}
-            {services && (
+            {services && !(opportunity.salesQuoteId && !sales) && (
               <section className="space-y-2">
                 <h3 className="font-medium">Service quotes</h3>
                 {options.services.length === 0 && <p className="text-muted-foreground">None available.</p>}
@@ -751,7 +764,15 @@ export function QuoteLink({ opportunity }: { opportunity: CrmOpportunity }) {
                     <Button
                       size="sm"
                       disabled={pending || quote.id === opportunity.serviceQuoteId}
-                      onClick={() => link({ serviceQuoteId: quote.id }, "Quote linked")}
+                      onClick={() =>
+                        link(
+                          {
+                            serviceQuoteId: quote.id,
+                            ...(opportunity.salesQuoteId && { salesQuoteId: null }),
+                          },
+                          "Quote linked",
+                        )
+                      }
                     >
                       Link
                     </Button>

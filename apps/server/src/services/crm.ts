@@ -942,8 +942,7 @@ export async function handOffCrmOpportunity(
     // so the deal is still won when the order or project is created in this same transaction.
     await lockWorkspaceLog(tx, workspaceId);
     const opportunity = await loadOpportunity(tx, workspaceId, id, true);
-    if (opportunity.status !== "won")
-      throw conflict("Record the opportunity as won before handing it off");
+    if (opportunity.status !== "won") throw conflict("Record the opportunity as won before handing it off");
     const existing = await handoffOf(tx, workspaceId, opportunity);
     // A retry of the same handoff returns it as it is; a won deal is never fulfilled a second way.
     if (existing && existing.kind !== input.kind)
@@ -961,7 +960,11 @@ export async function handOffCrmOpportunity(
       if (!opportunity.salesQuoteId) throw conflict("Link a Sales quote before handing off to an order");
       if (!existing) {
         const [quote] = await tx
-          .select({ revision: salesOrders.revision, customerId: salesOrders.customerId, kind: salesOrders.kind })
+          .select({
+            revision: salesOrders.revision,
+            customerId: salesOrders.customerId,
+            kind: salesOrders.kind,
+          })
           .from(salesOrders)
           .where(and(eq(salesOrders.workspaceId, workspaceId), eq(salesOrders.id, opportunity.salesQuoteId)));
         if (!quote || quote.kind !== "quote") throw notFound("Quote");
@@ -1054,6 +1057,7 @@ export async function crmQuoteOptions(db: Database, workspaceId: string, id: str
               eq(serviceQuotes.workspaceId, workspaceId),
               eq(serviceQuotes.customerId, opportunity.customerId),
               ne(serviceQuotes.status, "cancelled"),
+              isNull(serviceQuotes.projectId),
             ),
           )
           .orderBy(desc(serviceQuotes.id))
@@ -1067,6 +1071,14 @@ export async function crmQuoteOptions(db: Database, workspaceId: string, id: str
         quoteTotal: serviceQuoteAmount(q.unitPrice, q.quotedMinutes, q.currency),
       }))
     : [];
+  // A quote already turned into an order belongs to the deal that won it.
+  const ordered = sales.length
+    ? await db
+        .select({ quoteId: salesOrders.sourceQuoteId })
+        .from(salesOrders)
+        .where(and(eq(salesOrders.workspaceId, workspaceId), liveOrderOf(sales.map((q) => q.id))))
+    : [];
+  for (const order of ordered) if (order.quoteId) taken.add(order.quoteId);
   return {
     sales: sales.filter((q) => !taken.has(q.id)),
     services: services.filter((q) => !taken.has(q.id)),

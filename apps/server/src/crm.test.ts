@@ -1,12 +1,5 @@
 import { DEFAULT_TIME_ZONE, newId, todayInZone, type ModuleId } from "@knotworking/core";
-import {
-  crmLeads,
-  crmOpportunities,
-  crmStages,
-  customers,
-  salesOrders,
-  workspaces,
-} from "@knotworking/db";
+import { crmLeads, crmOpportunities, crmStages, customers, salesOrders, workspaces } from "@knotworking/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sweepDueNotifications } from "./services/notification-sweep";
@@ -576,7 +569,11 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
   const salesQuote = async (issue = true, customerId = customer.id) => {
     const { body, req } = api;
     const quote = await body(
-      await req("POST", "/sales/orders", { commandId: newId(), kind: "quote", document: document(customerId) }),
+      await req("POST", "/sales/orders", {
+        commandId: newId(),
+        kind: "quote",
+        document: document(customerId),
+      }),
       201,
     );
     if (!issue) return quote;
@@ -715,6 +712,10 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
     expect((await make("Late service", { serviceQuoteId: service.id }, 409)).error.code).toBe(
       "quote_handed_off",
     );
+    // Neither is offered for linking.
+    const options = await body(await req("GET", `/crm/opportunities/${open.id}/quote-options`));
+    expect(options.sales.map((q: { id: string }) => q.id)).not.toContain(quote.id);
+    expect(options.services.map((q: { id: string }) => q.id)).not.toContain(service.id);
   });
 
   it("links one quote at most, so a won deal is handed off once", async () => {
@@ -834,10 +835,7 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
       .where(eq(customers.code, "LINB"));
     expect(made).toEqual([{ id: first.customerId }]);
     // A new command for the same lead is refused: it is already converted.
-    await body(
-      await req("POST", `/crm/leads/${lead.id}/convert`, { ...convert, commandId: newId() }),
-      409,
-    );
+    await body(await req("POST", `/crm/leads/${lead.id}/convert`, { ...convert, commandId: newId() }), 409);
   });
 
   it("treats ids from another workspace as missing", async () => {
@@ -934,7 +932,10 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
       404,
     );
     // Nothing in the foreign workspace changed.
-    const [untouched] = await db.select().from(crmOpportunities).where(eq(crmOpportunities.id, foreignDeal!.id));
+    const [untouched] = await db
+      .select()
+      .from(crmOpportunities)
+      .where(eq(crmOpportunities.id, foreignDeal!.id));
     expect(untouched).toMatchObject({ status: "open", revision: 1 });
   });
 });

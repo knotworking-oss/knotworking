@@ -146,7 +146,7 @@ export const attachmentTargets = {
   hse_entry: { module: "hse", label: "HSE verification", kinds: ["document", "certificate", "photo"] },
   hse_permit: {
     module: "hse",
-    requiresModules: ["site"],
+    requiresModules: ["assets"],
     label: "HSE permit",
     kinds: ["document", "certificate"],
   },

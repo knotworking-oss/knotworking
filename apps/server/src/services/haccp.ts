@@ -60,9 +60,9 @@ import {
   type DeviationListQuery,
   type DueResult,
   type DueState,
-  type HaccpAssetCreateInput,
+  type HaccpAssetKind,
   type HaccpAssetListQuery,
-  type HaccpAssetUpdateInput,
+  type HaccpAssetScheduleInput,
   type HaccpDueQuery,
   type HaccpPlanApproveInput,
   type HaccpPlanCreateInput,
@@ -77,6 +77,7 @@ import {
   type ScheduleFrequencyUnit,
 } from "@knotworking/core";
 import {
+  assets as assetRegister,
   haccpAssets,
   haccpCalibrationRecords,
   haccpCcpLogs,
@@ -143,7 +144,50 @@ type VersionRow = typeof haccpPlanVersions.$inferSelect;
 type CcpRow = typeof haccpCcps.$inferSelect;
 type LogRow = typeof haccpCcpLogs.$inferSelect;
 type ActionRow = typeof haccpCorrectiveActions.$inferSelect;
-type AssetRow = typeof haccpAssets.$inferSelect;
+/**
+ * An asset of the register (`assets`) with HACCP's schedule (`haccp_assets`, left joined: an asset
+ * without a row is in neither schedule). The shape the HACCP register row had before the register
+ * moved to the Assets module.
+ */
+const assetColumns = {
+  id: assetRegister.id,
+  workspaceId: assetRegister.workspaceId,
+  kind: assetRegister.kind,
+  code: assetRegister.code,
+  name: assetRegister.name,
+  location: assetRegister.location,
+  status: assetRegister.status,
+  createdAt: assetRegister.createdAt,
+  updatedAt: assetRegister.updatedAt,
+  deletedAt: assetRegister.deletedAt,
+  cleaningEvery: haccpAssets.cleaningEvery,
+  cleaningUnit: haccpAssets.cleaningUnit,
+  calibrationEvery: haccpAssets.calibrationEvery,
+  calibrationUnit: haccpAssets.calibrationUnit,
+  calibrationTolerance: haccpAssets.calibrationTolerance,
+  measurementUnit: haccpAssets.measurementUnit,
+};
+const withSchedule = eq(haccpAssets.id, assetRegister.id);
+/** HACCP cleans areas and equipment; vehicles, IT and tools of the register are not in its schedule. */
+const haccpKinds = inArray(assetRegister.kind, ["area", "equipment"]);
+type AssetRow = {
+  id: string;
+  workspaceId: string;
+  kind: string;
+  code: string | null;
+  name: string;
+  location: string | null;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+  cleaningEvery: number | null;
+  cleaningUnit: ScheduleFrequencyUnit | null;
+  calibrationEvery: number | null;
+  calibrationUnit: ScheduleFrequencyUnit | null;
+  calibrationTolerance: number | null;
+  measurementUnit: string | null;
+};
 type CleaningRow = typeof haccpCleaningRecords.$inferSelect;
 type CalibrationRow = typeof haccpCalibrationRecords.$inferSelect;
 type StepRow = typeof haccpProcessSteps.$inferSelect;
@@ -201,6 +245,8 @@ function serializeAsset(row: AssetRow) {
   const calibrationFrequency = frequencyOf(calibrationEvery, calibrationUnit);
   return {
     ...rest,
+    kind: rest.kind as HaccpAssetKind,
+    status: rest.status as "active" | "archived",
     cleaningFrequency,
     calibrationFrequency,
     cleaningFrequencyText: cleaningFrequency ? describeFrequency(cleaningFrequency) : null,
@@ -1457,11 +1503,11 @@ async function describeActions(db: Executor, rows: ActionRow[]) {
       ? db
           .select({
             record: haccpCalibrationRecords,
-            assetName: haccpAssets.name,
-            assetCode: haccpAssets.code,
+            assetName: assetRegister.name,
+            assetCode: assetRegister.code,
           })
           .from(haccpCalibrationRecords)
-          .innerJoin(haccpAssets, eq(haccpAssets.id, haccpCalibrationRecords.assetId))
+          .innerJoin(assetRegister, eq(assetRegister.id, haccpCalibrationRecords.assetId))
           .where(inArray(haccpCalibrationRecords.id, calibrationIds))
       : [],
     batchIds.length
@@ -1739,32 +1785,24 @@ export async function closeCorrectiveAction(
 }
 
 // ─── Areas and equipment ─────────────────────────────────────────────────────
+// The areas and equipment are assets of the register (Assets module): they are added, renamed and
+// archived there. HACCP keeps each one's cleaning and calibration schedule.
 
 async function findAsset(db: Executor, workspaceId: string, id: string) {
   const [row] = await db
-    .select()
-    .from(haccpAssets)
-    .where(
-      and(eq(haccpAssets.id, id), eq(haccpAssets.workspaceId, workspaceId), isNull(haccpAssets.deletedAt)),
-    );
-  if (!row) throw notFound("Area or equipment");
-  return row;
-}
-
-async function assertAssetCodeFree(tx: Executor, workspaceId: string, code: string, exceptId?: string) {
-  const [taken] = await tx
-    .select({ id: haccpAssets.id })
-    .from(haccpAssets)
+    .select(assetColumns)
+    .from(assetRegister)
+    .leftJoin(haccpAssets, withSchedule)
     .where(
       and(
-        eq(haccpAssets.workspaceId, workspaceId),
-        isNull(haccpAssets.deletedAt),
-        sql`lower(${haccpAssets.code}) = lower(${code})`,
-        exceptId ? ne(haccpAssets.id, exceptId) : undefined,
+        eq(assetRegister.id, id),
+        eq(assetRegister.workspaceId, workspaceId),
+        isNull(assetRegister.deletedAt),
+        haccpKinds,
       ),
     );
-  if (taken)
-    throw new ApiError(409, "code_taken", `Another area or piece of equipment uses the code "${code}"`);
+  if (!row) throw notFound("Area or equipment");
+  return row as AssetRow;
 }
 
 const frequencyColumns = (
@@ -1775,73 +1813,54 @@ const frequencyColumns = (
     ? {}
     : { [`${prefix}Every`]: frequency?.every ?? null, [`${prefix}Unit`]: frequency?.unit ?? null };
 
+/** Areas and equipment of the asset register, with their cleaning and calibration schedules. */
 export async function listAssets(db: Database, workspaceId: string, query: HaccpAssetListQuery) {
   const where: (SQL | undefined)[] = [
-    eq(haccpAssets.workspaceId, workspaceId),
-    isNull(haccpAssets.deletedAt),
+    eq(assetRegister.workspaceId, workspaceId),
+    isNull(assetRegister.deletedAt),
+    haccpKinds,
   ];
-  if (query.kind) where.push(eq(haccpAssets.kind, query.kind));
-  if (query.status !== "all") where.push(eq(haccpAssets.status, query.status));
+  if (query.kind) where.push(eq(assetRegister.kind, query.kind));
+  if (query.status !== "all") where.push(eq(assetRegister.status, query.status));
   const rows = await db
-    .select()
-    .from(haccpAssets)
+    .select(assetColumns)
+    .from(assetRegister)
+    .leftJoin(haccpAssets, withSchedule)
     .where(and(...where))
-    .orderBy(asc(haccpAssets.name), asc(haccpAssets.id));
-  return { assets: rows.map(serializeAsset) };
+    .orderBy(asc(assetRegister.name), asc(assetRegister.id));
+  return { assets: (rows as AssetRow[]).map(serializeAsset) };
 }
 
-export async function createAsset(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  input: HaccpAssetCreateInput,
-) {
-  return db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    if (input.code) await assertAssetCodeFree(tx, workspaceId, input.code);
-    const { cleaningFrequency, calibrationFrequency, id, ...fields } = input;
-    const [row] = await tx
-      .insert(haccpAssets)
-      .values({
-        ...(id ? { id } : {}),
-        ...fields,
-        ...frequencyColumns("cleaning", cleaningFrequency),
-        ...frequencyColumns("calibration", calibrationFrequency),
-        workspaceId,
-      })
-      .returning();
-    await recordChanges(tx, workspaceId, actorId, [change("haccp_asset", row!)]);
-    return serializeAsset(row!);
-  });
-}
-
-export async function updateAsset(
+/**
+ * Sets an area's or a piece of equipment's cleaning and calibration schedule (HACCP's part of the
+ * asset). Only equipment is calibrated.
+ */
+export async function updateAssetSchedule(
   db: Database,
   workspaceId: string,
   actorId: string,
   id: string,
-  patch: HaccpAssetUpdateInput,
+  patch: HaccpAssetScheduleInput,
 ) {
   return db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
     const asset = await findAsset(tx, workspaceId, id);
-    if (patch.code) await assertAssetCodeFree(tx, workspaceId, patch.code, id);
-    const kind = patch.kind ?? asset.kind;
     const calibrated =
       patch.calibrationFrequency !== undefined ? patch.calibrationFrequency : asset.calibrationEvery;
-    if (kind === "area" && calibrated) throw badRequest("Only equipment is calibrated");
+    if (asset.kind === "area" && calibrated) throw badRequest("Only equipment is calibrated");
     const { cleaningFrequency, calibrationFrequency, ...fields } = patch;
+    const set = {
+      ...fields,
+      ...frequencyColumns("cleaning", cleaningFrequency),
+      ...frequencyColumns("calibration", calibrationFrequency),
+    };
     const [row] = await tx
-      .update(haccpAssets)
-      .set({
-        ...fields,
-        ...frequencyColumns("cleaning", cleaningFrequency),
-        ...frequencyColumns("calibration", calibrationFrequency),
-      })
-      .where(eq(haccpAssets.id, id))
+      .insert(haccpAssets)
+      .values({ id, workspaceId, ...set })
+      .onConflictDoUpdate({ target: haccpAssets.id, set: { ...set, updatedAt: new Date() } })
       .returning();
-    await recordChanges(tx, workspaceId, actorId, [change("haccp_asset", row!)]);
-    return serializeAsset(row!);
+    await recordChanges(tx, workspaceId, actorId, [change("haccp_asset", { ...row!, deletedAt: null })]);
+    return serializeAsset(await findAsset(tx, workspaceId, id));
   });
 }
 
@@ -1902,9 +1921,10 @@ async function describeCleaning(db: Executor, rows: { record: CleaningRow; asset
 
 async function getCleaning(db: Executor, workspaceId: string, id: string) {
   const rows = await db
-    .select({ record: haccpCleaningRecords, asset: haccpAssets })
+    .select({ record: haccpCleaningRecords, asset: assetColumns })
     .from(haccpCleaningRecords)
-    .innerJoin(haccpAssets, eq(haccpAssets.id, haccpCleaningRecords.assetId))
+    .innerJoin(assetRegister, eq(assetRegister.id, haccpCleaningRecords.assetId))
+    .leftJoin(haccpAssets, withSchedule)
     .where(and(eq(haccpCleaningRecords.id, id), eq(haccpCleaningRecords.workspaceId, workspaceId)));
   if (!rows[0]) throw notFound("Cleaning record");
   return (await describeCleaning(db, rows))[0]!;
@@ -1919,9 +1939,10 @@ export async function listCleaning(db: Database, workspaceId: string, query: Hac
   if (query.to) where.push(lt(haccpCleaningRecords.cleanedAt, endOfDayInZone(query.to, zone!)));
   const [rows, [total]] = await Promise.all([
     db
-      .select({ record: haccpCleaningRecords, asset: haccpAssets })
+      .select({ record: haccpCleaningRecords, asset: assetColumns })
       .from(haccpCleaningRecords)
-      .innerJoin(haccpAssets, eq(haccpAssets.id, haccpCleaningRecords.assetId))
+      .innerJoin(assetRegister, eq(assetRegister.id, haccpCleaningRecords.assetId))
+      .leftJoin(haccpAssets, withSchedule)
       .where(and(...where))
       .orderBy(desc(haccpCleaningRecords.cleanedAt), desc(haccpCleaningRecords.id))
       .limit(query.limit)
@@ -2099,9 +2120,10 @@ async function describeCalibration(db: Executor, rows: { record: CalibrationRow;
 
 async function getCalibration(db: Executor, workspaceId: string, id: string) {
   const rows = await db
-    .select({ record: haccpCalibrationRecords, asset: haccpAssets })
+    .select({ record: haccpCalibrationRecords, asset: assetColumns })
     .from(haccpCalibrationRecords)
-    .innerJoin(haccpAssets, eq(haccpAssets.id, haccpCalibrationRecords.assetId))
+    .innerJoin(assetRegister, eq(assetRegister.id, haccpCalibrationRecords.assetId))
+    .leftJoin(haccpAssets, withSchedule)
     .where(and(eq(haccpCalibrationRecords.id, id), eq(haccpCalibrationRecords.workspaceId, workspaceId)));
   if (!rows[0]) throw notFound("Calibration record");
   return (await describeCalibration(db, rows))[0]!;
@@ -2116,9 +2138,10 @@ export async function listCalibration(db: Database, workspaceId: string, query: 
   if (query.to) where.push(lt(haccpCalibrationRecords.calibratedAt, endOfDayInZone(query.to, zone!)));
   const [rows, [total]] = await Promise.all([
     db
-      .select({ record: haccpCalibrationRecords, asset: haccpAssets })
+      .select({ record: haccpCalibrationRecords, asset: assetColumns })
       .from(haccpCalibrationRecords)
-      .innerJoin(haccpAssets, eq(haccpAssets.id, haccpCalibrationRecords.assetId))
+      .innerJoin(assetRegister, eq(assetRegister.id, haccpCalibrationRecords.assetId))
+      .leftJoin(haccpAssets, withSchedule)
       .where(and(...where))
       .orderBy(desc(haccpCalibrationRecords.calibratedAt), desc(haccpCalibrationRecords.id))
       .limit(query.limit)
@@ -2539,17 +2562,19 @@ export async function getDue(
   }
 
   if (wants("cleaning") || wants("calibration")) {
-    const assets = await db
-      .select()
-      .from(haccpAssets)
+    const assets = (await db
+      .select(assetColumns)
+      .from(assetRegister)
+      .innerJoin(haccpAssets, withSchedule)
       .where(
         and(
-          eq(haccpAssets.workspaceId, workspaceId),
-          isNull(haccpAssets.deletedAt),
-          eq(haccpAssets.status, "active"),
+          eq(assetRegister.workspaceId, workspaceId),
+          isNull(assetRegister.deletedAt),
+          eq(assetRegister.status, "active"),
+          haccpKinds,
         ),
       )
-      .orderBy(asc(haccpAssets.name));
+      .orderBy(asc(assetRegister.name))) as AssetRow[];
     const ids = assets.map((a) => a.id);
     if (wants("cleaning") && ids.length) {
       const last = await db

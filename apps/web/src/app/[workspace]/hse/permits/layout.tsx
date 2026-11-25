@@ -8,6 +8,7 @@ export default async function Layout({
   children: ReactNode;
   params: Promise<{ workspace: string }>;
 }) {
-  await requireModule((await params).workspace, "site");
+  // Permits are raised against assets of the register: Assets is a soft dependency of HSE.
+  await requireModule((await params).workspace, "assets");
   return children;
 }

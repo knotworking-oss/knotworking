@@ -81,7 +81,6 @@ import {
   type SiteActionCreateInput,
   type SiteActionListQuery,
   type SiteActionUpdateInput,
-  type SiteAssetCreateInput,
   type SiteAssetListQuery,
   type SiteAssetUpdateInput,
   type SiteDueItem,
@@ -98,6 +97,7 @@ import {
   type StorageUnitUpdateInput,
 } from "@knotworking/core";
 import {
+  assets as assetRegister,
   haccpAssets,
   haccpCalibrationRecords,
   lockWorkspaceLog,
@@ -128,6 +128,7 @@ import {
   type Transaction,
 } from "@knotworking/db";
 import { and, asc, count, desc, eq, gte, inArray, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
+import { assertArea, assetSummaries, listAreas as listRegisterAreas } from "./ports/assets";
 import { ApiError, badRequest, notFound } from "../errors";
 import { workspaceTimeZone } from "./time-zone";
 import {
@@ -153,7 +154,9 @@ import { findBatch, userNames } from "./ports/production";
  * - **API tokens** may enter data: pest visits, storage readings (held pending review), raising a
  *   breakage, corrective actions, and the registers. A storage reading outside its unit's limits
  *   opens a corrective action in the same transaction, whoever recorded it.
- * - Areas are rows of the HACCP register (`haccp_assets`, kind `area`).
+ * - Areas and maintained equipment are assets of the register (Assets module; areas are kind
+ *   `area`). Site keeps only the link from a maintained asset to its HACCP calibration instrument
+ *   (`site_assets`), shown when HACCP is on and readable.
  * - **What's due** is computed on read from the frequencies and the last records.
  *
  * Nothing is in the bootstrap; every write goes to the sync log, filtered by module access.
@@ -165,7 +168,27 @@ type FindingRow = typeof sitePestFindings.$inferSelect;
 type GlassItemRow = typeof siteGlassItems.$inferSelect;
 type GlassCheckRow = typeof siteGlassChecks.$inferSelect;
 type BreakageRow = typeof siteGlassBreakages.$inferSelect;
-type AssetRow = typeof siteAssets.$inferSelect;
+/**
+ * An asset of the register as planned maintenance sees it, with Site's link to a calibration
+ * instrument (left joined: most assets have none). `areaId` is the asset's area.
+ */
+const maintainedColumns = {
+  id: assetRegister.id,
+  workspaceId: assetRegister.workspaceId,
+  kind: assetRegister.kind,
+  code: assetRegister.code,
+  name: assetRegister.name,
+  location: assetRegister.location,
+  areaId: assetRegister.parentAreaId,
+  calibrationInstrumentId: siteAssets.calibrationInstrumentId,
+  status: assetRegister.status,
+  createdAt: assetRegister.createdAt,
+  updatedAt: assetRegister.updatedAt,
+  deletedAt: assetRegister.deletedAt,
+};
+const maintainedAssets = (db: Executor) =>
+  db.select(maintainedColumns).from(assetRegister).leftJoin(siteAssets, eq(siteAssets.id, assetRegister.id));
+type AssetRow = Awaited<ReturnType<typeof maintainedAssets>>[number];
 type TaskRow = typeof siteMaintenanceTasks.$inferSelect;
 type MaintenanceRow = typeof siteMaintenanceRecords.$inferSelect;
 type UnitRow = typeof siteStorageUnits.$inferSelect;
@@ -240,73 +263,27 @@ function reviewOnEntry(source: SiteSource, actorId: string, at: Date) {
     : { reviewStatus, reviewedBy: null, reviewedAt: null };
 }
 
-// ─── Areas (the HACCP register) ──────────────────────────────────────────────
+// ─── Areas (the asset register) ──────────────────────────────────────────────
 
 type AreaSummary = { id: string; code: string | null; name: string; status: string };
 
-/** Live areas of the HACCP register: where devices, items, assets, units and checklists are. */
+/** Live areas of the asset register: where devices, items, assets, units and checklists are. */
 export async function listAreas(db: Database, workspaceId: string) {
-  const rows = await db
-    .select()
-    .from(haccpAssets)
-    .where(
-      and(
-        eq(haccpAssets.workspaceId, workspaceId),
-        eq(haccpAssets.kind, "area"),
-        isNull(haccpAssets.deletedAt),
-      ),
-    )
-    .orderBy(asc(haccpAssets.name), asc(haccpAssets.id));
-  return {
-    areas: rows.map((a) => ({
-      id: a.id,
-      code: a.code,
-      name: a.name,
-      location: a.location,
-      status: a.status,
-    })),
-  };
-}
-
-/** An area must exist in this workspace and be an area (not equipment). */
-async function assertArea(tx: Executor, workspaceId: string, areaId: string) {
-  const [row] = await tx
-    .select({ id: haccpAssets.id, status: haccpAssets.status })
-    .from(haccpAssets)
-    .where(
-      and(
-        eq(haccpAssets.id, areaId),
-        eq(haccpAssets.workspaceId, workspaceId),
-        eq(haccpAssets.kind, "area"),
-        isNull(haccpAssets.deletedAt),
-      ),
-    );
-  if (!row) throw notFound("Area");
-  if (row.status === "archived") {
-    throw new ApiError(409, "area_archived", "That area is archived in the food safety register");
-  }
+  return { areas: await listRegisterAreas(db, workspaceId) };
 }
 
 async function areasById(db: Executor, ids: (string | null | undefined)[]) {
-  const wanted = [...new Set(ids.filter((id): id is string => !!id))];
-  if (wanted.length === 0) return new Map<string, AreaSummary>();
-  const rows = await db
-    .select({
-      id: haccpAssets.id,
-      code: haccpAssets.code,
-      name: haccpAssets.name,
-      status: haccpAssets.status,
-    })
-    .from(haccpAssets)
-    .where(inArray(haccpAssets.id, wanted));
-  return new Map(rows.map((r) => [r.id, r]));
+  const found = await assetSummaries(db, ids);
+  return new Map<string, AreaSummary>(
+    [...found.values()].map((a) => [a.id, { id: a.id, code: a.code, name: a.name, status: a.status }]),
+  );
 }
 const areaOf = (areas: Map<string, AreaSummary>, id: string | null) => (id ? (areas.get(id) ?? null) : null);
 
 /** `code` must be free among live rows of a table that has `workspaceId`, `code` and `deletedAt`. */
 async function assertCodeFree(
   tx: Executor,
-  table: typeof sitePestDevices | typeof siteAssets | typeof siteStorageUnits,
+  table: typeof sitePestDevices | typeof siteStorageUnits,
   workspaceId: string,
   code: string,
   what: string,
@@ -1219,10 +1196,13 @@ export async function releaseGlassBreakage(
 // ─── Planned maintenance ─────────────────────────────────────────────────────
 
 async function findSiteAsset(db: Executor, workspaceId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(siteAssets)
-    .where(and(eq(siteAssets.id, id), eq(siteAssets.workspaceId, workspaceId), isNull(siteAssets.deletedAt)));
+  const [row] = await maintainedAssets(db).where(
+    and(
+      eq(assetRegister.id, id),
+      eq(assetRegister.workspaceId, workspaceId),
+      isNull(assetRegister.deletedAt),
+    ),
+  );
   if (!row) throw notFound("Asset");
   return row;
 }
@@ -1238,8 +1218,21 @@ async function instrumentsById(db: Executor, workspaceId: string, ids: (string |
   if (wanted.length === 0) return out;
   const timeZone = await workspaceTimeZone(db, workspaceId);
   const today = todayInZone(timeZone);
-  const [assets, latest] = await Promise.all([
-    db.select().from(haccpAssets).where(inArray(haccpAssets.id, wanted)),
+  const [instruments, latest] = await Promise.all([
+    db
+      .select({
+        id: assetRegister.id,
+        code: assetRegister.code,
+        name: assetRegister.name,
+        status: assetRegister.status,
+        deletedAt: assetRegister.deletedAt,
+        measurementUnit: haccpAssets.measurementUnit,
+        calibrationEvery: haccpAssets.calibrationEvery,
+        calibrationUnit: haccpAssets.calibrationUnit,
+      })
+      .from(assetRegister)
+      .leftJoin(haccpAssets, eq(haccpAssets.id, assetRegister.id))
+      .where(inArray(assetRegister.id, wanted)),
     db
       .selectDistinctOn([haccpCalibrationRecords.assetId])
       .from(haccpCalibrationRecords)
@@ -1252,7 +1245,7 @@ async function instrumentsById(db: Executor, workspaceId: string, ids: (string |
       .orderBy(haccpCalibrationRecords.assetId, desc(haccpCalibrationRecords.calibratedAt)),
   ]);
   const latestOf = new Map(latest.map((r) => [r.assetId, r]));
-  for (const asset of assets) {
+  for (const asset of instruments) {
     const frequency = frequencyOf(asset.calibrationEvery, asset.calibrationUnit);
     const record = latestOf.get(asset.id) ?? null;
     const dueOn =
@@ -1293,7 +1286,11 @@ interface InstrumentView {
   state: DueState;
 }
 
-async function describeSiteAssets(db: Executor, rows: AssetRow[]) {
+/**
+ * Maintained assets as the API shows them. The calibration instrument (HACCP's record) is only
+ * looked up when the caller can read HACCP (`withCalibration`); otherwise it is `null`.
+ */
+async function describeSiteAssets(db: Executor, rows: AssetRow[], withCalibration: boolean) {
   if (rows.length === 0) return [];
   const [areas, instruments] = await Promise.all([
     areasById(
@@ -1301,48 +1298,55 @@ async function describeSiteAssets(db: Executor, rows: AssetRow[]) {
       rows.map((r) => r.areaId),
     ),
     // One workspace per call: every row shares it.
-    instrumentsById(
-      db,
-      rows[0]!.workspaceId,
-      rows.map((r) => r.calibrationInstrumentId),
-    ),
+    withCalibration
+      ? instrumentsById(
+          db,
+          rows[0]!.workspaceId,
+          rows.map((r) => r.calibrationInstrumentId),
+        )
+      : new Map<string, InstrumentView>(),
   ]);
   return rows.map((row) => ({
     ...stripSoft(row),
+    calibrationInstrumentId: withCalibration ? row.calibrationInstrumentId : null,
     area: areaOf(areas, row.areaId),
     /** The linked HACCP calibration instrument (read-only here), or `null`. */
-    calibrationInstrument: row.calibrationInstrumentId
-      ? (instruments.get(row.calibrationInstrumentId) ?? null)
-      : null,
+    calibrationInstrument:
+      withCalibration && row.calibrationInstrumentId
+        ? (instruments.get(row.calibrationInstrumentId) ?? null)
+        : null,
   }));
 }
 
 /**
  * Equipment of the HACCP calibration register that a site asset can be linked to: kept in
- * Cleaning & calibration, read here. `linkedAssetId` is the site asset that already points at it.
+ * Cleaning & calibration, read here (the route needs HACCP). `linkedAssetId` is the asset that
+ * already points at it.
  */
 export async function listCalibrationInstruments(db: Database, workspaceId: string) {
   const rows = await db
-    .select()
-    .from(haccpAssets)
+    .select({ id: assetRegister.id })
+    .from(assetRegister)
+    .innerJoin(haccpAssets, eq(haccpAssets.id, assetRegister.id))
     .where(
       and(
-        eq(haccpAssets.workspaceId, workspaceId),
-        eq(haccpAssets.kind, "equipment"),
-        isNull(haccpAssets.deletedAt),
-        eq(haccpAssets.status, "active"),
+        eq(assetRegister.workspaceId, workspaceId),
+        eq(assetRegister.kind, "equipment"),
+        isNull(assetRegister.deletedAt),
+        eq(assetRegister.status, "active"),
         sql`${haccpAssets.calibrationEvery} is not null`,
       ),
     )
-    .orderBy(asc(haccpAssets.name), asc(haccpAssets.id));
+    .orderBy(asc(assetRegister.name), asc(assetRegister.id));
   const [linked, views] = await Promise.all([
     db
       .select({ id: siteAssets.id, instrumentId: siteAssets.calibrationInstrumentId })
       .from(siteAssets)
+      .innerJoin(assetRegister, eq(assetRegister.id, siteAssets.id))
       .where(
         and(
           eq(siteAssets.workspaceId, workspaceId),
-          isNull(siteAssets.deletedAt),
+          isNull(assetRegister.deletedAt),
           sql`${siteAssets.calibrationInstrumentId} is not null`,
         ),
       ),
@@ -1360,23 +1364,20 @@ export async function listCalibrationInstruments(db: Database, workspaceId: stri
 
 /**
  * A calibration instrument must be equipment of the HACCP register with a calibration frequency,
- * and one site asset at most points at it. HACCP's records are never written from here.
+ * and one asset at most points at it. HACCP's records are never written from here.
  */
-async function assertInstrument(
-  tx: Executor,
-  workspaceId: string,
-  instrumentId: string,
-  exceptAssetId?: string,
-) {
+async function assertInstrument(tx: Executor, workspaceId: string, instrumentId: string, assetId: string) {
+  if (instrumentId === assetId) throw badRequest("An asset can't be its own calibration instrument");
   const [row] = await tx
-    .select()
-    .from(haccpAssets)
+    .select({ name: assetRegister.name, calibrationEvery: haccpAssets.calibrationEvery })
+    .from(assetRegister)
+    .leftJoin(haccpAssets, eq(haccpAssets.id, assetRegister.id))
     .where(
       and(
-        eq(haccpAssets.id, instrumentId),
-        eq(haccpAssets.workspaceId, workspaceId),
-        eq(haccpAssets.kind, "equipment"),
-        isNull(haccpAssets.deletedAt),
+        eq(assetRegister.id, instrumentId),
+        eq(assetRegister.workspaceId, workspaceId),
+        eq(assetRegister.kind, "equipment"),
+        isNull(assetRegister.deletedAt),
       ),
     );
   if (!row) throw notFound("Calibration instrument");
@@ -1386,14 +1387,15 @@ async function assertInstrument(
     );
   }
   const [taken] = await tx
-    .select({ id: siteAssets.id, name: siteAssets.name })
+    .select({ id: assetRegister.id, name: assetRegister.name })
     .from(siteAssets)
+    .innerJoin(assetRegister, eq(assetRegister.id, siteAssets.id))
     .where(
       and(
         eq(siteAssets.workspaceId, workspaceId),
         eq(siteAssets.calibrationInstrumentId, instrumentId),
-        isNull(siteAssets.deletedAt),
-        exceptAssetId ? ne(siteAssets.id, exceptAssetId) : undefined,
+        isNull(assetRegister.deletedAt),
+        ne(siteAssets.id, assetId),
       ),
     );
   if (taken) {
@@ -1401,39 +1403,28 @@ async function assertInstrument(
   }
 }
 
-export async function listSiteAssets(db: Database, workspaceId: string, query: SiteAssetListQuery) {
-  const where: (SQL | undefined)[] = [eq(siteAssets.workspaceId, workspaceId), isNull(siteAssets.deletedAt)];
-  if (query.status !== "all") where.push(eq(siteAssets.status, query.status));
-  const rows = await db
-    .select()
-    .from(siteAssets)
-    .where(and(...where))
-    .orderBy(asc(siteAssets.name), asc(siteAssets.id));
-  return { assets: await describeSiteAssets(db, rows) };
-}
-
-export async function createSiteAsset(
+/** Assets of the register that can be maintained (any kind), with their calibration link. */
+export async function listSiteAssets(
   db: Database,
   workspaceId: string,
-  actorId: string,
-  input: SiteAssetCreateInput,
+  query: SiteAssetListQuery,
+  options: { withCalibration: boolean },
 ) {
-  const row = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    if (input.code) await assertCodeFree(tx, siteAssets, workspaceId, input.code, "asset");
-    if (input.areaId) await assertArea(tx, workspaceId, input.areaId);
-    if (input.calibrationInstrumentId) await assertInstrument(tx, workspaceId, input.calibrationInstrumentId);
-    const { id, ...fields } = input;
-    const [created] = await tx
-      .insert(siteAssets)
-      .values({ ...(id ? { id } : {}), ...fields, workspaceId })
-      .returning();
-    await recordChanges(tx, workspaceId, actorId, [change("site_asset", created!)]);
-    return created!;
-  });
-  return (await describeSiteAssets(db, [row]))[0]!;
+  const where: (SQL | undefined)[] = [
+    eq(assetRegister.workspaceId, workspaceId),
+    isNull(assetRegister.deletedAt),
+  ];
+  if (query.status !== "all") where.push(eq(assetRegister.status, query.status));
+  const rows = await maintainedAssets(db)
+    .where(and(...where))
+    .orderBy(asc(assetRegister.name), asc(assetRegister.id));
+  return { assets: await describeSiteAssets(db, rows, options.withCalibration) };
 }
 
+/**
+ * Links a maintained asset to the HACCP calibration instrument it is (or unlinks it with `null`).
+ * Site's only part of an asset; the asset itself is changed in the register. Needs HACCP.
+ */
 export async function updateSiteAsset(
   db: Database,
   workspaceId: string,
@@ -1441,39 +1432,24 @@ export async function updateSiteAsset(
   id: string,
   patch: SiteAssetUpdateInput,
 ) {
-  const row = await db.transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
     await findSiteAsset(tx, workspaceId, id);
-    if (patch.code) await assertCodeFree(tx, siteAssets, workspaceId, patch.code, "asset", id);
-    if (patch.areaId) await assertArea(tx, workspaceId, patch.areaId);
     if (patch.calibrationInstrumentId) {
       await assertInstrument(tx, workspaceId, patch.calibrationInstrumentId, id);
     }
-    if (patch.areaId === null) {
-      const [needsArea] = await tx
-        .select({ id: siteMaintenanceTasks.id })
-        .from(siteMaintenanceTasks)
-        .where(
-          and(
-            eq(siteMaintenanceTasks.assetId, id),
-            eq(siteMaintenanceTasks.clearanceRequired, true),
-            eq(siteMaintenanceTasks.status, "active"),
-            isNull(siteMaintenanceTasks.deletedAt),
-          ),
-        );
-      if (needsArea) {
-        throw new ApiError(
-          409,
-          "area_required",
-          "A task on this asset needs a hygiene clearance, which needs the asset's area",
-        );
-      }
-    }
-    const [updated] = await tx.update(siteAssets).set(patch).where(eq(siteAssets.id, id)).returning();
-    await recordChanges(tx, workspaceId, actorId, [change("site_asset", updated!)]);
-    return updated!;
+    const [row] = await tx
+      .insert(siteAssets)
+      .values({ id, workspaceId, calibrationInstrumentId: patch.calibrationInstrumentId })
+      .onConflictDoUpdate({
+        target: siteAssets.id,
+        set: { calibrationInstrumentId: patch.calibrationInstrumentId, updatedAt: new Date() },
+      })
+      .returning();
+    await recordChanges(tx, workspaceId, actorId, [change("site_asset", row!)]);
   });
-  return (await describeSiteAssets(db, [row]))[0]!;
+  const row = await findSiteAsset(db, workspaceId, id);
+  return (await describeSiteAssets(db, [row], true))[0]!;
 }
 
 async function findTask(db: Executor, workspaceId: string, id: string) {
@@ -1535,10 +1511,7 @@ async function describeTasks(db: Executor, workspaceId: string, rows: TaskRow[])
   const timeZone = await workspaceTimeZone(db, workspaceId);
   const today = todayInZone(timeZone);
   const [assets, last] = await Promise.all([
-    db
-      .select()
-      .from(siteAssets)
-      .where(inArray(siteAssets.id, [...new Set(rows.map((r) => r.assetId))])),
+    maintainedAssets(db).where(inArray(assetRegister.id, [...new Set(rows.map((r) => r.assetId))])),
     lastMaintenance(
       db,
       workspaceId,
@@ -1664,10 +1637,7 @@ async function describeMaintenance(db: Executor, rows: MaintenanceRow[]) {
       .select()
       .from(siteMaintenanceTasks)
       .where(inArray(siteMaintenanceTasks.id, [...new Set(rows.map((r) => r.taskId))])),
-    db
-      .select()
-      .from(siteAssets)
-      .where(inArray(siteAssets.id, [...new Set(rows.map((r) => r.assetId))])),
+    maintainedAssets(db).where(inArray(assetRegister.id, [...new Set(rows.map((r) => r.assetId))])),
     db
       .select({ id: siteMaintenanceRecords.id, correctsRecordId: siteMaintenanceRecords.correctsRecordId })
       .from(siteMaintenanceRecords)
@@ -3522,16 +3492,13 @@ export async function getSiteDue(
         tasks.map((t) => t.id),
       ),
       tasks.length
-        ? db
-            .select()
-            .from(siteAssets)
-            .where(
-              and(
-                inArray(siteAssets.id, [...new Set(tasks.map((t) => t.assetId))]),
-                eq(siteAssets.status, "active"),
-                isNull(siteAssets.deletedAt),
-              ),
-            )
+        ? maintainedAssets(db).where(
+            and(
+              inArray(assetRegister.id, [...new Set(tasks.map((t) => t.assetId))]),
+              eq(assetRegister.status, "active"),
+              isNull(assetRegister.deletedAt),
+            ),
+          )
         : Promise.resolve([] as AssetRow[]),
     ]);
     const areas = await areasById(
@@ -3793,10 +3760,7 @@ async function describeWorkOrders(db: Executor, rows: WorkOrderRow[]) {
   if (rows.length === 0) return [];
   const taskIds = [...new Set(rows.map((r) => r.taskId).filter((t): t is string => !!t))];
   const [assets, tasks, areas, names] = await Promise.all([
-    db
-      .select()
-      .from(siteAssets)
-      .where(inArray(siteAssets.id, [...new Set(rows.map((r) => r.assetId))])),
+    maintainedAssets(db).where(inArray(assetRegister.id, [...new Set(rows.map((r) => r.assetId))])),
     taskIds.length
       ? db
           .select({ id: siteMaintenanceTasks.id, title: siteMaintenanceTasks.title })

@@ -200,12 +200,25 @@ describe("site programme tools", () => {
         areaId: fake.siteModule.areas[0]!.id,
       });
 
-      const asset = await call("save_site_register_entry", {
+      // Assets are added to the register (Assets module); Site only links one to an instrument.
+      const refused = await call("save_site_register_entry", {
         workspace: "acme",
         kind: "maintenance_asset",
         entry: { code: "OV-1", name: "Oven 1", area: "dsp" },
       });
+      expect(refused.data.error.code).toBe("invalid_input");
+      const asset = await call("save_asset", {
+        workspace: "acme",
+        asset: { kind: "equipment", code: "OV-1", name: "Oven 1", area: "dsp" },
+      });
       expect(asset.data).toMatchObject({ created: true, name: "Oven 1" });
+      const linked = await call("save_site_register_entry", {
+        workspace: "acme",
+        kind: "maintenance_asset",
+        id: asset.data.id,
+        entry: { calibrationInstrumentId: null },
+      });
+      expect(linked.data).toMatchObject({ created: false });
       const task = await call("save_site_register_entry", {
         workspace: "acme",
         kind: "maintenance_task",
@@ -309,10 +322,9 @@ describe("site programme tools", () => {
   describe("report_breakdown", () => {
     it("raises a breakdown on a named asset, updates it while open, and leaves completing to a person", async () => {
       const { call } = await session();
-      await call("save_site_register_entry", {
+      await call("save_asset", {
         workspace: "acme",
-        kind: "maintenance_asset",
-        entry: { code: "MX-1", name: "Mixer", area: "Packing hall" },
+        asset: { kind: "equipment", code: "MX-1", name: "Mixer", area: "Packing hall" },
       });
       const raised = await call("report_breakdown", {
         workspace: "acme",

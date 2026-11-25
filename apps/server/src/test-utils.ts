@@ -98,3 +98,39 @@ export async function signIn(ctx: TestCtx, email: string, password = DEMO_PASSWO
     .join("; ");
   return { status: res.status, cookie, body: await res.json() };
 }
+
+const HACCP_SCHEDULE_FIELDS = [
+  "cleaningFrequency",
+  "calibrationFrequency",
+  "calibrationTolerance",
+  "measurementUnit",
+];
+
+/**
+ * Adds an area or a piece of equipment to the asset register (`POST /assets`) and, when the body
+ * has any, sets its HACCP cleaning and calibration schedule (`PATCH /haccp/assets/:id`): what one
+ * `POST /haccp/assets` did before the register moved to the Assets module. Returns the HACCP view
+ * (or the asset, without a schedule). Throws on any refusal.
+ */
+export async function addHaccpAsset(
+  send: (method: string, path: string, json?: unknown) => Promise<Res>,
+  body: Record<string, unknown>,
+): Promise<any> {
+  const asset: Record<string, unknown> = {};
+  const schedule: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (HACCP_SCHEDULE_FIELDS.includes(key)) schedule[key] = value;
+    else asset[key] = value;
+  }
+  const created = await send("POST", "/assets", asset);
+  const createdBody = await created.json();
+  if (created.status !== 201)
+    throw new Error(`POST /assets: ${created.status} ${JSON.stringify(createdBody)}`);
+  if (Object.keys(schedule).length === 0) return createdBody;
+  const scheduled = await send("PATCH", `/haccp/assets/${createdBody.id}`, schedule);
+  const scheduledBody = await scheduled.json();
+  if (scheduled.status !== 200) {
+    throw new Error(`PATCH /haccp/assets: ${scheduled.status} ${JSON.stringify(scheduledBody)}`);
+  }
+  return scheduledBody;
+}

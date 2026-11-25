@@ -15,7 +15,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { users } from "../schema";
 import { pk, ts, workspaceRef } from "./helpers";
-import { siteAssets } from "./site";
+import { assets } from "./assets";
 export const hseRecords = pgTable(
   "hse_records",
   {
@@ -108,7 +108,7 @@ export const hsePermits = pgTable(
       .default("draft"),
     assetId: uuid("asset_id")
       .notNull()
-      .references(() => siteAssets.id),
+      .references(() => assets.id),
     isolationRequired: boolean("isolation_required").notNull(),
     body: jsonb("body").$type<HsePermitBody>().notNull(),
     evidenceSnapshot: jsonb("evidence_snapshot").$type<Record<string, unknown>>(),

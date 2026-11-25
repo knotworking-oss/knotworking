@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  assetKinds,
   salesStatuses,
   complaintStatuses,
   correctiveActionStatuses,
@@ -221,6 +222,7 @@ import {
 import { HaccpBatchPanel } from "@/components/haccp-batch-panel";
 import { AssistantMessageView } from "@/components/assistant-message";
 import { CcpCheckDialog, CheckSheetDialog, CorrectReadingDialog } from "@/components/haccp-forms";
+import { AssetDialog, AssetKindBadge } from "@/components/asset-dialog";
 import { HaccpNav } from "@/components/haccp-nav";
 import { ProcessFlow } from "@/components/process-flow";
 import {
@@ -1064,6 +1066,24 @@ export function Showcase() {
                     },
                   ]}
                 />
+              </div>
+            </Demo>
+          </Section>
+
+          <Section
+            id="assets"
+            title="Assets"
+            description="The asset register: the kind of each asset (with Archived when it is), and the dialog that adds or edits one. HACCP and Site reuse the dialog (HACCP limits it to areas and equipment and adds its schedule; Site to assets that are maintained). Nothing is sent from here."
+          >
+            <Demo>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap gap-2">
+                  {assetKinds.map((kind) => (
+                    <AssetKindBadge key={kind} kind={kind} />
+                  ))}
+                  <AssetKindBadge kind="vehicle" status="archived" />
+                </div>
+                <AssetDialogDemo />
               </div>
             </Demo>
           </Section>
@@ -2340,6 +2360,32 @@ const demoLabel: LabelPreviewContent = {
 
 /** Used when naming labels, teams and projects (settings → Labels, Teams). */
 /** The CCP check and correction dialogs, with the API call replaced: nothing is recorded. */
+function AssetDialogDemo() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outline" onClick={() => setOpen(true)}>
+        Add an asset
+      </Button>
+      {open && (
+        <AssetDialog
+          slug="acme"
+          areas={[
+            { id: "area-packing", name: "Packing hall", code: "PK" },
+            { id: "area-dispatch", name: "Dispatch", code: null },
+          ]}
+          members={[{ id: "member-marcus", name: "Marcus Chen" }]}
+          defaultKind="equipment"
+          onClose={() => setOpen(false)}
+          save={async () => {
+            throw new Error("Demo only: nothing was saved");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 function HaccpFormsDemo() {
   const [open, setOpen] = useState<"range" | "pass_fail" | "correct" | "sheet" | null>(null);
   const demo = async () => "Demo only: nothing was recorded";

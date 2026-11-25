@@ -149,9 +149,12 @@ describe("haccp module", () => {
   afterAll(() => ctx.handle.close());
 
   describe("access", () => {
-    it("is opt-in; items and production only enhance it", async () => {
+    it("is opt-in and needs the asset register; items and production only enhance it", async () => {
       expect((await as(marcus.cookie).get("/haccp/plans")).status).toBe(403);
       await grant("haccp", "write");
+      // HACCP's areas and equipment are assets of the register: without it HACCP is closed too.
+      expect((await as(marcus.cookie).get("/haccp/plans")).status).toBe(403);
+      await grant("assets", "write");
       expect((await as(marcus.cookie).get("/haccp/plans")).status).toBe(200);
       for (const id of DEPENDENCIES) await grant(id, "read");
       expect((await as(marcus.cookie).get("/haccp/plans")).status).toBe(200);
@@ -164,7 +167,7 @@ describe("haccp module", () => {
       expect(res.status).toBe(404);
       expect((await res.json()).error.code).toBe("module_inactive");
       await off.handle.close();
-      expect(parseActiveModules("haccp")).toEqual(["haccp"]);
+      expect(parseActiveModules("assets,haccp")).toEqual(["assets", "haccp"]);
     }, 60_000);
   });
 
@@ -603,36 +606,37 @@ describe("haccp module", () => {
     let line: string;
     let probe: string;
 
-    it("keeps a minimal register of areas and equipment", async () => {
-      line = (
+    it("schedules areas and equipment of the asset register", async () => {
+      const asset = async (body: object) =>
+        (await ok(await as(marcus.cookie).send("POST", "/assets", body), 201)).id as string;
+      line = await asset({ kind: "area", code: "L1", name: "Line 1" });
+      expect(
         await ok(
-          await as(marcus.cookie).send("POST", "/haccp/assets", {
-            kind: "area",
-            code: "L1",
-            name: "Line 1",
+          await as(marcus.cookie).send("PATCH", `/haccp/assets/${line}`, {
             cleaningFrequency: { every: 1, unit: "day" },
           }),
-          201,
-        )
-      ).id;
-      const created = await ok(
-        await as(marcus.cookie).send("POST", "/haccp/assets", {
-          kind: "equipment",
-          code: "PRB-01",
-          name: "Probe thermometer 1",
+        ),
+      ).toMatchObject({ id: line, kind: "area", code: "L1", cleaningFrequencyText: "Daily" });
+      probe = await asset({ kind: "equipment", code: "PRB-01", name: "Probe thermometer 1" });
+      const scheduled = await ok(
+        await as(marcus.cookie).send("PATCH", `/haccp/assets/${probe}`, {
           calibrationFrequency: { every: 1, unit: "month" },
           calibrationTolerance: 0.5,
           measurementUnit: "°C",
         }),
-        201,
       );
-      probe = created.id;
-      expect(created).toMatchObject({ calibrationFrequencyText: "Monthly", cleaningFrequency: null });
+      expect(scheduled).toMatchObject({ calibrationFrequencyText: "Monthly", cleaningFrequency: null });
+      // A van of the register is not in HACCP's schedule.
+      const van = await asset({ kind: "vehicle", name: "Van" });
       expect(
-        await error(
-          await as(ada).send("POST", "/haccp/assets", { kind: "area", name: "x", code: "l1" }),
-          409,
-        ),
+        await error(await as(ada).send("PATCH", `/haccp/assets/${van}`, { cleaningFrequency: null }), 404),
+      ).toBe("not_found");
+      const listed = await ok(await as(ada).get("/haccp/assets"));
+      expect(listed.assets.map((a: { id: string }) => a.id)).toEqual(expect.arrayContaining([line, probe]));
+      expect(listed.assets.map((a: { id: string }) => a.id)).not.toContain(van);
+      // Codes are the register's: unique across every kind.
+      expect(
+        await error(await as(ada).send("POST", "/assets", { kind: "area", name: "x", code: "l1" }), 409),
       ).toBe("code_taken");
       expect(
         await error(
@@ -642,6 +646,8 @@ describe("haccp module", () => {
           400,
         ),
       ).toBe("invalid_input");
+      // Creating an asset is the register's: there is no HACCP route for it any more.
+      expect((await as(ada).send("POST", "/haccp/assets", { kind: "area", name: "y" })).status).toBe(404);
     });
 
     it("shows what's due, and clears it when done", async () => {

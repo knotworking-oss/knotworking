@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { workspaceMembers, workspaces } from "@knotworking/db";
 import { and, eq } from "drizzle-orm";
 import { withTimeZoneScope, workspaceTimeZone, workspaceToday } from "./services/time-zone";
-import { makeApp, signIn, type TestCtx } from "./test-utils";
+import { addHaccpAsset, makeApp, signIn, type TestCtx } from "./test-utils";
 
 const WS = "/v1/workspaces/acme";
 
@@ -262,17 +262,14 @@ describe("workspace time zone", () => {
     });
 
     it("dates a calibration on the workspace's calendar, so its next due date moves with the zone", async () => {
-      const probe = await ok(
-        await as(ada).send("POST", "/haccp/assets", {
-          kind: "equipment",
-          code: "TZ-PRB",
-          name: "Probe for the time zone test",
-          calibrationFrequency: { every: 1, unit: "month" },
-          calibrationTolerance: 0.5,
-          measurementUnit: "°C",
-        }),
-        201,
-      );
+      const probe = await addHaccpAsset(as(ada).send, {
+        kind: "equipment",
+        code: "TZ-PRB",
+        name: "Probe for the time zone test",
+        calibrationFrequency: { every: 1, unit: "month" },
+        calibrationTolerance: 0.5,
+        measurementUnit: "°C",
+      });
       const calibrate = async () =>
         (
           await ok(

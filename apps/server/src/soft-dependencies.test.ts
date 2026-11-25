@@ -4,7 +4,8 @@ import { makeApp, signIn, type Res, type TestCtx } from "./test-utils";
 
 /**
  * Soft dependencies (`enhancedBy`): HACCP works without Items, Recipes, Stock and Production;
- * Production without Demand; Quality without Items and Stock. What needs the enhancing module is
+ * Production without Demand; Quality without Items and Stock; Site and HSE permits with the asset
+ * register but without HACCP. What needs the enhancing module is
  * refused (`404 module_inactive` when it is off, `403 module_forbidden` when the caller can't read
  * it) or left out of the response; everything else works.
  */
@@ -62,7 +63,10 @@ describe("soft dependencies: the enhancing modules switched off", () => {
     ctx.req(`${WS}${path}`, { method, cookie, json });
 
   beforeAll(async () => {
-    ctx = await makeApp({ seed: true, activeModules: ["tasks", "docs", "haccp", "quality"] });
+    ctx = await makeApp({
+      seed: true,
+      activeModules: ["tasks", "docs", "assets", "haccp", "quality"],
+    });
     cookie = (await signIn(ctx, "ada@knotworking.dev")).cookie;
   }, 60_000);
   afterAll(() => ctx?.handle.close());
@@ -70,7 +74,7 @@ describe("soft dependencies: the enhancing modules switched off", () => {
   it("lists the modules with what enhances them", async () => {
     const { modules: listed } = await ok(await get("/modules"));
     const haccp = listed.find((m: { id: string }) => m.id === "haccp");
-    expect(haccp).toMatchObject({ dependsOn: [], enhancedBy: modules.haccp.enhancedBy });
+    expect(haccp).toMatchObject({ dependsOn: ["assets"], enhancedBy: modules.haccp.enhancedBy });
     expect(listed.find((m: { id: string }) => m.id === "quality").dependsOn).toEqual([]);
     expect(listed.map((m: { id: string }) => m.id)).not.toContain("items");
   });
@@ -214,6 +218,66 @@ describe("soft dependencies: production without demand", () => {
   });
 });
 
+describe("soft dependencies: site with the asset register but without HACCP", () => {
+  let ctx: TestCtx;
+  let cookie: string;
+  const get = (path: string) => ctx.req(`${WS}${path}`, { cookie });
+  const send = (method: string, path: string, json?: unknown) =>
+    ctx.req(`${WS}${path}`, { method, cookie, json });
+
+  beforeAll(async () => {
+    ctx = await makeApp({ seed: true, activeModules: ["tasks", "docs", "assets", "site"] });
+    cookie = (await signIn(ctx, "ada@knotworking.dev")).cookie;
+  }, 60_000);
+  afterAll(() => ctx?.handle.close());
+
+  it("keeps areas, registers and planned maintenance on assets, and leaves calibration out", async () => {
+    const { modules: listed } = await ok(await get("/modules"));
+    expect(listed.find((m: { id: string }) => m.id === "site")).toMatchObject({
+      dependsOn: ["assets"],
+      enhancedBy: expect.arrayContaining(["haccp"]),
+    });
+    const area = await ok(await send("POST", "/assets", { kind: "area", code: "KIT", name: "Kitchen" }), 201);
+    const oven = await ok(
+      await send("POST", "/assets", { kind: "equipment", name: "Oven", parentAreaId: area.id }),
+      201,
+    );
+    expect((await ok(await get("/site/areas"))).areas.map((a: { id: string }) => a.id)).toEqual([area.id]);
+    await ok(
+      await send("POST", "/site/glass/items", {
+        areaId: area.id,
+        kind: "glass",
+        description: "Window",
+        checkFrequency: { every: 1, unit: "month" },
+      }),
+      201,
+    );
+    const task = await ok(
+      await send("POST", "/site/maintenance/tasks", {
+        assetId: oven.id,
+        title: "Clean the fan",
+        frequency: { every: 1, unit: "month" },
+        clearanceRequired: true,
+      }),
+      201,
+    );
+    expect(task.asset).toMatchObject({ id: oven.id, area: { id: area.id } });
+    const { assets } = await ok(await get("/site/maintenance/assets"));
+    expect(assets.find((a: { id: string }) => a.id === oven.id)).toMatchObject({
+      areaId: area.id,
+      calibrationInstrument: null,
+    });
+    await refused(await get("/site/calibration-instruments"), 404, "module_inactive");
+    await refused(
+      await send("PATCH", `/site/maintenance/assets/${oven.id}`, { calibrationInstrumentId: null }),
+      404,
+      "module_inactive",
+    );
+    await refused(await get("/haccp/assets"), 404, "module_inactive");
+    await ok(await get("/site/due"));
+  });
+});
+
 describe("soft dependencies: active but not readable", () => {
   let ctx: TestCtx;
   let ada: string;
@@ -232,6 +296,7 @@ describe("soft dependencies: active but not readable", () => {
     for (const [module, level] of [
       ["quality", "write"],
       ["haccp", "write"],
+      ["assets", "read"],
       ["items", "none"],
       ["stock", "none"],
       ["production", "none"],

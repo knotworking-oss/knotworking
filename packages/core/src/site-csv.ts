@@ -13,7 +13,7 @@ import {
  * CSV import of the glass and brittle plastics register: one row per item. An item is identified
  * by its area and description (compared without case), so importing the same file again changes
  * nothing, and a changed quantity, location, kind or frequency updates the item. Areas are rows
- * of the HACCP register, named by code or by name. Shared by the API, the web app and agents.
+ * of the asset register, named by code or by name. Shared by the API, the web app and agents.
  */
 
 export const glassCsvColumns = [

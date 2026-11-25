@@ -37,7 +37,6 @@ import {
   siteActionCreateSchema,
   siteActionListQuerySchema,
   siteActionUpdateSchema,
-  siteAssetCreateSchema,
   siteAssetListQuerySchema,
   siteAssetUpdateSchema,
   siteDueQuerySchema,
@@ -61,7 +60,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
 import { forbidTokens } from "../middleware/auth";
-import { requireModuleLevel } from "../middleware/modules";
+import { canRead, requireModuleLevel } from "../middleware/modules";
 import * as site from "../services/site";
 import { importGlassCsv } from "../services/site-import";
 import { validate } from "../validate";
@@ -90,13 +89,14 @@ const sourceOf = (c: Context<WorkspaceEnv>): SiteSource =>
  * Records are append-only: no route deletes one.
  */
 export const siteRoutes = new Hono<WorkspaceEnv>()
-  // ── Areas (the HACCP register) and what's due ──
+  // ── Areas (the asset register) and what's due ──
   .get("/site/areas", async (c) => c.json(await site.listAreas(c.var.db, c.var.workspace.id)))
   .get("/site/due", validate("query", siteDueQuerySchema), async (c) =>
     c.json(await site.getSiteDue(c.var.db, c.var.workspace.id, c.req.valid("query"))),
   )
   // Equipment of the HACCP calibration register a maintained asset can be linked to (read-only).
-  .get("/site/calibration-instruments", async (c) =>
+  // HACCP is a soft dependency: inactive is 404 `module_inactive`, unreadable 403 `module_forbidden`.
+  .get("/site/calibration-instruments", requireModuleLevel("haccp", "read"), async (c) =>
     c.json(await site.listCalibrationInstruments(c.var.db, c.var.workspace.id)),
   )
 
@@ -269,13 +269,17 @@ export const siteRoutes = new Hono<WorkspaceEnv>()
 
   // ── Planned maintenance ──
   .get("/site/maintenance/assets", validate("query", siteAssetListQuerySchema), async (c) =>
-    c.json(await site.listSiteAssets(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+    c.json(
+      await site.listSiteAssets(c.var.db, c.var.workspace.id, c.req.valid("query"), {
+        withCalibration: canRead(c, "haccp"),
+      }),
+    ),
   )
-  .post("/site/maintenance/assets", validate("json", siteAssetCreateSchema), async (c) =>
-    c.json(await site.createSiteAsset(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
-  )
+  // Assets themselves are added and changed in the asset register (`/assets`); Site only links a
+  // maintained asset to its HACCP calibration instrument, which needs HACCP.
   .patch(
     "/site/maintenance/assets/:id",
+    requireModuleLevel("haccp", "read"),
     validate("param", idParam),
     validate("json", siteAssetUpdateSchema),
     async (c) =>

@@ -102,6 +102,8 @@ export const syncEntityTypes = [
   "production_packing_check",
   "production_device",
   "production_device_reading",
+  // Assets module: the shared register (metadata only).
+  "asset",
   // Food safety records (HACCP) module.
   "haccp_plan",
   "haccp_plan_version",

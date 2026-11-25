@@ -1,6 +1,6 @@
 import { addDays, DEFAULT_TIME_ZONE, todayInZone } from "@knotworking/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { makeApp, signIn, type TestCtx } from "./test-utils";
+import { addHaccpAsset, makeApp, signIn, type TestCtx } from "./test-utils";
 
 const WS = "/v1/workspaces/acme";
 const DAY = 86_400_000;
@@ -8,7 +8,8 @@ const today = todayInZone(DEFAULT_TIME_ZONE);
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY).toISOString();
 const dateAgo = (n: number) => daysAgo(n).slice(0, 10);
 const dateAhead = (n: number) => addDays(todayInZone(DEFAULT_TIME_ZONE), n);
-const DEPENDENCIES = ["items", "recipes", "stock", "demand", "production", "haccp"] as const;
+// Site needs only the asset register; HACCP (calibration instruments) is a soft dependency.
+const DEPENDENCIES = ["assets"] as const;
 
 describe("site programmes module", () => {
   let ctx: TestCtx;
@@ -66,7 +67,7 @@ describe("site programmes module", () => {
     ).token as string;
 
     const area = async (name: string) =>
-      (await ok(await as(ada).send("POST", "/haccp/assets", { kind: "area", name }), 201)).id as string;
+      (await addHaccpAsset(as(ada).send, { kind: "area", name })).id as string;
     packing = await area("Packing hall");
     dispatch = await area("Dispatch");
 
@@ -112,7 +113,7 @@ describe("site programmes module", () => {
   });
 
   describe("access", () => {
-    it("is opt-in and needs haccp (so items and production) to be readable", async () => {
+    it("is opt-in and needs the asset register to be readable, not haccp", async () => {
       expect((await as(marcus.cookie).get("/site/due")).status).toBe(403);
       await grant("site", "write");
       expect((await as(marcus.cookie).get("/site/due")).status).toBe(403);
@@ -120,7 +121,7 @@ describe("site programmes module", () => {
       expect((await as(marcus.cookie).get("/site/due")).status).toBe(200);
     });
 
-    it("lists the areas of the HACCP register", async () => {
+    it("lists the areas of the asset register", async () => {
       const { areas } = await ok(await as(marcus.cookie).get("/site/areas"));
       expect(areas.map((a: { name: string }) => a.name)).toEqual(["Dispatch", "Packing hall"]);
     });
@@ -484,7 +485,7 @@ describe("site programmes module", () => {
     it("keeps assets and tasks; a hygiene clearance needs the asset's area", async () => {
       const noArea = (
         await ok(
-          await viaToken(agentToken, "POST", "/site/maintenance/assets", { code: "MX-1", name: "Mixer" }),
+          await viaToken(agentToken, "POST", "/assets", { kind: "equipment", code: "MX-1", name: "Mixer" }),
           201,
         )
       ).id;
@@ -501,17 +502,18 @@ describe("site programmes module", () => {
       ).toBe("invalid_input");
       oven = (
         await ok(
-          await as(ada).send("POST", "/site/maintenance/assets", {
+          await as(ada).send("POST", "/assets", {
+            kind: "equipment",
             code: "OV-1",
             name: "Oven 1",
-            areaId: packing,
+            parentAreaId: packing,
           }),
           201,
         )
       ).id;
       expect(
         await error(
-          await as(ada).send("POST", "/site/maintenance/assets", { code: "ov-1", name: "Oven 2" }),
+          await as(ada).send("POST", "/assets", { kind: "equipment", code: "ov-1", name: "Oven 2" }),
           409,
         ),
       ).toBe("code_taken");
@@ -694,7 +696,7 @@ describe("site programmes module", () => {
     it("corrects a record on equipment retired since", async () => {
       const mixer = (
         await ok(
-          await as(ada).send("POST", "/site/maintenance/assets", { code: "MX-9", name: "Old mixer" }),
+          await as(ada).send("POST", "/assets", { kind: "equipment", code: "MX-9", name: "Old mixer" }),
           201,
         )
       ).id;
@@ -715,7 +717,7 @@ describe("site programmes module", () => {
         }),
         201,
       );
-      await ok(await as(ada).send("PATCH", `/site/maintenance/assets/${mixer}`, { status: "archived" }));
+      await ok(await as(ada).send("POST", `/assets/${mixer}/archive`, {}));
       expect(
         await error(
           await as(marcus.cookie).send("POST", "/site/maintenance/records", { taskId: service }),

@@ -1,5 +1,6 @@
 import { ApiError, createApiClient, unwrap } from "@knotworking/api-client";
 import {
+  type AssetKind,
   hasModuleLevel,
   type AllergenCode,
   type ClauseAssessmentStatus,
@@ -909,7 +910,24 @@ export const getCorrectiveActions = (slug: string, status: "open" | "closed" | "
     unwrap(ws(api).haccp["corrective-actions"].$get({ param: { slug }, query: { status, limit: "100" } })),
   );
 
-/** Areas and equipment on the cleaning and calibration schedule. */
+/** Assets module: one page of the asset register (see `assetListQuerySchema`). */
+export const getAssets = (
+  slug: string,
+  query: {
+    q?: string;
+    kind?: AssetKind;
+    areaId?: string;
+    status?: "active" | "archived" | "all";
+    limit?: string;
+    offset?: string;
+  } = {},
+) => load((api) => unwrap(ws(api).assets.$get({ param: { slug }, query })));
+
+/** One asset of the register, with its area and how many assets are in it. */
+export const getAsset = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).assets[":id"].$get({ param: { slug, id } })));
+
+/** Areas and equipment of the asset register with their cleaning and calibration schedules. */
 export const getHaccpAssets = (slug: string) =>
   load((api) => unwrap(ws(api).haccp.assets.$get({ param: { slug }, query: { status: "all" } })));
 
@@ -928,7 +946,7 @@ export const getSiteDue = cache((slug: string, include: "due" | "all" = "all") =
   load((api) => unwrap(ws(api).site.due.$get({ param: { slug }, query: { include } }))),
 );
 
-/** Areas of the food safety register (where devices, items, assets, units and checklists are). */
+/** Areas of the asset register (where devices, items, assets, units and checklists are). */
 export const getSiteAreas = (slug: string) =>
   load((api) => unwrap(ws(api).site.areas.$get({ param: { slug } })));
 
@@ -1304,6 +1322,8 @@ export type HaccpDue = Awaited<ReturnType<typeof getHaccpDue>>;
 export type HaccpDueCheck = HaccpDue["checks"][number];
 export type HaccpLog = Awaited<ReturnType<typeof getHaccpLogs>>["logs"][number];
 export type CorrectiveAction = Awaited<ReturnType<typeof getCorrectiveActions>>["correctiveActions"][number];
+export type Asset = Awaited<ReturnType<typeof getAssets>>["assets"][number];
+export type AssetDetail = Awaited<ReturnType<typeof getAsset>>;
 export type HaccpAsset = Awaited<ReturnType<typeof getHaccpAssets>>["assets"][number];
 export type CleaningRecord = Awaited<ReturnType<typeof getCleaningRecords>>["records"][number];
 export type CalibrationRecord = Awaited<ReturnType<typeof getCalibrationRecords>>["records"][number];

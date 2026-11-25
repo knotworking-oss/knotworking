@@ -1172,51 +1172,24 @@ export const correctiveActionListQuerySchema = z.object({
 });
 export type CorrectiveActionListQuery = z.infer<typeof correctiveActionListQuerySchema>;
 
-const assetFields = {
-  kind: z.enum(haccpAssetKinds),
-  /** Short reference, e.g. `PRB-01`; unique among live assets when set. */
-  code: optionalText(40),
-  name: requiredText(200),
-  location: optionalText(200),
-  cleaningFrequency: scheduleFrequencySchema.nullable(),
-  /** Equipment only. */
-  calibrationFrequency: scheduleFrequencySchema.nullable(),
-  /** How far a calibration reading may be from the reference and still pass (e.g. 0.5). */
-  calibrationTolerance: measurement.min(0).nullable(),
-  /** The unit calibration readings are in, e.g. `°C`, `g`. */
-  measurementUnit: optionalText(20),
-};
-const calibrationOnEquipment = (v: { kind?: HaccpAssetKind | undefined; calibrationFrequency?: unknown }) =>
-  v.kind !== "area" || !v.calibrationFrequency;
-
-/** An area or a piece of equipment in the cleaning and calibration schedule. */
-export const haccpAssetCreateSchema = z
+/**
+ * An asset's place in the cleaning and calibration schedule. The asset itself (kind, code, name,
+ * location, status) is kept in the asset register (`assets` module); this is HACCP's part of it.
+ * `null` takes the asset out of that schedule. Only equipment is calibrated (checked against the
+ * asset's kind by the server).
+ */
+export const haccpAssetScheduleSchema = z
   .object({
-    id: z.uuid().optional(),
-    kind: assetFields.kind,
-    code: assetFields.code.optional(),
-    name: assetFields.name,
-    location: assetFields.location.optional(),
-    cleaningFrequency: assetFields.cleaningFrequency.optional(),
-    calibrationFrequency: assetFields.calibrationFrequency.optional(),
-    calibrationTolerance: assetFields.calibrationTolerance.optional(),
-    measurementUnit: assetFields.measurementUnit.optional(),
+    cleaningFrequency: scheduleFrequencySchema.nullable(),
+    calibrationFrequency: scheduleFrequencySchema.nullable(),
+    /** How far a calibration reading may be from the reference and still pass (e.g. 0.5). */
+    calibrationTolerance: measurement.min(0).nullable(),
+    /** The unit calibration readings are in, e.g. `°C`, `g`. */
+    measurementUnit: optionalText(20),
   })
-  .refine(calibrationOnEquipment, {
-    path: ["calibrationFrequency"],
-    message: "Only equipment is calibrated",
-  });
-export type HaccpAssetCreateInput = z.infer<typeof haccpAssetCreateSchema>;
-
-export const haccpAssetUpdateSchema = z
-  .object({ ...assetFields, status: z.enum(haccpAssetStatuses) })
   .partial()
-  .refine((patch) => Object.keys(patch).length > 0, "Nothing to update")
-  .refine(calibrationOnEquipment, {
-    path: ["calibrationFrequency"],
-    message: "Only equipment is calibrated",
-  });
-export type HaccpAssetUpdateInput = z.infer<typeof haccpAssetUpdateSchema>;
+  .refine((patch) => Object.values(patch).some((v) => v !== undefined), "Nothing to update");
+export type HaccpAssetScheduleInput = z.infer<typeof haccpAssetScheduleSchema>;
 
 export const haccpAssetListQuerySchema = z.object({
   kind: z.enum(haccpAssetKinds).optional(),

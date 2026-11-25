@@ -13,7 +13,6 @@ import {
   workOrderPriorities,
   pestDeviceCreateSchema,
   pestDeviceUpdateSchema,
-  siteAssetCreateSchema,
   siteAssetUpdateSchema,
   siteProgrammes,
   storageUnitCreateSchema,
@@ -84,7 +83,7 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
     if (match.length === 1) return match[0]!.id;
     throw new ToolError(
       "not_found",
-      `No area is called "${wanted}". Use list_site_registers with kind areas to see them; areas are kept in the food safety register.`,
+      `No area is called "${wanted}". Use list_site_registers with kind areas to see them; areas are kept in the asset register (save_asset with kind area).`,
     );
   }
 
@@ -182,7 +181,7 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
       resource: { name: "site_registers", op: "list" },
       title: "List site registers",
       description:
-        "The registers behind the site programmes. `kind`: `areas` (from the food safety register; where things are), `pest_devices` (bait stations, traps and fly killers with the last activity found), `glass_items` (the glass and brittle plastics register by area, with the last condition check and when the next is due), `maintenance_assets` (equipment, with the HACCP calibration instrument it is, if linked, and where that stands), `maintenance_tasks` (what is done to each asset, how often, what is due and whether work needs a hygiene clearance), `storage_units` (chillers, freezers and ambient stores with what they measure (temperature, humidity, pressure or another measure), limits and unit, the last reading and what is due) or `checklists` (pre-start and allergen changeover checklists with their items). Archived entries are left out unless `include_archived` is true.",
+        "The registers behind the site programmes. `kind`: `areas` (from the asset register; where things are), `pest_devices` (bait stations, traps and fly killers with the last activity found), `glass_items` (the glass and brittle plastics register by area, with the last condition check and when the next is due), `maintenance_assets` (assets of the register that can be maintained, with the HACCP calibration instrument each is, if linked and HACCP is readable, and where that stands), `maintenance_tasks` (what is done to each asset, how often, what is due and whether work needs a hygiene clearance), `storage_units` (chillers, freezers and ambient stores with what they measure (temperature, humidity, pressure or another measure), limits and unit, the last reading and what is due) or `checklists` (pre-start and allergen changeover checklists with their items). Archived entries are left out unless `include_archived` is true.",
       annotations: READ,
       input: {
         workspace: workspaceParam,
@@ -771,7 +770,7 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
     glass_item:
       "area, kind (glass, brittle_plastic, ceramic, other), description, quantity, location, checkFrequency {every, unit: hour|day|week|month} (default monthly); update also status active|removed",
     maintenance_asset:
-      "code, name, location, area, calibrationInstrumentId (the HACCP calibration register equipment this asset is; a reference, read-only there)",
+      "update only (`id` of an asset of the register): calibrationInstrumentId (the HACCP calibration register equipment this asset is, or null; a reference, read-only there; needs HACCP). The asset itself is added and changed with save_asset",
     maintenance_task:
       "asset (id, code or name), title, description, frequency {every, unit}, startOn (first due date), clearanceRequired (work in a production area needs a person's hygiene clearance; the asset needs an area)",
     storage_unit:
@@ -788,7 +787,7 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
       description:
         "Create (or, with `id`, update) an entry in one of the site registers. `kind` and the fields of `entry`: " +
         entryKinds.map((k) => `${k}: ${entryDocs[k]}`).join(". ") +
-        ". Name an area by `area` (its name, code or id); areas themselves are kept in the food safety register. To archive an entry on update send `status: archived` (glass items: `removed`). Codes must be unique. Entries are validated exactly like in the app. Check with list_site_registers first so you don't create a duplicate.",
+        ". Name an area by `area` (its name, code or id); areas and maintained equipment themselves are kept in the asset register (save_asset). To archive an entry on update send `status: archived` (glass items: `removed`). Codes must be unique. Entries are validated exactly like in the app. Check with list_site_registers first so you don't create a duplicate.",
       annotations: UPDATE,
       input: {
         workspace: workspaceParam,
@@ -801,6 +800,12 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
     },
     async ({ workspace, kind, id, entry }, api) => {
       const slug = await slugOf(api, workspace);
+      if (kind === "maintenance_asset" && !id) {
+        throw new ToolError(
+          "invalid_input",
+          "Assets are added to the asset register with save_asset; here you only link one (by `id`) to its HACCP calibration instrument.",
+        );
+      }
       const body: Record<string, unknown> = { ...entry };
       if (typeof body.area === "string") {
         body.areaId = await resolveArea(api, slug, body.area);
@@ -813,7 +818,7 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
       const schemas = {
         pest_device: [pestDeviceCreateSchema, pestDeviceUpdateSchema],
         glass_item: [glassItemCreateSchema, glassItemUpdateSchema],
-        maintenance_asset: [siteAssetCreateSchema, siteAssetUpdateSchema],
+        maintenance_asset: [siteAssetUpdateSchema, siteAssetUpdateSchema],
         maintenance_task: [maintenanceTaskCreateSchema, maintenanceTaskUpdateSchema],
         storage_unit: [storageUnitCreateSchema, storageUnitUpdateSchema],
         checklist: [checklistTemplateCreateSchema, checklistTemplateUpdateSchema],
@@ -838,9 +843,9 @@ export function registerSiteTools({ define, slugOf, workspaceParam }: ToolContex
               ? api.call(ws(api).site.glass.items[":id"].$patch({ param: { slug, id }, json }))
               : api.call(ws(api).site.glass.items.$post({ param, json }));
           case "maintenance_asset":
-            return id
-              ? api.call(ws(api).site.maintenance.assets[":id"].$patch({ param: { slug, id }, json }))
-              : api.call(ws(api).site.maintenance.assets.$post({ param, json }));
+            return api.call(
+              ws(api).site.maintenance.assets[":id"].$patch({ param: { slug, id: id! }, json }),
+            );
           case "maintenance_task":
             return id
               ? api.call(ws(api).site.maintenance.tasks[":id"].$patch({ param: { slug, id }, json }))

@@ -12,7 +12,8 @@ export default async function Layout({
   await requireModule(slug, "hse");
   const [restricted, permits] = await Promise.all([
     canReadModule(slug, "hse_incidents"),
-    canReadModule(slug, "site"),
+    // Permits are raised against assets of the register.
+    canReadModule(slug, "assets"),
   ]);
   return (
     <div className="print-scroll flex min-h-0 flex-1 flex-col">

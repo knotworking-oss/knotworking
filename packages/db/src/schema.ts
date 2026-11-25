@@ -524,6 +524,7 @@ export * from "./schema/tasks";
 export * from "./schema/docs";
 export * from "./schema/time";
 export * from "./schema/calendar";
+export * from "./schema/assets";
 export * from "./schema/items";
 export * from "./schema/recipes";
 export * from "./schema/sops";

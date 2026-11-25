@@ -149,6 +149,8 @@ const READ_TOOLS = [
   "get_purchase_request",
   "list_service_quotes",
   "get_service_quote",
+  "list_assets",
+  "get_asset",
   "suggest_purchase_orders",
   "supplier_performance",
   "list_supplier_prices",
@@ -201,6 +203,7 @@ const GATED_TOOLS = [
   "cancel_production_batch",
 ];
 const WRITE_TOOLS = [
+  "save_asset",
   "draft_hse_register",
   "draft_hse_permit",
   "report_hse_near_miss",

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/site-header";
 import {
+  canReadModule,
   getCalibrationInstruments,
+  getMembers,
   getMaintenanceAssets,
   getMaintenanceRecords,
   getMaintenanceTasks,
@@ -14,14 +16,18 @@ export const metadata: Metadata = { title: "Planned maintenance" };
 
 export default async function MaintenancePage({ params }: { params: Promise<{ workspace: string }> }) {
   const { workspace: slug } = await params;
-  const [{ assets }, { tasks }, { records }, { areas }, { workOrders }, { instruments }] = await Promise.all([
-    getMaintenanceAssets(slug),
-    getMaintenanceTasks(slug),
-    getMaintenanceRecords(slug),
-    getSiteAreas(slug),
-    getWorkOrders(slug),
-    getCalibrationInstruments(slug),
-  ]);
+  // Calibration instruments are HACCP's records: shown only when the viewer can read HACCP.
+  const calibration = await canReadModule(slug, "haccp");
+  const [{ assets }, { tasks }, { records }, { areas }, { workOrders }, { instruments }, { members }] =
+    await Promise.all([
+      getMaintenanceAssets(slug),
+      getMaintenanceTasks(slug),
+      getMaintenanceRecords(slug),
+      getSiteAreas(slug),
+      getWorkOrders(slug),
+      calibration ? getCalibrationInstruments(slug) : { instruments: [] },
+      getMembers(slug),
+    ]);
   return (
     <>
       <SiteHeader slug={slug} />
@@ -34,6 +40,8 @@ export default async function MaintenancePage({ params }: { params: Promise<{ wo
           areas={areas}
           workOrders={workOrders}
           instruments={instruments}
+          calibration={calibration}
+          members={members.filter((m) => !m.deactivatedAt).map((m) => ({ id: m.userId, name: m.name }))}
         />
       </div>
     </>

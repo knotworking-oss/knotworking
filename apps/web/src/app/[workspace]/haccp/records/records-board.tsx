@@ -22,6 +22,7 @@ import {
 } from "@knotworking/ui/components/table";
 import { ToggleGroup, ToggleGroupItem } from "@knotworking/ui/components/toggle-group";
 import { Archive, ArchiveRestore, BadgeCheck, Gauge, PencilLine, Plus, SprayCan } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -80,9 +81,16 @@ export function RecordsBoard({
   const stateOf = (kind: "cleaning" | "calibration", assetId: string) =>
     checks.find((c) => c.key === `${kind}:${assetId}`);
 
+  // The areas and equipment are assets of the register: adding and archiving them is the Assets
+  // module's (archiving needs its manage level); HACCP keeps their schedules.
+  const canAddAsset = canWrite && can("assets", "write");
+  const canArchive = can("assets", "manage");
   async function setStatus(asset: HaccpAsset, status: "active" | "archived") {
     try {
-      await unwrap(haccpApi().assets[":id"].$patch({ param: { slug, id: asset.id }, json: { status } }));
+      const api = browserApi().v1.workspaces[":slug"].assets[":id"];
+      await unwrap(
+        (status === "archived" ? api.archive : api.restore).$post({ param: { slug, id: asset.id } }),
+      );
       toast.success(status === "archived" ? `${asset.name} archived` : `${asset.name} restored`);
       router.refresh();
     } catch (err) {
@@ -104,11 +112,18 @@ export function RecordsBoard({
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 className="text-xl font-semibold tracking-tight">Cleaning and calibration</h2>
-        {canWrite && (
-          <Button onClick={() => setDialog({ kind: "asset" })}>
-            <Plus data-icon="inline-start" /> Add area or equipment
-          </Button>
-        )}
+        <span className="flex flex-wrap gap-2">
+          {can("assets") && (
+            <Button variant="outline" asChild>
+              <Link href={`/${slug}/assets`}>Asset register</Link>
+            </Button>
+          )}
+          {canAddAsset && (
+            <Button onClick={() => setDialog({ kind: "asset" })}>
+              <Plus data-icon="inline-start" /> Add area or equipment
+            </Button>
+          )}
+        </span>
       </div>
 
       <Card className="py-0">
@@ -179,14 +194,16 @@ export function RecordsBoard({
                                 <Gauge data-icon="inline-start" /> Calibrate
                               </Button>
                             )}
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              aria-label={active ? `Archive ${asset.name}` : `Restore ${asset.name}`}
-                              onClick={() => void setStatus(asset, active ? "archived" : "active")}
-                            >
-                              {active ? <Archive /> : <ArchiveRestore />}
-                            </Button>
+                            {canArchive && (
+                              <Button
+                                size="icon-sm"
+                                variant="ghost"
+                                aria-label={active ? `Archive ${asset.name}` : `Restore ${asset.name}`}
+                                onClick={() => void setStatus(asset, active ? "archived" : "active")}
+                              >
+                                {active ? <Archive /> : <ArchiveRestore />}
+                              </Button>
+                            )}
                           </span>
                         )}
                       </TableCell>
@@ -461,19 +478,27 @@ function AssetDialog({ slug, onClose }: { slug: string; onClose: () => void }) {
   return (
     <HaccpDialog
       title="Add area or equipment"
-      description="Give it a cleaning schedule, and for equipment such as probe thermometers a calibration schedule."
+      description="It goes into the asset register. Give it a cleaning schedule, and for equipment such as probe thermometers a calibration schedule."
       submitLabel="Add"
       onClose={onClose}
       onSubmit={async () => {
         const equipment = kind === "equipment";
-        await unwrap(
-          haccpApi().assets.$post({
+        // The asset goes into the register; its schedule is HACCP's part of it.
+        const asset = await unwrap(
+          browserApi().v1.workspaces[":slug"].assets.$post({
             param: { slug },
             json: {
               kind,
               name: name.trim(),
               code: code.trim() || null,
               location: location.trim() || null,
+            },
+          }),
+        );
+        await unwrap(
+          haccpApi().assets[":id"].$patch({
+            param: { slug, id: asset.id },
+            json: {
               cleaningFrequency: frequency(cleanEvery, cleanUnit),
               calibrationFrequency: equipment ? frequency(calEvery, calUnit) : null,
               calibrationTolerance: equipment && tolerance.trim() ? Number(tolerance) : null,

@@ -220,7 +220,7 @@ export function DayPlanView({
                       ))}
                     </td>
                     <td className="max-w-72 px-3 py-2">
-                      {s.changeover.allergenClean.length > 0 ? (
+                      {s.changeover.cleanDown ? (
                         <Badge className="mb-1 border-transparent bg-label-orange-bg text-label-orange">
                           Clean-down {s.changeover.minutes} min
                         </Badge>
@@ -238,12 +238,16 @@ export function DayPlanView({
                       </div>
                     </td>
                     <td className="px-3 py-2 text-xs">
-                      {s.allergens.contains.length === 0 ? (
+                      {s.allergens === null ? (
+                        <span className="text-muted-foreground" title="Needs access to Food items">
+                          Hidden
+                        </span>
+                      ) : s.allergens.contains.length === 0 ? (
                         <span className="text-muted-foreground">None</span>
                       ) : (
                         s.allergens.contains.map(allergenName).join(", ")
                       )}
-                      {s.allergens.mayContain.length > 0 && (
+                      {s.allergens !== null && s.allergens.mayContain.length > 0 && (
                         <div className="text-muted-foreground">
                           May contain {s.allergens.mayContain.map(allergenName).join(", ")}
                         </div>

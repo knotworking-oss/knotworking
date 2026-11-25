@@ -219,6 +219,15 @@ export interface DayPlanLine extends ShiftedLine {
   changeovers: readonly ChangeoverRule[];
 }
 
+/**
+ * How a plan is explained. With `redactAllergens` (the caller can't read Food items) the timing is
+ * the same, computed from the real declarations so every clean-down keeps its time, but no reason
+ * names an allergen or says a product has none.
+ */
+export interface DayPlanOptions {
+  redactAllergens?: boolean;
+}
+
 export interface DayPlanBatch {
   id: string;
   batchCode: string;
@@ -240,6 +249,8 @@ export interface PlanStep {
   changeover: {
     minutes: number;
     source: ChangeoverSource;
+    /** A clean-down comes first: the previous batch leaves an allergen this one doesn't contain. */
+    cleanDown: boolean;
     /** Allergens left by the previous batch that this one doesn't contain: a clean-down first. */
     allergenClean: AllergenCode[];
     reason: string;
@@ -302,6 +313,7 @@ function changeoverReason(
   co: ReturnType<typeof changeoverMinutes>,
   clean: AllergenCode[],
   line: DayPlanLine,
+  redact: boolean,
 ): string {
   if (!previous) return "First batch of the day: assumes the line starts clean";
   const base =
@@ -311,10 +323,13 @@ function changeoverReason(
         ? "Same recipe as the batch before: no changeover"
         : `${co.minutes} min line default changeover`;
   if (clean.length === 0) return base;
+  const minutes = Math.max(co.minutes, line.allergenCleanMinutes);
+  if (redact)
+    return `Allergen clean-down: ${previous.batchCode} leaves an allergen ${next.batchCode} doesn't contain; takes ${minutes} min, the longer of the clean-down and the changeover`;
   const covered = clean.filter((a) => next.mayContain.includes(a));
   return `Allergen clean-down: ${previous.batchCode} contains ${allergenList(clean)} and ${next.batchCode} doesn't${
     covered.length ? ` (its "may contain" label doesn't replace cleaning)` : ""
-  }; takes ${Math.max(co.minutes, line.allergenCleanMinutes)} min, the longer of the clean-down and the changeover`;
+  }; takes ${minutes} min, the longer of the clean-down and the changeover`;
 }
 
 /**
@@ -328,6 +343,7 @@ export function planLineDay(
   date: string,
   dayOff: DayOff | null,
   batches: readonly DayPlanBatch[],
+  options: DayPlanOptions = {},
 ): DayPlan {
   const windows = planWindows(line, date, dayOff);
   const timing: DayPlan["timing"] = dayOff ? "day_off" : line.shifts?.length ? "shifts" : "hours_per_day";
@@ -362,8 +378,9 @@ export function planLineDay(
       changeover: {
         minutes: coMinutes,
         source: co.source,
+        cleanDown: clean.length > 0,
         allergenClean: clean,
-        reason: changeoverReason(previous, b, co, clean, line),
+        reason: changeoverReason(previous, b, co, clean, line, !!options.redactAllergens),
       },
       changeoverStart: c.start,
       start: run.start,
@@ -414,7 +431,7 @@ export function planLineDay(
     capacityMinutes,
     runMinutes: batches.reduce((t, b) => t + (b.runMinutes ?? 0), 0),
     changeoverMinutes: steps.reduce((t, s) => t + s.changeover.minutes, 0),
-    cleanDowns: steps.filter((s) => s.changeover.allergenClean.length > 0).length,
+    cleanDowns: steps.filter((s) => s.changeover.cleanDown).length,
     endMinute,
     overrunMinutes,
     unrated,
@@ -464,6 +481,7 @@ export function proposeLineDaySequence(
   date: string,
   dayOff: DayOff | null,
   batches: readonly DayPlanBatch[],
+  options: DayPlanOptions = {},
 ): SequenceProposal {
   const fixed = batches.filter((b) => b.status !== "planned");
   const remaining = batches.filter((b) => b.status === "planned");
@@ -507,9 +525,11 @@ export function proposeLineDaySequence(
           : next.clean === pick.clean &&
             next.minutes === pick.minutes &&
             next.b.contains.length === pick.b.contains.length);
-    const allergenNote = pick.b.contains.length
-      ? `fewest allergens (${allergenList(pick.b.contains)})`
-      : "contains no allergens";
+    const allergenNote = options.redactAllergens
+      ? "fewest allergens"
+      : pick.b.contains.length
+        ? `fewest allergens (${allergenList(pick.b.contains)})`
+        : "contains no allergens";
     let reason: string;
     if (!previous) {
       reason = `Starts the day: ${allergenNote}`;
@@ -547,8 +567,8 @@ export function proposeLineDaySequence(
     endMinute: plan.endMinute,
     overrunMinutes: plan.overrunMinutes,
   });
-  const current = summary(planLineDay(line, date, dayOff, batches));
-  const proposed = summary(planLineDay(line, date, dayOff, chosen));
+  const current = summary(planLineDay(line, date, dayOff, batches, options));
+  const proposed = summary(planLineDay(line, date, dayOff, chosen, options));
   const changed = chosen.some((b, i) => b.id !== batches[i]!.id);
   return {
     order,

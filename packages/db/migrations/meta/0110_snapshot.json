@@ -43159,6 +43159,10 @@
         "crm_opportunities_closed_check": {
           "name": "crm_opportunities_closed_check",
           "value": "(\"crm_opportunities\".\"status\" = 'open') = (\"crm_opportunities\".\"closed_at\" is null)"
+        },
+        "crm_opportunities_one_quote_check": {
+          "name": "crm_opportunities_one_quote_check",
+          "value": "num_nonnulls(\"crm_opportunities\".\"sales_quote_id\", \"crm_opportunities\".\"service_quote_id\") <= 1"
         }
       },
       "isRLSEnabled": false

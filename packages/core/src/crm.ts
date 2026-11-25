@@ -137,10 +137,20 @@ const opportunityFields = z.object({
 });
 const oneParty = (v: { customerId?: string | null; leadId?: string | null }) =>
   Boolean(v.customerId) || Boolean(v.leadId);
-export const crmOpportunityCreateSchema = opportunityFields.extend(command).refine(oneParty, {
-  path: ["customerId"],
-  message: "Choose a customer or a lead",
-});
+/** One quote backs an opportunity, from Sales or Client services, so a won deal hands off once. */
+const oneQuote = (v: { salesQuoteId?: string | null; serviceQuoteId?: string | null }) =>
+  !(v.salesQuoteId && v.serviceQuoteId);
+const oneQuoteIssue = {
+  path: ["serviceQuoteId"],
+  message: "Link a Sales quote or a Client services quote, not both",
+};
+export const crmOpportunityCreateSchema = opportunityFields
+  .extend(command)
+  .refine(oneParty, {
+    path: ["customerId"],
+    message: "Choose a customer or a lead",
+  })
+  .refine(oneQuote, oneQuoteIssue);
 export const crmOpportunityUpdateSchema = z
   .object({
     ...revision,
@@ -155,7 +165,8 @@ export const crmOpportunityUpdateSchema = z
     salesQuoteId: z.uuid().nullable().optional(),
     serviceQuoteId: z.uuid().nullable().optional(),
   })
-  .refine((v) => Object.keys(v).length > 1, "Pass at least one field to change");
+  .refine((v) => Object.keys(v).length > 1, "Pass at least one field to change")
+  .refine(oneQuote, oneQuoteIssue);
 export const crmOutcomeSchema = z.object({
   ...command,
   ...revision,

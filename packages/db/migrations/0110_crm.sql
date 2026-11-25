@@ -67,7 +67,8 @@ CREATE TABLE "crm_opportunities" (
 	CONSTRAINT "crm_opportunities_status_check" CHECK ("crm_opportunities"."status" in ('open', 'won', 'lost')),
 	CONSTRAINT "crm_opportunities_party_check" CHECK ("crm_opportunities"."customer_id" is not null or "crm_opportunities"."lead_id" is not null),
 	CONSTRAINT "crm_opportunities_value_check" CHECK ("crm_opportunities"."value" is null or "crm_opportunities"."value" >= 0),
-	CONSTRAINT "crm_opportunities_closed_check" CHECK (("crm_opportunities"."status" = 'open') = ("crm_opportunities"."closed_at" is null))
+	CONSTRAINT "crm_opportunities_closed_check" CHECK (("crm_opportunities"."status" = 'open') = ("crm_opportunities"."closed_at" is null)),
+	CONSTRAINT "crm_opportunities_one_quote_check" CHECK (num_nonnulls("crm_opportunities"."sales_quote_id", "crm_opportunities"."service_quote_id") <= 1)
 );
 --> statement-breakpoint
 CREATE TABLE "crm_stages" (

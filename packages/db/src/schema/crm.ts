@@ -116,6 +116,11 @@ export const crmOpportunities = pgTable(
     check("crm_opportunities_party_check", sql`${t.customerId} is not null or ${t.leadId} is not null`),
     check("crm_opportunities_value_check", sql`${t.value} is null or ${t.value} >= 0`),
     check("crm_opportunities_closed_check", sql`(${t.status} = 'open') = (${t.closedAt} is null)`),
+    // One quote backs an opportunity, so a won deal hands off once.
+    check(
+      "crm_opportunities_one_quote_check",
+      sql`num_nonnulls(${t.salesQuoteId}, ${t.serviceQuoteId}) <= 1`,
+    ),
   ],
 );
 

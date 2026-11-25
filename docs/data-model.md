@@ -124,6 +124,7 @@ Phase 3.3.1 adds `authenticity_assessments` (item/supplier scope, active/archive
 - Project templates create ordinary project, team and task rows. The command receipt ties a retry to its original project ID.
 - `purchase_requests` stores the requester and designated approver, the submitted amount and currency, and the final decision with actor, timestamp and note. Records are private to participants and module managers.
 - `service_quotes` stores the customer snapshot, fee or hourly rate, quoted minutes if applicable, and the linked delivery project. Delivery sign-off records approved minutes for hourly work. `service_quote_events` retains signed revisions and reasons. Only quote IDs and revisions enter the sync log.
+- CRM (`0110_crm`): `crm_stages` holds a workspace's ordered open stages with a win probability (removed stages are archived; names are unique among live ones). `crm_leads` holds the contact, source, owner and status, and the customer and time of conversion (`converted` exactly when both are set). `crm_opportunities` belongs to a customer or a lead, sits on a stage, records value, currency, expected close, an optional Sales quote (`sales_orders`) or Client services quote (each linked to one opportunity at most, by partial unique index) and the won/lost outcome with reason. `crm_activities` attach to one lead or one opportunity, with an owner, an optional due date and completion. Leads and opportunities carry a revision for stale-write checks; sync rows carry ids and revisions only.
 
 ## Sales (3.4.1)
 

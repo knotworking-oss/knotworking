@@ -2,9 +2,17 @@ import { newId, type AccountingPosting } from "@knotworking/core";
 import { accountingConnections, workspaces } from "@knotworking/db";
 import { createTestDb } from "@knotworking/db/testing";
 import { describe, expect, it, vi } from "vitest";
-import { createXeroAdapter } from "./xero";
+import { ApiError } from "../../errors";
+import { createXeroAdapter, expectedLineTaxCents } from "./xero";
 import { confirmAccountingPosting, dispatchAccountingPosting, enqueueAccountingPosting } from "../outbox";
-function fixture(currency: "GBP" | "EUR" | "USD" = "GBP") {
+function fixture(
+  currency: "GBP" | "EUR" | "USD" = "GBP",
+  hooks: {
+    getAccessToken?: () => Promise<string>;
+    onUnauthorized?: (token: string) => Promise<void>;
+    onForbidden?: (token: string) => Promise<boolean>;
+  } = {},
+) {
   const connectionId = newId(),
     companyId = newId(),
     externalId = newId(),
@@ -42,6 +50,15 @@ function fixture(currency: "GBP" | "EUR" | "USD" = "GBP") {
     baseCurrency: currency,
     readOverride: {} as Record<string, unknown>,
     sent: null as Record<string, any> | null,
+    organisation: {} as Record<string, unknown>,
+    taxRates: [{ TaxType: "INPUT2", Status: "ACTIVE", CanApplyToExpenses: true, EffectiveRate: 20 }] as Record<
+      string,
+      unknown
+    >[],
+    /** Respond to the next request whose path contains this with the status, once. */
+    refuse: null as { path: string; status: number } | null,
+    /** Bills the source-link search returns. */
+    search: [] as Record<string, unknown>[],
   };
   const fetch = vi.fn(async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
     const url = String(input);
@@ -49,12 +66,22 @@ function fixture(currency: "GBP" | "EUR" | "USD" = "GBP") {
     expect(init?.redirect).toBe("error");
     expect(init?.signal).toBeDefined();
     const headers = new Headers(init?.headers);
-    expect(headers.get("authorization")).toBe("Bearer test-token");
+    expect(headers.get("authorization")).toMatch(/^Bearer test-token/);
     expect(headers.get("xero-tenant-id")).toBe(companyId);
+    if (state.refuse && url.includes(state.refuse.path)) {
+      const { status } = state.refuse;
+      state.refuse = null;
+      return new Response(null, { status });
+    }
     if (url.endsWith("/Organisation"))
       return Response.json({
         Organisations: [
-          { OrganisationID: state.organisationId, Name: "Test Xero", BaseCurrency: state.baseCurrency },
+          {
+            OrganisationID: state.organisationId,
+            Name: "Test Xero",
+            BaseCurrency: state.baseCurrency,
+            ...state.organisation,
+          },
         ],
       });
     if (url.includes("/Contacts/"))
@@ -63,13 +90,18 @@ function fixture(currency: "GBP" | "EUR" | "USD" = "GBP") {
       });
     if (url.endsWith("/Accounts"))
       return Response.json({ Accounts: [{ Code: "5000", Class: "EXPENSE", Status: "ACTIVE" }] });
-    if (url.endsWith("/TaxRates"))
-      return Response.json({ TaxRates: [{ TaxType: "INPUT2", Status: "ACTIVE", CanApplyToExpenses: true }] });
+    if (url.endsWith("/TaxRates")) return Response.json({ TaxRates: state.taxRates });
+    if (url.includes("/Invoices?") && init?.method !== "PUT") return Response.json({ Invoices: state.search });
     if (init?.method === "PUT") {
       state.sent = JSON.parse(String(init.body)).Invoices[0];
       if (state.loseWriteReply) throw new Error("secret-token must never escape");
       return Response.json({ Invoices: [{ InvoiceID: externalId }] }, { status: state.writeStatus });
     }
+    const searched = state.search.find((bill) => url.endsWith(`/Invoices/${bill.InvoiceID}`));
+    if (searched)
+      return Response.json({
+        Invoices: [{ ...state.sent, ...searched, SubTotal: 10, TotalTax: 2, Total: 12, HasErrors: false }],
+      });
     if (url.endsWith(`/Invoices/${externalId}`) && state.sent)
       return Response.json({
         Invoices: [
@@ -92,7 +124,9 @@ function fixture(currency: "GBP" | "EUR" | "USD" = "GBP") {
     baseCurrency: currency,
     appUrl: "https://knotworking.example",
     workspaceSlug: "acme",
-    getAccessToken: async () => "test-token",
+    getAccessToken: hooks.getAccessToken ?? (async () => "test-token"),
+    onUnauthorized: hooks.onUnauthorized,
+    onForbidden: hooks.onForbidden,
     fetch,
   });
   const writes = () => fetch.mock.calls.filter(([, init]) => init?.method === "PUT");
@@ -324,4 +358,157 @@ describe("Xero purchase invoice HTTP adapter (fake transport)", () => {
       await handle.close();
     }
   }, 30000);
+  const post = (f: ReturnType<typeof fixture>) =>
+    f.adapter.post({ postingKey: f.postingKey, attemptId: newId(), document: f.document });
+
+  it.each([
+    ["PeriodLockDate", "2026-11-15"],
+    ["EndOfYearLockDate", "2026-12-31T00:00:00"],
+    ["PeriodLockDate", `/Date(${Date.UTC(2026, 10, 30)}+0000)/`],
+  ])("refuses a bill dated on or before Xero's %s (%s)", async (field, value) => {
+    const f = fixture();
+    f.state.organisation = { [field]: value };
+    expect(await post(f)).toMatchObject({ outcome: "rejected", evidence: expect.stringContaining("locked") });
+    expect(f.writes()).toHaveLength(0);
+  });
+  it("sends a bill dated after the lock date", async () => {
+    const f = fixture();
+    f.state.organisation = { PeriodLockDate: "2026-11-14", EndOfYearLockDate: "2026-03-31" };
+    expect((await post(f)).outcome).toBe("posted");
+  });
+
+  it.each(["/Organisation", "/Contacts/", "/Accounts", "/TaxRates"])(
+    "leaves a bill queued when Xero rate-limits %s before the write",
+    async (path) => {
+      const f = fixture();
+      f.state.refuse = { path, status: 429 };
+      expect(await post(f)).toMatchObject({ outcome: "deferred", evidence: expect.stringContaining("rate") });
+      expect(f.writes()).toHaveLength(0);
+    },
+  );
+  it("treats a 429 on the create call as no write, and sends it again with the same key", async () => {
+    const f = fixture();
+    f.state.refuse = { path: "/Invoices?summarizeErrors", status: 429 };
+    expect((await post(f)).outcome).toBe("deferred");
+    expect((await post(f)).outcome).toBe("posted");
+    expect(f.writes().map(([, init]) => new Headers(init!.headers).get("idempotency-key"))).toEqual([
+      f.postingKey,
+      f.postingKey,
+    ]);
+  });
+  it("shares organisation, chart, tax rate and contact lookups between bills in one pass", async () => {
+    const f = fixture();
+    expect((await post(f)).outcome).toBe("posted");
+    expect(f.fetch).toHaveBeenCalledTimes(6);
+    expect((await post(f)).outcome).toBe("posted");
+    expect(f.fetch).toHaveBeenCalledTimes(8); // create and read-back only
+  });
+
+  it.each(["/Organisation", "/Invoices?summarizeErrors"])(
+    "marks the token expired on a 401 from %s, refreshes once and carries on",
+    async (path) => {
+      let issued = 0;
+      const onUnauthorized = vi.fn(async () => {});
+      const f = fixture("GBP", { getAccessToken: async () => `test-token-${++issued}`, onUnauthorized });
+      f.state.refuse = { path, status: 401 };
+      expect((await post(f)).outcome).toBe("posted");
+      expect(onUnauthorized).toHaveBeenCalledExactlyOnceWith("test-token-1");
+      expect(issued).toBe(2);
+      // A 401 on the create call is a refusal before processing: the retry uses the same key.
+      for (const [, init] of f.writes())
+        expect(new Headers(init!.headers).get("idempotency-key")).toBe(f.postingKey);
+    },
+  );
+  it("refuses, without a write, when a refreshed token is still not accepted", async () => {
+    const f = fixture("GBP", { onUnauthorized: async () => {} });
+    let refusals = 0;
+    f.fetch.mockImplementation(async () => {
+      refusals++;
+      return new Response(null, { status: 401 });
+    });
+    expect(await post(f)).toMatchObject({ outcome: "rejected", evidence: expect.stringContaining("refresh") });
+    expect(refusals).toBe(2);
+  });
+  it("leaves the bill queued when refreshing needs a reconnect", async () => {
+    const f = fixture("GBP", {
+      getAccessToken: async () => {
+        throw new ApiError(409, "xero_reconnect_required", "Reconnect Xero to continue.");
+      },
+    });
+    expect(await post(f)).toMatchObject({
+      outcome: "deferred",
+      evidence: expect.stringContaining("Reconnect"),
+    });
+  });
+
+  it.each(["/Organisation", "/Invoices?summarizeErrors"])(
+    "on a 403 from %s, asks whether the organisation is still connected",
+    async (path) => {
+      for (const removed of [true, false]) {
+        const onForbidden = vi.fn(async () => removed);
+        const f = fixture("GBP", { onForbidden });
+        f.state.refuse = { path, status: 403 };
+        const result = await post(f);
+        expect(onForbidden).toHaveBeenCalledOnce();
+        if (removed)
+          expect(result).toMatchObject({
+            outcome: "deferred",
+            evidence: expect.stringContaining("no longer connected"),
+          });
+        else
+          expect(result).toMatchObject({
+            outcome: "rejected",
+            evidence: expect.stringContaining("permissions"),
+          });
+      }
+    },
+  );
+
+  it.each([
+    [{ EffectiveRate: 20 }, "2.01", "posted"],
+    [{ EffectiveRate: 20 }, "1.99", "posted"],
+    [{ EffectiveRate: 20 }, "2.50", "rejected"],
+    [{ EffectiveRate: 5 }, "2.00", "rejected"],
+    [{ EffectiveRate: 0 }, "2.00", "rejected"],
+    [{ EffectiveRate: 0 }, "0.00", "posted"],
+    [{ TaxType: "NONE" }, "0.01", "rejected"],
+    [{}, "3.00", "posted"], // Xero gave no rate: its own validation still applies
+  ])("checks line tax against the Xero rate %j: tax %s is %s", async (rate, tax, outcome) => {
+    const f = fixture();
+    const taxType = (rate as { TaxType?: string }).TaxType ?? "INPUT2";
+    f.state.taxRates = [
+      { TaxType: taxType, Status: "ACTIVE", CanApplyToExpenses: true, ...rate },
+    ].map(({ EffectiveRate, ...r }) => (EffectiveRate === undefined ? r : { ...r, EffectiveRate }));
+    f.document.lines[0]!.taxReference = taxType;
+    f.document.lines[0]!.tax = tax;
+    const gross = (10 + Number(tax)).toFixed(2);
+    Object.assign(f.document, { tax, gross });
+    f.state.readOverride = { TotalTax: Number(tax), Total: Number(gross) };
+    const result = await post(f);
+    expect(result.outcome).toBe(outcome);
+    if (outcome === "rejected") {
+      expect((result as { evidence: string }).evidence).toMatch(/tax/);
+      expect(f.writes()).toHaveLength(0);
+    }
+  });
+  it("computes the expected tax for each line amount type", () => {
+    expect(expectedLineTaxCents("10.00", 20, "Exclusive")).toBe(200);
+    expect(expectedLineTaxCents("12.00", 20, "Inclusive")).toBe(200);
+    expect(expectedLineTaxCents("10.00", 20, "NoTax")).toBe(0);
+  });
+
+  it("does not reconcile when two Xero bills carry the same source link", async () => {
+    const f = fixture();
+    expect((await post(f)).outcome).toBe("posted");
+    const twin = { ...f.state.sent, InvoiceNumber: f.document.reference, Url: f.state.sent!.Url };
+    f.state.search = [
+      { ...twin, InvoiceID: newId() },
+      { ...twin, InvoiceID: newId() },
+    ];
+    expect(await f.adapter.findExisting({ postingKey: f.postingKey, document: f.document })).toBeNull();
+    f.state.search = [f.state.search[0]!];
+    expect(await f.adapter.findExisting({ postingKey: f.postingKey, document: f.document })).toMatchObject({
+      externalId: String(f.state.search[0]!.InvoiceID).toLowerCase(),
+    });
+  });
 });

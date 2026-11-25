@@ -17,6 +17,7 @@ import {
   type SalesPriceInput,
   type SalesRecipientSnapshot,
   type SalesSaveInput,
+  isSellableItem,
 } from "@knotworking/core";
 import {
   salesOrders as orders,
@@ -96,8 +97,8 @@ async function recipient(
 }
 async function saleItem(db: Executor, ws: string, id: string) {
   const item = await findItem(db, ws, id);
-  if (item.status !== "active" || !["finished", "wip"].includes(item.type))
-    throw conflict("Choose an active finished or WIP item");
+  if (item.status !== "active" || !isSellableItem(item.type))
+    throw conflict("Choose an active finished, WIP or merchandise item");
   return item;
 }
 /**

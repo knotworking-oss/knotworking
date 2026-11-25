@@ -1,4 +1,5 @@
 "use client";
+import { isSellableItem } from "@knotworking/core";
 import { useState } from "react";
 import { Button } from "@knotworking/ui/components/button";
 import { Input } from "@knotworking/ui/components/input";
@@ -39,7 +40,7 @@ export function SalesPicker({
         const r = await unwrap(
           api.items.$get({ param: { slug }, query: { q, status: "active", limit: "50" } }),
         );
-        setRows(r.items.filter((i) => ["finished", "wip"].includes(i.type)));
+        setRows(r.items.filter((i) => isSellableItem(i.type)));
         setTotal(r.total);
       }
     } catch (e) {

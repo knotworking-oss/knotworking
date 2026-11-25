@@ -13,6 +13,7 @@ import {
   type DespatchReturnVoidInput,
   type DespatchOperations,
   type DespatchReturnView,
+  isDespatchableItem,
 } from "@knotworking/core";
 import {
   despatches,
@@ -75,8 +76,12 @@ async function checkStock(tx: Transaction, ws: string, row: Despatch) {
   for (const line of lines) {
     const { lot, item } = await findLot(tx, ws, line.lotId);
     const location = await findActiveLocation(tx, ws, line.locationId);
-    if (item.status !== "active" || item.type !== "finished")
-      throw new ApiError(409, "item_not_despatchable", "Only active finished products can be allocated");
+    if (item.status !== "active" || !isDespatchableItem(item.type))
+      throw new ApiError(
+        409,
+        "item_not_despatchable",
+        "Only active finished products and merchandise can be allocated",
+      );
     await assertNoIncidentHold(tx, ws, lot.id);
     if (lot.status !== "available")
       throw new ApiError(409, "lot_not_released", `Lot ${lot.lotCode} is not released`);

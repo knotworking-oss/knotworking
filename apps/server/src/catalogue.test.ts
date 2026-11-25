@@ -146,6 +146,49 @@ describe("catalogue and bills of materials", () => {
     });
   });
 
+  it("buys merchandise into stock and despatches it with Food items disabled", async () => {
+    await ok("PATCH", "/module-settings", { modules: [...genericModules, "customers", "despatch"] });
+    const store = await ok("POST", "/stock/locations", { name: "Shop store" }, 201);
+    const mug = await item("MUG", "merchandise", "each", { standardCost: 3 });
+    const lot = await ok(
+      "POST",
+      "/stock/receipts",
+      { itemId: mug.id, quantity: 12, unit: "each", locationId: store.id, receivedOn: today },
+      201,
+    );
+    const customer = await ok(
+      "POST",
+      "/customers",
+      { code: "retail", name: "Synthetic retailer", address: "1 Example Street" },
+      201,
+    );
+    const despatch = await ok(
+      "POST",
+      "/despatch",
+      {
+        customerId: customer.id,
+        despatchedOn: today,
+        lines: [{ lotId: lot.id, locationId: store.id, quantity: 5, unit: "each" }],
+      },
+      201,
+    );
+    expect(despatch.lines).toHaveLength(1);
+    const raw = await item("STEEL", "raw_material", "kg");
+    const rawLot = await ok(
+      "POST",
+      "/stock/receipts",
+      { itemId: raw.id, quantity: 1, unit: "kg", locationId: store.id, receivedOn: today },
+      201,
+    );
+    const refused = await request("POST", "/despatch", {
+      customerId: customer.id,
+      despatchedOn: today,
+      lines: [{ lotId: rawLot.id, locationId: store.id, quantity: 1, unit: "kg" }],
+    });
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).error.code).toBe("item_not_despatchable");
+  });
+
   it("retains allergen snapshots, expiry defaults and lot traceability in a food workspace", async () => {
     await ok("PATCH", "/module-settings", { modules: null });
     const flour = await item("FLOUR", "ingredient", "kg", {

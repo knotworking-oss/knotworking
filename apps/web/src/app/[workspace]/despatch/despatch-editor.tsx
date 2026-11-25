@@ -1,6 +1,6 @@
 "use client";
 
-import { unitCodes, type DeliverySite, type UnitCode } from "@knotworking/core";
+import { unitCodes, type DeliverySite, type UnitCode, isDespatchableItem } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import { Input } from "@knotworking/ui/components/input";
 import { Textarea } from "@knotworking/ui/components/textarea";
@@ -74,7 +74,7 @@ export function DespatchEditor({
         setLots(
           page.lots.filter(
             (l) =>
-              l.item.type === "finished" &&
+              isDespatchableItem(l.item.type) &&
               l.item.status === "active" &&
               (!l.expiresOn || l.expiresOn >= today),
           ),

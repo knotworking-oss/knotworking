@@ -146,6 +146,13 @@ export const producibleItemTypes = ["component", "wip", "finished"] as const;
 export const isProducibleItem = (type: ItemType) =>
   (producibleItemTypes as readonly ItemType[]).includes(type);
 export type ItemType = (typeof itemTypes)[number];
+/** Item types that can be despatched to a customer: made goods and goods bought for resale. */
+export const despatchableItemTypes = ["finished", "merchandise"] as const satisfies readonly ItemType[];
+export const isDespatchableItem = (type: ItemType) =>
+  (despatchableItemTypes as readonly ItemType[]).includes(type);
+/** Item types that can go on a sales order or commitment. */
+export const sellableItemTypes = ["finished", "wip", "merchandise"] as const satisfies readonly ItemType[];
+export const isSellableItem = (type: ItemType) => (sellableItemTypes as readonly ItemType[]).includes(type);
 export const itemTypeLabels: Record<ItemType, string> = {
   ingredient: "Ingredient",
   raw_material: "Raw material",

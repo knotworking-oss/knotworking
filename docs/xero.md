@@ -21,8 +21,8 @@ The consent flow expires after ten minutes and the callback state is single-use.
 ## Review mappings and send a bill
 
 1. Open the connection's **Reviewed mappings**. In the selected Xero organisation, identify the existing supplier contact, active account codes and applicable tax types. Save a supplier mapping to the Xero `ContactID` (UUID), account mappings to Xero account codes, and tax mappings to Xero `TaxType` codes. Record what you reviewed in each mapping reason. Use the Xero API's [Contacts](https://developer.xero.com/documentation/api/accounting/contacts/), [Accounts](https://developer.xero.com/documentation/api/accounting/accounts/) and [TaxRates](https://developer.xero.com/documentation/api/accounting/taxrates/) resources to confirm the values.
-2. Create and send a purchase order, record its receipt, create a matched purchase invoice with the supplier's invoice number, invoice date, due date and VAT, and approve it. A non-stock service can be received and matched without Stock. Under the connection, choose **Prepare approved invoices**, pick the invoice, check the destination and code every line. Confirm the line net and tax amounts printed on the invoice.
-3. In **Accounting queue → Queued**, use **Send now**, or let the dispatcher send it. A prepared invoice keeps its original tenant and reviewed mappings. The adapter checks the confirmed organisation, currency, supplier contact, account codes and tax types before writing. It writes one `ACCPAY` bill with `AUTHORISED` status and exclusive amounts. Each reviewed financial line becomes a quantity-one line with the reviewed net and tax. Xero records the supplier's bill number and a URL to the source purchase invoice.
+2. Create and send a purchase order, record its receipt, create a matched purchase invoice with the supplier's invoice number, invoice date, due date and VAT, and approve it. A non-stock service can be received and matched without Stock. Under the connection, choose **Prepare approved invoices**, pick the invoice, check the destination and code every line. Confirm the line net and tax amounts printed on the invoice. For a Xero connection, preparation is blocked until the invoice has a due date on or after its invoice date and the supplier is mapped to a Xero `ContactID`. Approved invoices can't be edited, so correct a missing due date with a revised version.
+3. In **Accounting queue → Queued**, use **Send now**, or let the dispatcher send it. A prepared invoice keeps its original tenant and reviewed mappings. The adapter checks the confirmed organisation, currency, lock dates, due date, supplier contact, account codes and tax types before writing. A failed check rejects the bill with its reason and writes nothing. It writes one `ACCPAY` bill with `AUTHORISED` status and exclusive amounts. Each reviewed financial line becomes a quantity-one line with the reviewed net and tax. Xero records the supplier's bill number and a URL to the source purchase invoice.
 4. In **Posted**, open the result and record the Xero invoice ID. In Xero, compare the supplier, invoice number, dates, account and tax codes, net, tax and gross against the source, and follow the source link. Knotworking confirms the posting after reading the Xero bill back and comparing those fields. See the [Xero invoice contract](https://developer.xero.com/documentation/api/accounting/invoices/).
 
 ## Reconnect, disconnect and recover an interrupted posting
@@ -30,7 +30,23 @@ The consent flow expires after ten minutes and the callback state is single-use.
 - **Reconnect required.** If Xero revokes access or the refresh grant expires, choose **Reconnect Xero** and confirm the original organisation. Use **Verify connection** before resuming work. Existing postings still refer to the original destination. A different organisation needs a different setup.
 - **Pause or disconnect.** Disable a setup to pause preparation and sending while retaining access for read-back. **Disconnect Xero** removes the local credentials and tries to remove that tenant connection in Xero. If Xero could not confirm the removal, finish it in Xero's **Connected apps**. Existing posting history stays available. Reconnect the same organisation to resume.
 - **Needs checking.** Open the original posting and enter a review note. Choose **Find and verify in Xero** to look up the original bill by its reviewed contact, invoice date and unique source link. You can also find the bill manually and enter the Xero invoice UUID to check directly. Search results must identify one matching bill and pass full read-back. If the result stays uncertain, review it in Xero before taking further action. An uncertain attempt is never resent by Knotworking.
-- **Rejected.** Check the history for the reason. A retry uses the original snapshot, including its mappings and line values. Retry after fixing an external condition such as an inactive account or lost consent. Making a new mapping in settings does not change a prepared bill.
+- **Rejected.** Check the history for the reason. A retry uses the original snapshot, including its mappings and line values. Retry after fixing an external condition such as an inactive account or lost consent. Making a new mapping in settings does not change a prepared bill. Every attempt sends the posting UUID as Xero's `Idempotency-Key`. Xero keeps a key for six minutes and replays its stored response, so a retry within six minutes of a validation rejection returns the same refusal. Neither response creates a bill. Wait six minutes and retry.
+
+## Access and automated verification
+
+Connect, review, confirm, verify and disconnect are available only to a signed-in workspace owner or admin with Accounting manage access. Personal API tokens and MCP are refused, and the callback runs the same membership, admin and module checks before it uses the state. The OAuth state is single-use and tied to the initiating sign-in session, workspace and connection.
+
+The fake-Xero suites need no Xero account:
+
+```sh
+pnpm --filter @knotworking/server exec vitest run src/accounting-xero.test.ts src/accounting/adapters/xero.test.ts
+```
+
+They cover session-bound consent, refresh and revoked consent, stock and non-stock bills from purchase order to Xero, an interrupted create response, double dispatch, disabled and disconnected setups, a wrong organisation and definitive rejection. PGlite runs one transaction at a time, so concurrent refresh across API processes has a separate test that needs a disposable Postgres database:
+
+```sh
+TEST_POSTGRES_URL=postgres://… pnpm --filter @knotworking/server exec vitest run src/accounting-xero.postgres.test.ts
+```
 
 ## Demo Company acceptance evidence
 
@@ -49,4 +65,5 @@ Automated tests use a fake Xero HTTP service. Record live results here when acce
 ### Open questions
 
 - Confirm the pilot workspace and Xero organisation use the same base currency. The implementation uses the configured workspace currency, with GBP as the existing default.
+- Confirm the Xero app's scopes before acceptance. Knotworking requests the granular `accounting.invoices` scope, which apps created on or after 2 March 2026 must use, rather than the broad `accounting.transactions`. Check the app's settings against [Xero scopes](https://developer.xero.com/documentation/guides/oauth2/scopes/). If they differ, change `xeroScopes` in `apps/server/src/accounting/xero-http.ts`.
 - Confirm who approves supplier invoices and who reviews the accounting coding. This increment uses the existing single-approver Purchasing flow. The approver and the accounting reviewer may be the same person if their role grants both permissions.

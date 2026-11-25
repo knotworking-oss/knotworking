@@ -34,7 +34,7 @@ Installed adapters are registered as server-side factories (see [Dispatch and th
 
 ## Verification
 
-Run the core `src/accounting.test.ts` and server `src/accounting/outbox.test.ts`, `src/accounting-invoice-producer.test.ts`, `src/accounting-queue.test.ts` and `src/accounting-xero.test.ts` suites. The latter migrates an in-memory Postgres database. It exercises the shared lifecycle using test adapters without requiring accounting software or credentials.
+Run the core `src/accounting.test.ts` and server `src/accounting/outbox.test.ts`, `src/accounting-invoice-producer.test.ts`, `src/accounting-queue.test.ts`, `src/accounting/adapters/xero.test.ts` and `src/accounting-xero.test.ts` suites. The server suites migrate an in-memory Postgres database and use test adapters or a fake Xero HTTP service, so they need no accounting software or credentials. `src/accounting-xero.postgres.test.ts` checks token refresh across two connection pools and runs only with `TEST_POSTGRES_URL` set (see [Xero](xero.md#access-and-automated-verification)).
 
 ## Optional setup and mappings
 
@@ -54,6 +54,7 @@ Purchasing records one header VAT amount per invoice and unrounded line values (
 - Every live line is coded exactly once. Each net has the currency's places and is within one minor unit of the exact quantity × price; the page suggests the half-up value but never submits a figure the reviewer has not seen.
 - Line tax adds up exactly to the header VAT. VAT with more places than the currency allows is refused, as are negative lines and zero-value invoices.
 - The supplier and every account/tax key resolve to enabled reviewed mappings. The snapshot stores the destination references as reviewed, so a later mapping change does not alter a prepared posting.
+- **Provider checks:** an installed provider can add requirements in `accounting/provider-rules.ts`. A Xero bill needs a due date on or after the invoice date, a `ContactID` supplier mapping and a two-decimal currency. These show as blockers and are refused with `provider_document_invalid`.
 - **Corrections:** if any other version of the same supplier invoice number already has a posting on this connection, the corrected version is refused (`invoice_already_posted`). Record the correction in the accounting system until credit notes and adjustments are supported.
 
 The command is idempotent: the same command returns its receipt, identical coding returns the existing posting, and different coding of a prepared invoice conflicts. The private posting history records the person (`user:<id>`), invoice number, version and review note. Nothing is published to workspace sync. Routes: `GET /v1/workspaces/:slug/accounting/connections/:id/purchase-invoices` (`show=open|all`), `GET …/purchase-invoices/:invoiceId` (lines, suggested nets, mappings, blockers or the existing posting) and `POST …/purchase-invoices/:invoiceId/prepare`. All three refuse personal tokens. Tests: `apps/server/src/accounting-invoice-producer.test.ts`.

@@ -146,7 +146,7 @@ export const stockRoutes = new Hono<WorkspaceEnv>()
     async (c) =>
       c.json(await adjustStock(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
   )
-  // Quarantine, release or reject: a QA sign-off, like supplier approval.
+  // QA uses installation modules for evidence. Workspace access only controls what the viewer sees.
   .post(
     "/stock/lots/:id/status",
     forbidTokens,
@@ -161,7 +161,7 @@ export const stockRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json"),
-          { active: c.var.activeModules },
+          { active: c.var.workspace.availableModules, access: c.var.workspace.modules },
         ),
       ),
   )
@@ -172,7 +172,7 @@ export const stockRoutes = new Hono<WorkspaceEnv>()
         c.var.db,
         c.var.workspace.id,
         c.req.valid("param").id,
-        c.var.activeModules,
+        c.var.workspace.availableModules,
         c.var.workspace.modules,
       ),
     ),
@@ -207,7 +207,7 @@ export const stockRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json"),
-          { active: c.var.activeModules, access: c.var.workspace.modules },
+          { active: c.var.workspace.availableModules, access: c.var.workspace.modules },
         ),
         201,
       ),
@@ -227,7 +227,7 @@ export const stockRoutes = new Hono<WorkspaceEnv>()
           c.req.valid("param").id,
           c.req.valid("param").requestId,
           c.req.valid("json"),
-          { active: c.var.activeModules },
+          { active: c.var.workspace.availableModules },
         ),
       ),
   )

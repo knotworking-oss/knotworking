@@ -512,6 +512,11 @@ Distribution operations: `list_customer_delivery_sites` reads a customer's deliv
 
 Food authenticity: `list_authenticity_assessments` and `get_authenticity_assessment` read Quality's recorded scopes, current/draft/prior reviews, controls and evidence. `create_authenticity_draft`, `start_authenticity_review`, `save_authenticity_draft` and `raise_authenticity_review_trigger` prepare work; retain command ids on retries, and use a fresh `expectedUpdatedAt` for reviewed-version mutations. Full draft replacement must retain evidence/controls intended to remain. Linked samples need Testing read permission when linking and are source references only. Approval, control verification, correction and archive are person-only in the app. List results do not establish full raw-material coverage or supplier/lot release. Overdue/failure flags and unresolved triggers must be surfaced even after a passing recheck. Nothing fetches external intelligence or sends a message automatically.
 
+### General business operations
+
+- `list_purchase_requests` and `get_purchase_request` read requests within the person's purchase-request access. The list supports requester, assigned and manager views, a status filter and cursor paging.
+- `list_service_quotes` and `get_service_quote` read customer service quotes with project links, approved billing and decision history. They require Client services access. Quote and delivery decisions are made by signed-in managers in the app.
+
 ### Sales (3.4.1)
 
 Sales tools require `module: sales` (Customers and Items are dependencies):
@@ -526,7 +531,7 @@ Issuing/converting quotes, confirming/amending/cancelling orders, agreeing/archi
 
 ### Health, safety and environment (3.4.3)
 
-All HSE tools declare `module: hse`; Site and Training dependencies still apply:
+HSE tools require HSE and Training access. The contractor permit tools also require Site read access.
 
 - `list_hse_registers`: paginated scopes, kind/status filters, review/check dates and unresolved failures. Coverage is recorded scopes, not a site-wide all-clear.
 - `get_hse_record`: current approved/draft content, paginated retained versions or verification/measurement entries.

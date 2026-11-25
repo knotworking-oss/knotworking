@@ -1,5 +1,6 @@
 "use client";
 
+import { workspacePresetDetails, workspacePresets, type WorkspacePreset } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@knotworking/ui/components/card";
 import {
@@ -20,6 +21,7 @@ export function SetupForm({ token }: { token?: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [preset, setPreset] = useState<WorkspacePreset>("general_business");
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -27,6 +29,7 @@ export function SetupForm({ token }: { token?: string }) {
     const input = {
       token: token ?? String(f.get("token")),
       workspaceName: String(f.get("workspaceName")),
+      preset,
       name: String(f.get("name")),
       email: String(f.get("email")),
       password: String(f.get("password")),
@@ -71,6 +74,28 @@ export function SetupForm({ token }: { token?: string }) {
               <FieldLabel htmlFor="workspaceName">Workspace name</FieldLabel>
               <Input id="workspaceName" name="workspaceName" placeholder="Acme Inc" required />
             </Field>
+            <fieldset className="grid gap-2" disabled={pending}>
+              <legend className="mb-2 text-sm font-medium">Workspace setup</legend>
+              {workspacePresets.map((id) => (
+                <label
+                  key={id}
+                  className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm"
+                >
+                  <input
+                    type="radio"
+                    name="preset"
+                    value={id}
+                    checked={preset === id}
+                    onChange={() => setPreset(id)}
+                    className="mt-1 accent-primary"
+                  />
+                  <span>
+                    <span className="block font-medium">{workspacePresetDetails[id].label}</span>
+                    <span className="text-muted-foreground">{workspacePresetDetails[id].description}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
             <FieldSeparator>Owner account</FieldSeparator>
             <Field>
               <FieldLabel htmlFor="name">Your name</FieldLabel>

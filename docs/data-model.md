@@ -114,6 +114,12 @@ Phase 3.1.4 adds `customer_delivery_sites` (per-account case-insensitive code, d
 
 Phase 3.3.1 adds `authenticity_assessments` (item/supplier scope, active/archive, current/draft pointers and monotonically increasing update stamp), `authenticity_versions` (ordered draft/signed/superseded JSON assessments with subject snapshots and sign-off), `authenticity_triggers` (append-only source-backed signals resolved by a signed version), and `authenticity_verifications` (version/control-bound dated evidence with retained manager corrections). Partial unique indexes allow at most one active scope per item/supplier (including all-sources null), one draft and one signed version per assessment. Only draft content is editable; previous signed content/signatures remain unchanged. Approved version bodies carry stable control ids; verification is version-specific, so history does not implicitly verify a replacement plan. References to test samples are validated at write time rather than copying laboratory data. No bootstrap collection is added; `quality_authenticity` sync rows contain only id/reference/status/update metadata.
 
+## General business workflows
+
+- Project templates create ordinary project, team and task rows. The command receipt ties a retry to its original project ID.
+- `purchase_requests` stores the requester and designated approver, the submitted amount and currency, and the final decision with actor, timestamp and note. Records are private to participants and module managers.
+- `service_quotes` stores the customer snapshot, fee or hourly rate, quoted minutes if applicable, and the linked delivery project. Delivery sign-off records approved minutes for hourly work. `service_quote_events` retains signed revisions and reasons. Only quote IDs and revisions enter the sync log.
+
 ## Sales (3.4.1)
 
 - `sales_orders`: shared customer/site IDs, quote/order kind, status, revision, retained recipient/address facts, currency, customer reference, terms, notes, optional source quote, creation and latest signed decision. A source quote creates at most one draft order. Customer changes never rewrite signed history.

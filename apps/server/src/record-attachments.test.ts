@@ -543,6 +543,26 @@ describe("attachments on module records", () => {
     }
   }, 60_000);
 
+  it("keeps contractor permit evidence behind Site access when HSE registers are visible", async () => {
+    const { cursor } = await (await ctx.req(`${base}/bootstrap`, { cookie: ada })).json();
+    const uploaded = await upload({ cookie: ada }, on("hse_permit"));
+    expect(uploaded.status).toBe(201);
+    const { id } = await uploaded.json();
+    const link = await (await ctx.req(`${base}/attachments/${id}/link`, { cookie: marcus })).json();
+    const publicPath = new URL(link.url).pathname.replace(/^\/api/, "");
+    await level("site", "none");
+    try {
+      expect((await ctx.req(`${base}/hse/registers`, { cookie: marcus })).status).toBe(200);
+      expect((await list(marcus, "hse_permit", records.hse_permit)).status).toBe(403);
+      expect((await ctx.req(`${base}/attachments/${id}/content`, { cookie: marcus })).status).toBe(403);
+      expect((await ctx.req(publicPath)).status).toBe(404);
+      const sync = await (await ctx.req(`${base}/sync?after=${cursor}`, { cookie: marcus })).json();
+      expect(sync.changes.some((change: { entityId: string }) => change.entityId === id)).toBe(false);
+    } finally {
+      await level("site", "write");
+    }
+  });
+
   it("never reaches a record in another workspace", async () => {
     // Marcus belongs to globex too, but the supplier is not in acme.
     const res = await upload({ cookie: marcus }, { entityType: "supplier", entityId: foreignSupplier });

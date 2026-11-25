@@ -9,14 +9,16 @@ import {
   projects,
   projectTeams,
   recordChanges,
+  serviceQuotes,
   tasks,
   teams,
   workflowStates,
   type Database,
+  type Executor,
   type Transaction,
 } from "@knotworking/db";
 import { and, asc, count, eq, inArray, isNull, max } from "drizzle-orm";
-import { badRequest, notFound } from "../errors";
+import { ApiError, badRequest, notFound } from "../errors";
 import { assertRefs } from "./refs";
 
 type ProjectRow = typeof projects.$inferSelect;
@@ -70,7 +72,7 @@ async function assertTeams(tx: Transaction, workspaceId: string, teamIds: string
 const completedAtFor = (status: ProjectStatus) => (status === "completed" ? new Date() : null);
 
 export async function createProject(
-  db: Database,
+  db: Executor,
   workspaceId: string,
   actorId: string,
   input: ProjectCreateInput,
@@ -198,6 +200,26 @@ export async function updateProject(
  */
 export async function deleteProject(db: Database, workspaceId: string, actorId: string, projectId: string) {
   await db.transaction(async (tx) => {
+    // Acceptance links a newly created project in the same transaction. An existing project
+    // cannot acquire an accepted quote between this check and deletion.
+    const [delivery] = await tx
+      .select({ id: serviceQuotes.id })
+      .from(serviceQuotes)
+      .where(
+        and(
+          eq(serviceQuotes.workspaceId, workspaceId),
+          eq(serviceQuotes.projectId, projectId),
+          eq(serviceQuotes.status, "accepted"),
+        ),
+      )
+      .limit(1);
+    if (delivery) {
+      throw new ApiError(
+        409,
+        "project_in_delivery",
+        "This project is needed for an accepted service quote. Complete or cancel the delivery before deleting it",
+      );
+    }
     const [row] = await tx
       .update(projects)
       .set({ deletedAt: new Date() })

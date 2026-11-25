@@ -138,6 +138,21 @@ describe("attendance module", () => {
       expect(elsewhere.status).toBe(401);
     });
 
+    it("pauses pairing and paired devices when Attendance is off in the workspace", async () => {
+      const created = await ok(await as(ada).send("POST", "/attendance/devices", { name: "Side door" }), 201);
+      const pair = () =>
+        ctx.req("/v1/public/kiosk/pair", { method: "POST", json: { code: created.pairingCode } });
+      try {
+        await ok(await as(ada).send("PATCH", "/module-settings", { modules: ["tasks", "people"] }));
+        expect(await code(await kiosk(device)("GET", "/session"))).toBe("module_inactive");
+        expect(await code(await pair())).toBe("module_inactive");
+      } finally {
+        await ok(await as(ada).send("PATCH", "/module-settings", { modules: null }));
+      }
+      expect((await kiosk(device)("GET", "/session")).status).toBe(200);
+      expect((await pair()).status).toBe(200);
+    });
+
     it("stops working once revoked; a new code replaces a lost tablet", async () => {
       const spare = await ok(await as(ada).send("POST", "/attendance/devices", { name: "Canteen" }), 201);
       const { token: spareToken } = await ok(

@@ -41,6 +41,8 @@ export const notificationTypes = [
   "visitor_arrived",
   "reserved_lot_problem",
   "purchase_order_approval_needed",
+  "purchase_request_submitted",
+  "purchase_request_decided",
 ] as const;
 export type NotificationType = (typeof notificationTypes)[number];
 
@@ -229,6 +231,16 @@ export const notificationTypeInfo: Record<
     description: "A draft purchase order is above the approval threshold and you can approve it for sending",
     module: "purchasing",
   },
+  purchase_request_submitted: {
+    label: "Purchase request awaiting approval",
+    description: "A purchase request was assigned to you for approval",
+    module: "purchase_requests",
+  },
+  purchase_request_decided: {
+    label: "Purchase request decision",
+    description: "An approver decided a purchase request you submitted",
+    module: "purchase_requests",
+  },
 };
 
 export const notificationListQuerySchema = z.object({
@@ -356,6 +368,9 @@ export function notificationPath(n: {
       return n.data.subjectId ? `/production/batches/${n.data.subjectId}` : "/production";
     case "purchase_order_approval_needed":
       return n.data.subjectId ? `/purchasing/orders/${n.data.subjectId}` : "/purchasing";
+    case "purchase_request_submitted":
+    case "purchase_request_decided":
+      return n.data.subjectId ? `/purchase-requests/${n.data.subjectId}` : "/purchase-requests";
     case "reading_out_of_limit":
       return n.module === "site" ? "/site/storage" : "/haccp/deviations";
     case "readings_awaiting_review":
@@ -447,6 +462,10 @@ export function describeNotification(type: string, actor: string, data: Notifica
       return `${title} has arrived to see you`;
     case "purchase_order_approval_needed":
       return `${actor} drafted purchase order ${title}, which needs approval before it is sent`;
+    case "purchase_request_submitted":
+      return `${actor} sent you a purchase request to review`;
+    case "purchase_request_decided":
+      return `${actor} ${data.stateName === "approved" ? "approved" : "rejected"} your purchase request`;
     case "sop_ack_overdue":
       return `${data.count ?? "Some"} ${data.count === 1 ? "person has" : "people have"} not acknowledged ${title}${data.versionNumber ? ` v${data.versionNumber}` : ""}`;
     case "reserved_lot_problem":

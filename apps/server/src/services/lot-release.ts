@@ -1,6 +1,7 @@
 import {
   evaluateLotRelease,
   hasModuleLevel,
+  modules,
   type LotReleaseRule,
   type LotReleaseRuleInput,
   type ModuleAccessMap,
@@ -239,10 +240,12 @@ export async function gatherReleaseFacts(
   return { active, rule, samples, approvedSpecification, batches, ccpLogs, openCorrectiveActions };
 }
 
-/** Hides the references of checks whose module the reader can't read. */
+/** Retains check results while withholding evidence details from readers without module access. */
 export const forReader = (checks: ReleaseCheck[], access: ModuleAccessMap) =>
   checks.map((c) =>
-    hasModuleLevel(access[c.module], "read") ? { ...c, hidden: false } : { ...c, refs: [], hidden: true },
+    hasModuleLevel(access[c.module], "read")
+      ? { ...c, hidden: false }
+      : { ...c, detail: `Evidence details require ${modules[c.module].name} access`, refs: [], hidden: true },
   );
 
 /** The release check for a lot as it stands, for the reader. */

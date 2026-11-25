@@ -7,10 +7,12 @@ import {
   type SyncChange,
   type SyncNudge,
   WORKSPACE_AVATAR_SIZE,
+  workspaceModuleSettingsSchema,
   workspaceSettingsUpdateSchema,
 } from "@knotworking/core";
-import { getChangesAfter, getLatestCursor } from "@knotworking/db";
+import { getChangesAfter, getLatestCursor, type Executor } from "@knotworking/db";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { WorkspaceEnv } from "../env";
 import { ApiError } from "../errors";
@@ -20,12 +22,18 @@ import { attachmentRoutes } from "./attachments";
 import { filterChangesByModule, redactChanges, redactMeeting } from "../services/redact";
 import { search } from "../services/search";
 import { isApiTokenValid } from "../services/api-tokens";
+import { memberModuleLevels } from "../services/module-access";
 import {
   bootstrap,
   getWorkspaceSettings,
   hasWorkspaceAccess,
   updateWorkspaceSettings,
 } from "../services/workspace";
+import {
+  getActiveWorkspaceModules,
+  getWorkspaceModuleSettings,
+  setWorkspaceModuleSettings,
+} from "../services/workspace-modules";
 import { requireSessionCredential } from "../middleware/auth";
 import { requireAdmin } from "../middleware/roles";
 import { validate } from "../validate";
@@ -41,6 +49,21 @@ const MAX_STREAM_MS = 10 * 60_000;
  * after `MAX_STREAM_MS`.
  */
 export const DEFAULT_STREAM_REVALIDATE_MS = 30_000;
+
+const replicaRead = { isolationLevel: "repeatable read", accessMode: "read only" } as const;
+
+/** Read module scope in the same snapshot as the cursor and data it filters. */
+async function replicaAccess(db: Executor, c: Context<WorkspaceEnv>) {
+  const { workspace, user, credential } = c.var;
+  const active = await getActiveWorkspaceModules(db, workspace.id, workspace.availableModules);
+  return memberModuleLevels(
+    db,
+    workspace.id,
+    { role: workspace.role, userId: user.id },
+    active,
+    credential.kind === "token" ? credential.modules : null,
+  );
+}
 
 /**
  * Guests (outside collaborators) don't get the team's email addresses or its org chart (titles,
@@ -65,25 +88,31 @@ export const workspaceRoutes = new Hono<WorkspaceEnv>()
   // ── Sync ──
   .get("/bootstrap", async (c) => {
     const viewer = { role: c.var.workspace.role, userId: c.var.user.id };
-    const snapshot = await bootstrap(c.var.db, c.var.workspace.id, {
-      hideEmails: viewer.role === "guest",
-      modules: c.var.workspace.modules,
-    });
-    return c.json({
-      ...snapshot,
-      meetings: snapshot.meetings.map((m) => redactMeeting(viewer, m)),
-      /** Active modules with the caller's level in each (inactive modules are not listed). */
-      modules: summarizeModules(c.var.workspace.modules),
-    });
+    const payload = await c.var.db.transaction(async (tx) => {
+      const modules = await replicaAccess(tx, c);
+      const snapshot = await bootstrap(tx, c.var.workspace.id, {
+        hideEmails: viewer.role === "guest",
+        modules,
+      });
+      return {
+        ...snapshot,
+        meetings: snapshot.meetings.map((m) => redactMeeting(viewer, m)),
+        modules: summarizeModules(modules),
+      };
+    }, replicaRead);
+    return c.json(payload);
   })
   .get("/sync", validate("query", syncQuerySchema), async (c) => {
     const { after, limit } = c.req.valid("query");
-    const page = await getChangesAfter(c.var.db, c.var.workspace.id, BigInt(after), limit);
-    // The raw log carries full rows; apply the same redaction bootstrap does.
-    const viewer = { role: c.var.workspace.role, userId: c.var.user.id, modules: c.var.workspace.modules };
-    page.changes = redactChanges(viewer, filterChangesByModule(c.var.workspace.modules, page.changes));
-    if (viewer.role === "guest") page.changes = page.changes.map(hideEmails);
-    return c.json(page);
+    const payload = await c.var.db.transaction(async (tx) => {
+      const modules = await replicaAccess(tx, c);
+      const viewer = { role: c.var.workspace.role, userId: c.var.user.id, modules };
+      const page = await getChangesAfter(tx, c.var.workspace.id, BigInt(after), limit);
+      page.changes = redactChanges(viewer, filterChangesByModule(modules, page.changes));
+      if (viewer.role === "guest") page.changes = page.changes.map(hideEmails);
+      return page;
+    }, replicaRead);
+    return c.json(payload);
   })
   /**
    * Server push. A server-sent event stream that only says "the sync log
@@ -180,6 +209,25 @@ export const workspaceRoutes = new Hono<WorkspaceEnv>()
 
   // ── Modules: the active modules and the caller's level in each (tokens may read it) ──
   .get("/modules", (c) => c.json({ modules: summarizeModules(c.var.workspace.modules) }))
+  .get("/module-settings", requireSessionCredential, requireAdmin, async (c) =>
+    c.json(await getWorkspaceModuleSettings(c.var.db, c.var.workspace.id, c.var.workspace.availableModules)),
+  )
+  .patch(
+    "/module-settings",
+    requireSessionCredential,
+    requireAdmin,
+    validate("json", workspaceModuleSettingsSchema),
+    async (c) =>
+      c.json(
+        await setWorkspaceModuleSettings(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          c.var.workspace.availableModules,
+          c.req.valid("json").modules,
+        ),
+      ),
+  )
 
   // ── Search (documents and tasks; read-only, so tokens may use it). Only modules the caller can read. ──
   .get("/search", validate("query", searchQuerySchema), async (c) =>

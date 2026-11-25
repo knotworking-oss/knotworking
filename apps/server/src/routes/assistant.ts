@@ -43,6 +43,7 @@ import {
   updateSettings,
 } from "../services/assistant-keys";
 import { memberModuleLevels } from "../services/module-access";
+import { getActiveWorkspaceModules } from "../services/workspace-modules";
 import { hasWorkspaceAccess, listMyWorkspaces } from "../services/workspace";
 import { validate } from "../validate";
 
@@ -67,7 +68,7 @@ async function assertAssistantAccess(c: { var: AppEnv["Variables"] }) {
       c.var.db,
       w.id,
       { userId: c.var.user.id, role: w.role },
-      c.var.activeModules,
+      await getActiveWorkspaceModules(c.var.db, w.id, c.var.activeModules),
     );
     if (hasModuleLevel(levels.assistant, "read")) return;
   }
@@ -359,7 +360,7 @@ export const assistantRoutes = new Hono<WorkspaceEnv>()
         db,
         workspace.id,
         { userId: user.id, role: member.role },
-        c.var.activeModules,
+        await getActiveWorkspaceModules(db, workspace.id, workspace.availableModules),
       );
       return hasModuleLevel(access.assistant, "read");
     };

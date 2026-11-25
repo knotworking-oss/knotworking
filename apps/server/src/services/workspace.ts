@@ -64,7 +64,7 @@ export async function listMyWorkspaces(db: Database, userId: string) {
  * replayed by the next sync (applying an upsert twice is harmless).
  */
 export async function bootstrap(
-  db: Database,
+  db: Executor,
   workspaceId: string,
   options: { hideEmails?: boolean; modules?: ModuleAccessMap } = {},
 ) {
@@ -77,6 +77,7 @@ export async function bootstrap(
     and(eq(t.workspaceId, workspaceId), isNull(t.deletedAt));
 
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId));
+  const { enabledModules: _enabledModules, ...publicWorkspace } = workspace!;
   const [
     members,
     teamRows,
@@ -129,7 +130,7 @@ export async function bootstrap(
 
   return {
     cursor,
-    workspace: withEffectiveZone(workspace!),
+    workspace: withEffectiveZone(publicWorkspace),
     // Guests (outside collaborators) don't get the team's email addresses.
     // Guests get neither the team's email addresses nor its org chart.
     users: options.hideEmails
@@ -227,8 +228,9 @@ export async function updateWorkspaceSettings(
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(workspaces.id, workspaceId))
       .returning();
+    const { enabledModules: _enabledModules, ...publicWorkspace } = row!;
     await recordChanges(tx, workspaceId, actorId, [
-      { entity: "workspace", entityId: workspaceId, action: "upsert", data: row },
+      { entity: "workspace", entityId: workspaceId, action: "upsert", data: publicWorkspace },
     ]);
     forgetWorkspaceTimeZone(workspaceId);
     return {

@@ -38,6 +38,7 @@ const pages: Record<string, ModuleId> = {
   customers: "customers",
   despatch: "despatch",
   sales: "sales",
+  "client-services": "client_services",
   hse: "hse",
   demand: "demand",
   production: "production",

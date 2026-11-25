@@ -80,6 +80,8 @@ export const workspaces = pgTable(
      * it for "this financial year", quarters and year-to-date. Calendar months only.
      */
     financialYearStartMonth: integer("financial_year_start_month").notNull().default(1),
+    /** Null inherits the installation's enabled modules. An empty array enables only the platform. */
+    enabledModules: text("enabled_modules").array().$type<ModuleId[]>(),
     ...timestamps(),
   },
   (t) => [uniqueIndex("workspaces_slug_key").on(t.slug)],
@@ -563,3 +565,5 @@ export * from "./schema/hse-incidents";
 export * from "./schema/accounting";
 
 export * from "./schema/workforce";
+export * from "./schema/purchase-requests";
+export * from "./schema/client-services";

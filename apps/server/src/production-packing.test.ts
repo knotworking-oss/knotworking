@@ -120,10 +120,28 @@ describe("packing checks (3.5.3)", () => {
       await call("GET", `/production/batches/${batch}/packing`, undefined, marcus.cookie),
     );
     expect(hidden.candidates).toMatchObject({ labels: [], labelsVisible: false, labelCount: 1 });
-    const opened = await ok(
-      await call("POST", `/production/batches/${batch}/packing`, { ...open, labelId: null }, marcus.cookie),
-      201,
-    );
+    // Hiding Labels in the workspace also preserves the approved-label requirement.
+    const opened = await (async () => {
+      await ok(
+        await call("PATCH", "/module-settings", {
+          modules: ["items", "recipes", "stock", "demand", "production"],
+        }),
+      );
+      try {
+        expect((await call("GET", "/labelling/labels")).status).toBe(404);
+        return await ok(
+          await call(
+            "POST",
+            `/production/batches/${batch}/packing`,
+            { ...open, labelId: null },
+            marcus.cookie,
+          ),
+          201,
+        );
+      } finally {
+        await ok(await call("PATCH", "/module-settings", { modules: null }));
+      }
+    })();
     expect(opened.candidates.labels).toEqual([]);
     runId = opened.open.id;
     expect(opened.open).toMatchObject({

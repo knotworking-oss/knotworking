@@ -17,6 +17,7 @@ import {
   toBaseQuantity,
   unitsForItem,
   type LotStatusChangeInput,
+  type ModuleAccessMap,
   type PickCandidate,
   type StockAdjustmentInput,
   type StockLevelsQuery,
@@ -60,7 +61,7 @@ import { ApiError, badRequest, notFound } from "../errors";
 import { workspaceTimeZone, workspaceToday } from "./time-zone";
 import { deliverNotifications, type NotificationRow } from "./notifications";
 import { notifyReservedLotStatus } from "./reservation-alerts";
-import { gatherReleaseFacts, recordRelease } from "./lot-release";
+import { forReader, gatherReleaseFacts, recordRelease } from "./lot-release";
 
 /**
  * Stock module: locations, lots and the movement ledger.
@@ -929,7 +930,7 @@ export async function setLotStatus(
   actorId: string,
   id: string,
   input: LotStatusChangeInput,
-  options: { active?: readonly ModuleId[] } = {},
+  options: { active?: readonly ModuleId[]; access?: ModuleAccessMap } = {},
 ) {
   let notified: NotificationRow[] = [];
   const lot = await db.transaction(async (tx) => {
@@ -946,11 +947,12 @@ export async function setLotStatus(
       const facts = await gatherReleaseFacts(tx, workspaceId, current, active);
       const evaluation = evaluateLotRelease(facts);
       if (evaluation.blocked) {
+        const checks = options.access ? forReader(evaluation.checks, options.access) : evaluation.checks;
         throw new ApiError(
           409,
           "release_blocked",
-          `This lot can't be released yet: ${releaseBlockers(evaluation).join("; ")}. Resolve these first, or request a release exception with a reason and evidence for another manager to approve.`,
-          { checks: evaluation.checks },
+          `This lot can't be released yet: ${releaseBlockers({ ...evaluation, checks }).join("; ")}. Resolve these first, or request a release exception with a reason and evidence for another manager to approve.`,
+          { checks },
         );
       }
       await recordRelease(tx, workspaceId, actorId, {

@@ -10,7 +10,10 @@ export default async function Layout({
 }) {
   const { workspace: slug } = await params;
   await requireModule(slug, "hse");
-  const restricted = await canReadModule(slug, "hse_incidents");
+  const [restricted, permits] = await Promise.all([
+    canReadModule(slug, "hse_incidents"),
+    canReadModule(slug, "site"),
+  ]);
   return (
     <div className="print-scroll flex min-h-0 flex-1 flex-col">
       <nav
@@ -18,7 +21,7 @@ export default async function Layout({
         className="flex flex-wrap gap-5 border-b px-6 py-3 text-sm print:hidden"
       >
         <Link href={`/${slug}/hse`}>HSE registers</Link>
-        <Link href={`/${slug}/hse/permits`}>Contractor permits</Link>
+        {permits && <Link href={`/${slug}/hse/permits`}>Contractor permits</Link>}
         {restricted && <Link href={`/${slug}/hse/incidents`}>Restricted incidents</Link>}
       </nav>
       {children}

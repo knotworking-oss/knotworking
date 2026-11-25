@@ -12,6 +12,12 @@ afterEach(async () => {
   await Promise.all(sessions.splice(0).map((s) => s.close()));
 });
 describe("HSE assistant boundary", () => {
+  it("offers registers without Site and keeps asset permit tools out of that scope", async () => {
+    const { client } = await session({ defaultWorkspace: "acme", modules: ["people", "training", "hse"] });
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+    expect(names).toContain("list_hse_registers");
+    expect(names).not.toContain("list_hse_permits");
+  });
   it("prepares ordinary drafts with reviewed revisions and pages evidence without signatures or health access", async () => {
     const { call, client } = await session({ defaultWorkspace: "acme" });
     const names = (await client.listTools()).tools.map((t) => t.name);

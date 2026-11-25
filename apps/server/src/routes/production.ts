@@ -412,7 +412,7 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           ledgerInput(c, c.req.valid("json")),
-          { labelsActive: c.var.activeModules.includes("labels"), ...packingView(c) },
+          { labelsActive: c.var.workspace.availableModules.includes("labels"), ...packingView(c) },
         ),
         201,
       ),

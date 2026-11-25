@@ -1,5 +1,5 @@
 import {
-  attachmentTargets,
+  attachmentTargetScope,
   biCanManagePacks,
   biCanReadDashboardHistory,
   biCanViewPack,
@@ -115,6 +115,7 @@ export function redactChanges(viewer: Viewer, changes: SyncChange[]): SyncChange
 export function filterChangesByModule(modules: ModuleAccessMap, changes: SyncChange[]): SyncChange[] {
   const can = (id: "tasks" | "docs" | "time" | "calendar") => hasModuleLevel(modules[id], "read");
   return changes.filter((change) => {
+    if (change.entity === "hse_permit" && !hasModuleLevel(modules.site, "read")) return false;
     const owner = moduleOfEntity(change.entity);
     if (owner) return hasModuleLevel(modules[owner], "read");
     // An API access toggle belongs to the module its action is in.
@@ -127,9 +128,9 @@ export function filterChangesByModule(modules: ModuleAccessMap, changes: SyncCha
       // A file on a module record follows that record's module.
       if (change.data.entityType) {
         const type = String(change.data.entityType);
-        return (
-          isAttachmentTargetType(type) && hasModuleLevel(modules[attachmentTargets[type].module], "read")
-        );
+        if (!isAttachmentTargetType(type)) return false;
+        const target = attachmentTargetScope(type);
+        return [target.module, ...target.requiresModules].every((id) => hasModuleLevel(modules[id], "read"));
       }
     }
     return true;

@@ -288,6 +288,16 @@ export const navAreas: readonly NavArea[] = [
     ],
   },
   {
+    id: "client_services",
+    label: "Client services",
+    description: "Service quotes, delivery and billing drafts",
+    icon: FileCheck,
+    group: "Operations",
+    visible: needs("client_services"),
+    keywords: ["service", "quote", "hourly", "billing", "consulting"],
+    sections: [{ items: [{ label: "Service quotes", path: "client-services", icon: FileCheck }] }],
+  },
+  {
     id: "despatch",
     label: "Despatch",
     description: "Despatches, recipients and impact",
@@ -334,6 +344,16 @@ export const navAreas: readonly NavArea[] = [
         ],
       },
     ],
+  },
+  {
+    id: "purchase_requests",
+    label: "Purchase requests",
+    description: "Spending requests and approvals",
+    icon: ClipboardCheck,
+    group: "Operations",
+    visible: needs("purchase_requests"),
+    keywords: ["spending", "approval", "expenses", "procurement"],
+    sections: [{ items: [{ label: "Purchase requests", path: "purchase-requests", icon: ClipboardCheck }] }],
   },
   {
     id: "demand",
@@ -524,7 +544,7 @@ export const navAreas: readonly NavArea[] = [
       {
         items: [
           { label: "Health, safety & environment", path: "hse", icon: ShieldCheck, exact: true },
-          { label: "Permits", path: "hse/permits", icon: FileCheck },
+          { label: "Permits", path: "hse/permits", icon: FileCheck, show: needs("site") },
           {
             label: "Incidents",
             path: "hse/incidents",

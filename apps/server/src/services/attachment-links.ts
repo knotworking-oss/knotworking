@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   ATTACHMENT_LINK_TTL_SECONDS,
-  attachmentTargets,
+  activeWorkspaceModules,
+  attachmentTargetScope,
   hasModuleLevel,
   isAttachmentTargetType,
   type AttachmentLink,
@@ -90,7 +91,8 @@ export function attachmentModules(row: {
   if (row.taskId) modules.push("tasks");
   if (row.documentId) modules.push("docs");
   if (row.entityType && isAttachmentTargetType(row.entityType)) {
-    modules.push(attachmentTargets[row.entityType].module);
+    const target = attachmentTargetScope(row.entityType);
+    modules.push(target.module, ...target.requiresModules);
   }
   return modules;
 }
@@ -132,7 +134,7 @@ export async function redeemAttachmentLink(
   const gone = notFound("Download link");
   if (!payload) throw gone;
   const [member] = await db
-    .select({ role: workspaceMembers.role })
+    .select({ role: workspaceMembers.role, enabledModules: workspaces.enabledModules })
     .from(workspaceMembers)
     .innerJoin(users, eq(users.id, workspaceMembers.userId))
     .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
@@ -148,7 +150,12 @@ export async function redeemAttachmentLink(
   if (!member) throw gone;
   const row = await findAttachment(db, payload.w, payload.a);
   if (!row) throw gone;
-  const levels = await memberModuleLevels(db, payload.w, { userId: payload.u, role: member.role }, active);
+  const levels = await memberModuleLevels(
+    db,
+    payload.w,
+    { userId: payload.u, role: member.role },
+    activeWorkspaceModules(active, member.enabledModules),
+  );
   const needed = attachmentModules(row);
   if (needed.length === 0 || !needed.every((m) => hasModuleLevel(levels[m], "read"))) throw gone;
   return row;

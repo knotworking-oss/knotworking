@@ -1,6 +1,7 @@
 import {
   attachmentListQuerySchema,
   attachmentTargets,
+  attachmentTargetScope,
   hasModuleLevel,
   isAttachmentTargetType,
   isInlineImageType,
@@ -54,7 +55,9 @@ function assertParentModule(
   if (parent.taskId) assertModule(c, "tasks", needed);
   if (parent.documentId) assertModule(c, "docs", needed);
   if (parent.entityType && isAttachmentTargetType(parent.entityType)) {
-    assertModule(c, attachmentTargets[parent.entityType].module, needed);
+    const target = attachmentTargetScope(parent.entityType);
+    assertModule(c, target.module, needed);
+    for (const dependency of target.requiresModules) assertModule(c, dependency, "read");
   }
 }
 
@@ -118,7 +121,7 @@ export const attachmentRoutes = new Hono<WorkspaceEnv>()
    */
   .get("/attachments", validate("query", attachmentListQuerySchema), async (c) => {
     const { entityType, entityId } = c.req.valid("query");
-    assertModule(c, attachmentTargets[entityType].module, "read");
+    assertParentModule(c, { entityType }, "read");
     return c.json(await listRecordAttachments(c.var.db, c.var.workspace.id, entityType, entityId));
   })
   /**

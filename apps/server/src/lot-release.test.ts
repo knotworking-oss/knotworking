@@ -121,6 +121,32 @@ describe("evidence-based lot release", () => {
     expect(releases[0].releasedByName).toBeTruthy();
   });
 
+  it("still blocks release on a retained failed test when Testing is hidden in the workspace", async () => {
+    const lot = await receive();
+    await ok(await hold(lot));
+    const pending = await sample(lot, [{ name: "Moisture", max: 15 }]);
+    await record(pending, { Moisture: { value: 18 } });
+    const settings = (modules: string[] | null) => as(ada).send("PATCH", "/module-settings", { modules });
+    try {
+      await ok(await settings(["items", "stock"]));
+      expect((await as(ada).get(`/testing/samples/${pending.id}`)).status).toBe(404);
+      const check = await ok(await as(ada).get(`/stock/lots/${lot}/release-check`));
+      expect(check).toMatchObject({ blocked: true, ruleVersion: null, status: "quarantine" });
+      const blocker = expect.objectContaining({
+        kind: "investigation_open",
+        status: "block",
+        hidden: true,
+        refs: [],
+      });
+      expect(check.checks).toEqual(expect.arrayContaining([blocker]));
+      const refused = await fails(await release(lot), 409, "release_blocked");
+      expect(refused.error.details.checks).toEqual(expect.arrayContaining([blocker]));
+      expect(JSON.stringify(refused)).not.toContain(pending.reference);
+    } finally {
+      await ok(await settings(null));
+    }
+  });
+
   it("blocks a release while results are pending, unless two managers agree an exception", async () => {
     const lot = await receive();
     await ok(await hold(lot));

@@ -50,6 +50,8 @@ export interface CurrentWorkspace {
   role: WorkspaceRole;
   /** The caller's effective level per active module (see `@knotworking/core` modules.ts). */
   modules: ModuleAccessMap;
+  /** The installation's module list, before applying the workspace selection. */
+  availableModules: readonly ModuleId[];
 }
 
 export interface Services {
@@ -68,7 +70,7 @@ export interface Services {
   storage: Storage;
   /** Largest accepted upload, in bytes. */
   uploadMaxBytes: number;
-  /** Modules switched on in this environment (`KNOTWORKING_MODULES`). */
+  /** Installation modules, narrowed to the workspace on workspace requests. */
   activeModules: readonly ModuleId[];
   /** Key kiosk PINs are hashed under, derived from the server secret (`services/people.ts`). */
   staffPinKey: Buffer;

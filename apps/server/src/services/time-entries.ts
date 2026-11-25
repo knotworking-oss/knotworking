@@ -314,7 +314,7 @@ export async function stopTimer(db: Database, workspaceId: string, actorId: stri
 }
 
 /** Live entries on live tasks, for the bootstrap snapshot. */
-export async function listWorkspaceTimeEntries(db: Database, workspaceId: string) {
+export async function listWorkspaceTimeEntries(db: Executor, workspaceId: string) {
   const rows = await db
     .select({ entry: timeEntries })
     .from(timeEntries)

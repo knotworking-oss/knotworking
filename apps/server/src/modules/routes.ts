@@ -47,6 +47,7 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   [/^\/customers(\/|$)/, "customers"],
   [/^\/despatch(\/|$)/, "despatch"],
   [/^\/sales(\/|$)/, "sales"],
+  [/^\/client-services(\/|$)/, "client_services"],
   [/^\/hse\/incidents(\/|$)/, "hse_incidents"],
   [/^\/hse(\/|$)/, "hse"],
   // Demand planning.
@@ -65,6 +66,7 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   [/^\/quality(\/|$)/, "quality"],
   // Purchasing: purchase orders, goods-in against them, suggestions and supplier performance.
   [/^\/purchasing(\/|$)/, "purchasing"],
+  [/^\/purchase-requests(\/|$)/, "purchase_requests"],
   // Costing: batch costs, lot costs and standard against actual (all reads).
   [/^\/costing(\/|$)/, "costing"],
   // Site programmes: pest control, glass register, planned maintenance, storage temperatures, checklists.
@@ -87,7 +89,7 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   // Assistant: the member's own conversations (their provider keys are under /v1/me).
   [/^\/assistant(\/|$)/, "assistant"],
   // Platform.
-  [/^\/(bootstrap|sync|events|search|modules|settings)$/, "platform"],
+  [/^\/(bootstrap|sync|events|search|modules|module-settings|settings)$/, "platform"],
   [/^\/(members|invitations|teams|attachments|notifications|token-actions)(\/|$)/, "platform"],
 ];
 

@@ -137,6 +137,8 @@ describe("resolveModuleAccess", () => {
       workforce: "none",
       workforce_hr: "none",
       bi: "none",
+      purchase_requests: "none",
+      client_services: "none",
     });
   });
 

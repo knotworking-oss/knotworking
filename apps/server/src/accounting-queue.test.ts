@@ -150,6 +150,26 @@ describe("accounting dispatch and the finance review queue", () => {
     const listed = await queue(xero);
     expect(listed).toMatchObject({ adapterInstalled: true, canReadBack: true, counts: { queued: 1 } });
     expect(listed.postings[0]).toMatchObject({ id, reference: "Q-1", gross: "12.00", state: "queued" });
+    try {
+      await ok(send("PATCH", "/module-settings", { modules: ["tasks", "docs"] }));
+      expect((await dispatchQueuedPostings(ctx.handle.db, registry)).posted).toBe(0);
+    } finally {
+      await ok(send("PATCH", "/module-settings", { modules: null }));
+    }
+    const switchOffAfterScan = createAccountingAdapterRegistry({
+      async xero(binding) {
+        await ok(send("PATCH", "/module-settings", { modules: ["tasks", "docs"] }));
+        return fakeXero(binding);
+      },
+    });
+    const before = calls;
+    try {
+      expect((await dispatchQueuedPostings(ctx.handle.db, switchOffAfterScan)).posted).toBe(0);
+      expect(calls).toBe(before);
+    } finally {
+      await ok(send("PATCH", "/module-settings", { modules: null }));
+    }
+    expect((await item(xero, id)).posting).toMatchObject({ state: "queued", attempts: 0, attemptId: null });
     expect(await dispatchQueuedPostings(ctx.handle.db, registry)).toEqual({
       posted: 1,
       failed: 0,

@@ -168,6 +168,8 @@ describe("member module access", () => {
       workforce: "manage",
       workforce_hr: "manage",
       bi: "manage",
+      purchase_requests: "manage",
+      client_services: "manage",
     });
     // New modules are opt-in: members have nothing until an admin grants it.
     expect((await level(member.cookie)).items).toBe("none");
@@ -219,9 +221,48 @@ describe("member module access", () => {
       "workforce",
       "workforce_hr",
       "bi",
+      "purchase_requests",
+      "client_services",
     ]);
     const row = list.members.find((m: { userId: string }) => m.userId === member.userId);
     expect(row.access.docs).toEqual({ grant: null, effective: "write" });
+  });
+
+  it("changes workspace activation without deleting data or rewriting member grants", async () => {
+    const base = "/v1/workspaces/acme";
+    const patch = (modules: string[] | null, cookie = ada) =>
+      ctx.req(`${base}/module-settings`, { method: "PATCH", cookie, json: { modules } });
+    const before = await json(await ctx.req(`${base}/bootstrap`, { cookie: ada }));
+    expect(before.tasks.length).toBeGreaterThan(0);
+    expect((await json(await ctx.req(`${base}/module-settings`, { cookie: ada }))).followsServer).toBe(true);
+    expect((await patch(["docs"], member.cookie)).status).toBe(403);
+    expect((await patch(["time"])).status).toBe(400);
+
+    await setLevel(member.userId, "items", "read");
+    try {
+      expect((await patch(["docs"])).status).toBe(200);
+      const inactive = await ctx.req(`${base}/tasks`, { cookie: ada });
+      expect(inactive.status).toBe(404);
+      expect((await json(inactive)).error.code).toBe("module_inactive");
+      const hidden = await json(await ctx.req(`${base}/bootstrap`, { cookie: ada }));
+      expect(hidden.tasks).toEqual([]);
+      expect(hidden.modules.map((m: { id: string }) => m.id)).toEqual(["docs"]);
+      const changes = await json(
+        await ctx.req(`${base}/sync?after=${before.cursor}`, { cookie: member.cookie }),
+      );
+      expect(changes.changes).toEqual(
+        expect.arrayContaining([expect.objectContaining({ entity: "workspace_modules" })]),
+      );
+      expect((await ctx.req(`${base}/items`, { cookie: member.cookie })).status).toBe(404);
+
+      expect((await patch(null)).status).toBe(200);
+      const restored = await json(await ctx.req(`${base}/bootstrap`, { cookie: ada }));
+      expect(restored.tasks).toEqual(before.tasks);
+      expect((await ctx.req(`${base}/items`, { cookie: member.cookie })).status).toBe(200);
+    } finally {
+      await patch(null);
+      await setLevel(member.userId, "items", null);
+    }
   });
 
   it("refuses to edit admins, to give guests write, and unknown modules", async () => {
@@ -388,6 +429,8 @@ describe("member module access", () => {
       workforce: "none",
       workforce_hr: "none",
       bi: "none",
+      purchase_requests: "none",
+      client_services: "none",
     });
     const headers = { authorization: `Bearer ${docsOnly}`, origin: "" };
     expect((await ctx.req("/v1/workspaces/acme/documents", { headers })).status).toBe(200);

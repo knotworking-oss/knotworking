@@ -356,6 +356,8 @@ export function createFakeApi() {
     attendance: "manage",
     quality: "manage",
     purchasing: "manage",
+    purchase_requests: "manage",
+    client_services: "manage",
     costing: "manage",
     site: "manage",
     labels: "manage",
@@ -1078,6 +1080,22 @@ export function createFakeApi() {
   const defenceModule = mountFakeDefence(app, ws);
   const governanceModule = mountFakeGovernance(app, ws);
   const biModule = mountFakeBi(app, ws);
+  const purchaseRequest = { id: newId(), title: "Equipment stand", status: "pending" };
+  app.get(`${ws}/purchase-requests`, (c) =>
+    c.json({ requests: [purchaseRequest], nextCursor: null, approverIds: [] }),
+  );
+  app.get(`${ws}/purchase-requests/:id`, (c) =>
+    c.req.param("id") === purchaseRequest.id
+      ? c.json(purchaseRequest)
+      : c.json(err("not_found", "Purchase request not found"), 404),
+  );
+  const serviceQuote = { id: newId(), title: "Design workshop", status: "accepted" };
+  app.get(`${ws}/client-services`, (c) => c.json({ quotes: [serviceQuote], nextCursor: null }));
+  app.get(`${ws}/client-services/:id`, (c) =>
+    c.req.param("id") === serviceQuote.id
+      ? c.json(serviceQuote)
+      : c.json(err("not_found", "Service quote not found"), 404),
+  );
 
   /** How many requests hit `path` (a suffix such as "/bootstrap") with `method`. */
   const hits = (path: string, method = "GET") =>

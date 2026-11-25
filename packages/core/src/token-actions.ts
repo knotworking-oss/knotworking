@@ -178,6 +178,8 @@ export const personOnlyActions: readonly PersonOnlyAction[] = [
   personOnly("workforce_hr", "Access private HR absence records", "attestation"),
   personOnly("workforce_hr", "Prepare, approve and export payroll runs", "sign_off"),
   // Sign-offs and approvals.
+  personOnly("purchase_requests", "Decide or withdraw purchase requests", "sign_off"),
+  personOnly("client_services", "Sign client service quote and delivery decisions", "sign_off"),
   personOnly("items", "Approve or suspend suppliers", "sign_off"),
   personOnly("items", "Assess supplier risk", "sign_off"),
   personOnly("items", "Accept or reject supplier questionnaires", "sign_off"),

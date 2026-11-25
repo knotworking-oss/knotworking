@@ -11,7 +11,7 @@
  */
 import { ApiError } from "@knotworking/api-client";
 import type { SyncChange } from "@knotworking/core";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeBootstrap, makeDoc, makeTask } from "@/test/fixtures";
@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   post: vi.fn(),
   del: vi.fn(),
   syncGet: vi.fn(),
+  bootstrapGet: vi.fn(),
   projectPost: vi.fn(),
   projectPatch: vi.fn(),
   projectDel: vi.fn(),
@@ -73,6 +74,7 @@ vi.mock("./auth-client", async () => {
           documents: { ":id": { $patch: mocks.docPatch } },
           "task-relations": { $post: mocks.relationPost, ":id": { $delete: mocks.relationDel } },
           sync: { $get: mocks.syncGet },
+          bootstrap: { $get: mocks.bootstrapGet },
         },
       },
     },
@@ -157,6 +159,7 @@ beforeEach(() => {
   mocks.post.mockReset();
   mocks.del.mockReset();
   mocks.syncGet.mockReset();
+  mocks.bootstrapGet.mockReset();
   mocks.projectPost.mockReset();
   mocks.projectPatch.mockReset();
   mocks.projectDel.mockReset();
@@ -197,6 +200,30 @@ describe("useWorkspace", () => {
     expect(store.tasks).toEqual([a, b]);
     expect(store.idx.states.get("todo")).toBeDefined();
     expect(store.idx.boot.tasks).toEqual([a, b]);
+  });
+
+  it("reloads the workspace when module activation changes during a snapshot reload", async () => {
+    const initial = server();
+    const m = mount(initial);
+    const first = deferred<Response>();
+    mocks.bootstrapGet
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce(json({ ...initial, cursor: "2" }));
+
+    commit("workspace_modules", initial.workspace.id, { id: initial.workspace.id });
+    await act(async () => m.result.current.sync.store.pull());
+    expect(mocks.bootstrapGet).toHaveBeenCalledTimes(1);
+
+    commit("workspace_modules", initial.workspace.id, { id: initial.workspace.id });
+    await act(async () => {
+      first.resolve(
+        json(makeBootstrap([], { cursor: "1", modules: initial.modules.filter((m) => m.id === "docs") })),
+      );
+    });
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalled());
+    expect(mocks.bootstrapGet).toHaveBeenCalledTimes(2);
+    expect(m.result.current.can("tasks")).toBe(true);
+    expect(m.result.current.tasks).toEqual([a, b]);
   });
 
   it("is read-only for guests only", () => {

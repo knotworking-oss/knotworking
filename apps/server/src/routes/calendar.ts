@@ -4,6 +4,7 @@ import { z } from "zod";
 import { activateConnection, disconnect, getOwnConnection, listConnections } from "../calendar/connections";
 import { syncConnection } from "../calendar/sync";
 import type { AppEnv, WorkspaceEnv } from "../env";
+import { requireModuleLevel } from "../middleware/modules";
 import { requireWriter } from "../middleware/roles";
 import {
   cancelMeeting,
@@ -89,8 +90,13 @@ export const meetingRoutes = new Hono<WorkspaceEnv>()
   .post("/meetings/:id/cancel", requireWriter, validate("param", idParam), async (c) =>
     c.json(await cancelMeeting(c.var.calendar, c.var.workspace, c.var.user.id, c.req.valid("param").id)),
   )
-  .post("/meetings/:id/notes", requireWriter, validate("param", idParam), async (c) =>
-    c.json(await createMeetingNotes(c.var.db, c.var.workspace, c.var.user.id, c.req.valid("param").id)),
+  .post(
+    "/meetings/:id/notes",
+    requireWriter,
+    requireModuleLevel("docs", "write"),
+    validate("param", idParam),
+    async (c) =>
+      c.json(await createMeetingNotes(c.var.db, c.var.workspace, c.var.user.id, c.req.valid("param").id)),
   )
   .post(
     "/meetings/import",

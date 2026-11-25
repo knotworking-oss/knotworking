@@ -198,6 +198,38 @@ describe("supplier control enforcement", () => {
     expect(sent.sendControlsOverride).toMatchObject({ reason: "Need it today" });
   });
 
+  it("enforces required supplier specifications while Specifications is hidden in the workspace", async () => {
+    await ok(
+      await as(ada).send("POST", `/suppliers/${mill}/risk-assessments`, {
+        riskLevel: "medium",
+        rationale: "Review the supplier specification before buying",
+        controls: ["specification"],
+        reviewDueOn: nextYear,
+      }),
+      201,
+    );
+    const order = await draftOrder();
+    const settings = (modules: string[] | null) => as(ada).send("PATCH", "/module-settings", { modules });
+    try {
+      await ok(await settings(["items", "stock", "purchasing"]));
+      expect((await as(ada).get("/specifications")).status).toBe(404);
+      const result = await ok(await as(ada).get(`/suppliers/${mill}/controls`));
+      expect(result.assessments[0].controlStates).toEqual(
+        expect.arrayContaining([expect.objectContaining({ control: "specification", state: "missing" })]),
+      );
+      const approveResult = await fails(await approve(mill), 409, "supplier_controls_open");
+      expect(approveResult.error.message).toContain("No approved specification");
+      const sendResult = await fails(
+        await as(ada).send("POST", `/purchasing/orders/${order}/send`, {}),
+        409,
+        "supplier_controls_open",
+      );
+      expect(sendResult.error.message).toContain("No approved specification");
+    } finally {
+      await ok(await settings(null));
+    }
+  });
+
   it("stops blocking once the controls are met", async () => {
     await ok(
       await as(ada).send("POST", `/suppliers/${mill}/risk-assessments`, {

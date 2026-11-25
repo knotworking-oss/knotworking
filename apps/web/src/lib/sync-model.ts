@@ -44,6 +44,7 @@ type Collection = keyof typeof collections;
  */
 export const refetchOn: ReadonlySet<string> = new Set<SyncEntityType>([
   "workspace",
+  "workspace_modules",
   "user",
   "workspace_member",
   // Someone's module access changed: what the viewer may see can differ, so start from a fresh snapshot.

@@ -38,6 +38,7 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
+import { recipeTerms } from "./recipe-terms";
 
 /**
  * Sidebar navigation
@@ -163,7 +164,7 @@ export const navAreas: readonly NavArea[] = [
   {
     id: "items",
     label: "Items & suppliers",
-    description: "Ingredients, packaging and products",
+    description: "Materials, products and services",
     icon: Package,
     group: "Operations",
     visible: needs("items"),
@@ -723,12 +724,26 @@ export const getArea = (id: string | undefined | null): NavArea | undefined =>
   navAreas.find((a) => a.id === id);
 
 /** The areas the viewer can open, in menu order. */
-export const visibleAreas = (access: NavAccess): NavArea[] => navAreas.filter((a) => a.visible(access));
+export const visibleAreas = (access: NavAccess): NavArea[] =>
+  navAreas
+    .filter((a) => a.visible(access))
+    .map((area) =>
+      area.id === "recipes" ? { ...area, label: recipeTerms(access.can("food_items")).title } : area,
+    );
 
 /** An area's sections with the items the viewer can't see removed (and sections left empty dropped). */
 export function visibleSections(area: NavArea, access: NavAccess): NavSection[] {
   return area.sections
-    .map((s) => ({ ...s, items: s.items.filter((i) => !i.show || i.show(access)) }))
+    .map((section) => ({
+      ...section,
+      items: section.items
+        .filter((item) => !item.show || item.show(access))
+        .map((item) =>
+          area.id === "recipes" && item.path === "recipes"
+            ? { ...item, label: recipeTerms(access.can("food_items")).title }
+            : item,
+        ),
+    }))
     .filter((s) => s.items.length > 0);
 }
 

@@ -35,6 +35,7 @@ import { formatAmount } from "@/components/stock-badges";
 import type { ProductionBatch, RecipeRow, StockLocation } from "@/lib/api";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 import { useWorkspace } from "@/lib/workspace-store";
+import { recipeTerms } from "@/lib/recipe-terms";
 
 const NONE = "none";
 
@@ -239,6 +240,7 @@ function PlanBatchDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const terms = recipeTerms(useWorkspace().can("food_items"));
   const [recipeId, setRecipeId] = useState(recipes[0]?.id ?? "");
   const [plannedOn, setPlannedOn] = useState(initialDate);
   const [mode, setMode] = useState<"batches" | "output">("batches");
@@ -297,11 +299,11 @@ function PlanBatchDialog({
           <FieldGroup className="py-4">
             {recipes.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No recipe has an approved version yet. Approve one on the Recipes page first.
+                No {terms.singular} has an approved version yet. Approve one on the {terms.title} page first.
               </p>
             ) : (
               <Field>
-                <FieldLabel id="plan-recipe-label">Recipe</FieldLabel>
+                <FieldLabel id="plan-recipe-label">{terms.one}</FieldLabel>
                 <Select
                   value={recipeId}
                   onValueChange={(id) => {

@@ -41,7 +41,7 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   [/^\/items(\/|$)/, "items"],
   [/^\/suppliers(\/|$)/, "items"],
   // Recipes.
-  [/^\/recipes(\/|$)/, "recipes"],
+  [/^\/(?:recipes|boms)(\/|$)/, "recipes"],
   // SOPs.
   [/^\/sops(\/|$)/, "sops"],
   // Stock: locations, lots and the movement ledger.

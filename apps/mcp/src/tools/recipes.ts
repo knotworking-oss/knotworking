@@ -113,21 +113,25 @@ export function registerRecipeTools({ define, slugOf, workspaceParam }: ToolCont
       cost: l.cost,
       ...("scaledQuantity" in l ? { scaledQuantity: l.scaledQuantityRounded } : {}),
     })),
-    allergens: {
-      contains: v.rollup.allergens.contains,
-      containsNames: v.rollup.allergens.contains.map((c) => allergens[c]),
-      mayContain: v.rollup.allergens.mayContain,
-      mayContainNames: v.rollup.allergens.mayContain.map((c) => allergens[c]),
-    },
-    allergenMismatch: {
-      ...v.rollup.allergenMismatch,
-      note:
-        v.rollup.allergenMismatch.undeclared.length || v.rollup.allergenMismatch.unexplained.length
-          ? "The output item's declared allergens don't match what the ingredients bring in: fix the item or the recipe."
-          : "Matches the output item's declaration.",
-    },
+    ...(v.foodItemsIncluded !== false
+      ? {
+          allergens: {
+            contains: v.rollup.allergens.contains,
+            containsNames: v.rollup.allergens.contains.map((c) => allergens[c]),
+            mayContain: v.rollup.allergens.mayContain,
+            mayContainNames: v.rollup.allergens.mayContain.map((c) => allergens[c]),
+          },
+          allergenMismatch: {
+            ...v.rollup.allergenMismatch,
+            note:
+              v.rollup.allergenMismatch.undeclared.length || v.rollup.allergenMismatch.unexplained.length
+                ? "The output item's declared allergens don't match what the ingredients bring in: fix the item or the recipe."
+                : "Matches the output item's declaration.",
+          },
+        }
+      : {}),
     cost: v.rollup.cost,
-    ...(v.status === "approved"
+    ...(v.foodItemsIncluded !== false && v.status === "approved"
       ? {
           allergenRecheck: v.allergenDrift
             ? {
@@ -155,7 +159,7 @@ export function registerRecipeTools({ define, slugOf, workspaceParam }: ToolCont
       resource: { name: "recipes", op: "list" },
       title: "List recipes",
       description:
-        "List recipes with their output item, current approved version number, whether a draft is in progress, and rolled-up allergens. Filter by `query` (name or code), `output_item`, `ingredient` (recipes whose approved or draft version uses that item), `allergen_drift` (true: only recipes whose approved version's ingredients now declare different allergens than when it was approved) or `status` (default: active). Paged: use `offset` while `hasMore` is true.",
+        "List bills of materials (recipes in food workspaces) with their output item, current approved version number, whether a draft is in progress, and rolled-up allergens when Food Items is readable. Filter by `query` (name or code), `output_item`, `ingredient` (recipes whose approved or draft version uses that item), `allergen_drift` (true: only recipes whose approved version's ingredients now declare different allergens than when it was approved) or `status` (default: active). Paged: use `offset` while `hasMore` is true.",
       annotations: READ,
       input: {
         workspace: workspaceParam,
@@ -201,7 +205,7 @@ export function registerRecipeTools({ define, slugOf, workspaceParam }: ToolCont
           outputItem: r.outputItem ? { code: r.outputItem.code, name: r.outputItem.name } : null,
           approvedVersion: r.approvedVersionNumber,
           hasDraft: r.hasDraft,
-          allergens: r.allergens,
+          ...(r.foodItemsIncluded !== false ? { allergens: r.allergens } : {}),
         })),
         total: page.total,
         offset: page.offset,
@@ -218,7 +222,7 @@ export function registerRecipeTools({ define, slugOf, workspaceParam }: ToolCont
       resource: { name: "recipes", op: "get" },
       title: "Get recipe",
       description:
-        "One recipe by id or exact code: its current version (the approved one, else the draft) with ingredient lines, yield, method, allergen roll-up (contains / may contain, and whether it mismatches the output item's declaration), and cost per batch and per output unit (partial when an ingredient has no cost). Also lists every version and any draft in progress. Pass `batches`, or `output_quantity` with `output_unit`, to get each line scaled as `scaledQuantity`.",
+        "One bill of materials (recipe) by id or exact code: its current version (the approved one, else the draft) with ingredient lines, yield, method, allergen roll-up (contains / may contain, and whether it mismatches the output item's declaration), and cost per batch and per output unit (partial when an ingredient has no cost). Also lists every version and any draft in progress. Pass `batches`, or `output_quantity` with `output_unit`, to get each line scaled as `scaledQuantity`.",
       annotations: READ,
       input: {
         workspace: workspaceParam,

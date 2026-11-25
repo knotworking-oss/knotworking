@@ -56,6 +56,7 @@ import { mountFakePurchasing } from "./fake-purchasing";
 import { mountFakeCosting } from "./fake-costing";
 import { mountFakeMaintenance } from "./fake-maintenance";
 import { mountFakeChecklists } from "./fake-checklists";
+import { mountFakeCrm } from "./fake-crm";
 import { mountFakeSite } from "./fake-site";
 import { mountFakeAssets } from "./fake-assets";
 import { mountFakeLabels } from "./fake-labels";
@@ -361,6 +362,7 @@ export function createFakeApi() {
     purchasing: "manage",
     purchase_requests: "manage",
     client_services: "manage",
+    crm: "manage",
     costing: "manage",
     site: "manage",
     labels: "manage",
@@ -1075,6 +1077,7 @@ export function createFakeApi() {
   const costingModule = mountFakeCosting(app, ws);
   const maintenanceModule = mountFakeMaintenance(app, ws, assetsModule);
   mountFakeChecklists(app, ws);
+  mountFakeCrm(app, ws);
   const siteModule = mountFakeSite(app, ws, assetsModule, maintenanceModule);
   const labelsModule = mountFakeLabels(app, ws, { items: itemsModule.items, recipes: recipesModule.recipes });
   const specificationsModule = mountFakeSpecifications(app, ws, {

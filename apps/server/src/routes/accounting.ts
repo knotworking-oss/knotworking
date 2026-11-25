@@ -14,6 +14,7 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
+import { xeroRoutes } from "./xero";
 import { requireAdmin } from "../middleware/roles";
 import { assertModule, canRead, requireModuleLevel } from "../middleware/modules";
 import { validate } from "../validate";
@@ -45,10 +46,12 @@ const manage = requireModuleLevel("accounting", "manage");
 /** Financial setup is administration by a signed-in person; no token or MCP configuration access. */
 export const accountingRoutes = new Hono<WorkspaceEnv>()
   .use("/accounting/*", requireAdmin, manage)
+  .route("/accounting/connections/:id/xero", xeroRoutes)
   .get("/accounting/connections", validate("query", accountingPageSchema), async (c) =>
     c.json({
       ...(await listAccountingConnections(c.var.db, c.var.workspace.id, c.req.valid("query").offset)),
       providers: accountingProviderCandidates,
+      xeroConfigured: !!c.var.xero,
       canMapSuppliers: canRead(c, "items"),
       canMapCustomers: canRead(c, "customers"),
       canPrepareInvoices: canRead(c, "purchasing"),

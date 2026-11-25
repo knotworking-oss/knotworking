@@ -44,6 +44,9 @@ import { despatchOperationRoutes } from "./routes/despatch-operations";
 import { hseRoutes, hseIncidentRoutes } from "./routes/hse";
 import { workforceRoutes } from "./routes/workforce";
 import { biRoutes } from "./routes/bi";
+import { xeroCallbackRoutes } from "./routes/xero";
+import { xeroCallbackPath } from "./accounting/xero-http";
+import type { XeroConnectionService } from "./accounting/xero-connection";
 import { accountingRoutes } from "./routes/accounting";
 import { salesRoutes } from "./routes/sales";
 import { despatchRoutes } from "./routes/despatch";
@@ -128,6 +131,7 @@ export interface AppOptions {
   assistantMcpUrl?: string;
   /** Installed accounting adapters (default: none, so nothing is ever sent). */
   accountingAdapters?: AccountingAdapterRegistry;
+  xero?: XeroConnectionService;
 }
 
 export function createApp({
@@ -154,7 +158,8 @@ export function createApp({
   assistantHub = new AssistantHub(db),
   assistantDeps,
   assistantMcpUrl = "http://127.0.0.1:4100/mcp",
-  accountingAdapters = createAccountingAdapterRegistry(),
+  xero,
+  accountingAdapters = createAccountingAdapterRegistry(xero ? { xero: xero.adapter } : {}),
 }: AppOptions) {
   const app = new Hono<AppEnv>();
   const staffPinKey = deriveStaffPinKey(secret);
@@ -171,7 +176,10 @@ export function createApp({
   // Module write paths and the due-date sweep email their notifications through this.
   registerNotificationDelivery(db, { mailer, appUrl, activeModules });
 
-  if (log) app.use(logger());
+  if (log) {
+    const logRequest = logger();
+    app.use("*", (c, next) => (c.req.path === xeroCallbackPath ? next() : logRequest(c, next)));
+  }
   app.use("*", cors({ origin: [appUrl, ...trustedOrigins], credentials: true }));
   app.use("*", async (c, next) => {
     c.set("db", db);
@@ -187,6 +195,7 @@ export function createApp({
     c.set("uploadMaxBytes", uploadMaxBytes);
     c.set("activeModules", activeModules);
     c.set("accountingAdapters", accountingAdapters);
+    c.set("xero", xero);
     c.set("staffPinKey", staffPinKey);
     c.set("attachmentLinkKey", attachmentLinkKey);
     c.set("assistantHub", assistantHub);
@@ -330,6 +339,7 @@ export function createApp({
     .route("/v1/workspaces/:slug", hseIncidentRoutes)
     .route("/v1/workspaces/:slug", workforceRoutes)
     .route("/v1/workspaces/:slug", accountingRoutes)
+    .route("/", xeroCallbackRoutes)
     .route("/v1/workspaces/:slug", salesRoutes)
     .route("/v1/workspaces/:slug", despatchRoutes)
     .route("/v1/workspaces/:slug", despatchOperationRoutes)

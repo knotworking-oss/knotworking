@@ -9,6 +9,7 @@ import { createCalendarDeps } from "./calendar";
 import { startCalendarScheduler } from "./calendar/scheduler";
 import { startNotificationSweep } from "./services/notification-sweep";
 import { startAccountingDispatcher } from "./accounting/dispatcher";
+import { createXeroConnectionService } from "./accounting/xero-connection";
 import { createAccountingAdapterRegistry } from "./accounting/registry";
 import { needsSetup } from "./services/setup";
 import { loadConfig } from "./config";
@@ -30,8 +31,11 @@ const setupToken = (await needsSetup(handle.db))
   ? process.env.SETUP_TOKEN || randomBytes(18).toString("base64url")
   : undefined;
 const assistantHub = new AssistantHub(handle.db);
-// No live adapter is installed yet: provider sign-in (e.g. Xero OAuth) registers factories here.
-const accountingAdapters = createAccountingAdapterRegistry();
+const xero =
+  config.xero && config.activeModules.includes("accounting")
+    ? createXeroConnectionService(handle.db, { ...config.xero, appUrl: config.appUrl, secret: config.secret })
+    : undefined;
+const accountingAdapters = createAccountingAdapterRegistry(xero ? { xero: xero.adapter } : {});
 const app = createApp({
   assistantHub,
   assistantMcpUrl: config.assistantMcpUrl,
@@ -49,6 +53,7 @@ const app = createApp({
   activeModules: config.activeModules,
   secret: config.secret,
   accountingAdapters,
+  xero,
   log: true,
 });
 
@@ -91,7 +96,7 @@ const server = serve({ fetch: app.fetch, port: config.port, hostname: config.hos
   );
   if (config.activeModules.includes("accounting"))
     console.log(
-      `  accounting dispatch ${accountingDispatch ? `every ${config.accountingDispatchIntervalMs / 1000}s` : "off (no adapter installed)"}`,
+      `  accounting dispatch ${accountingDispatch ? `every ${config.accountingDispatchIntervalMs / 1000}s` : "off"}`,
     );
   console.log(
     `  calendar sync ${cal.length ? `${cal.join(" + ")} every ${config.calendarSyncIntervalMs / 1000}s` : "off (no Google/Microsoft OAuth configured)"}`,

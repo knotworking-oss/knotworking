@@ -51,13 +51,16 @@ const linksOf = (c: Context<WorkspaceEnv>): CrmLinks => ({
   tasks: canRead(c, "tasks"),
 });
 
-/** Linking a quote needs read access to the module that owns it (`404 module_inactive` when it is off). */
+/**
+ * Linking or unlinking a quote needs read access to the module that owns it (`404 module_inactive`
+ * when it is off), so a link a member can't see can't be dropped by them either.
+ */
 function assertQuoteAccess(
   c: Context<WorkspaceEnv>,
   input: { salesQuoteId?: string | null; serviceQuoteId?: string | null },
 ) {
-  if (input.salesQuoteId) assertModule(c, "sales", "read");
-  if (input.serviceQuoteId) assertModule(c, "client_services", "read");
+  if (input.salesQuoteId !== undefined) assertModule(c, "sales", "read");
+  if (input.serviceQuoteId !== undefined) assertModule(c, "client_services", "read");
 }
 
 export const crmRoutes = new Hono<WorkspaceEnv>()
@@ -119,7 +122,11 @@ export const crmRoutes = new Hono<WorkspaceEnv>()
   )
   .post("/crm/opportunities", validate("json", crmOpportunityCreateSchema), async (c) => {
     const input = c.req.valid("json");
-    assertQuoteAccess(c, input);
+    // A new opportunity has no link to drop: only a named quote needs access.
+    assertQuoteAccess(c, {
+      salesQuoteId: input.salesQuoteId ?? undefined,
+      serviceQuoteId: input.serviceQuoteId ?? undefined,
+    });
     return c.json(
       await createCrmOpportunity(
         c.var.db,

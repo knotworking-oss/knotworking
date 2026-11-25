@@ -35,6 +35,8 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   // Calendar and meetings.
   [/^\/calendar$/, "calendar"],
   [/^\/meetings(\/|$)/, "calendar"],
+  // Assets: the shared register of areas, equipment, vehicles, IT and tools.
+  [/^\/assets(\/|$)/, "assets"],
   // Items and suppliers.
   [/^\/items(\/|$)/, "items"],
   [/^\/suppliers(\/|$)/, "items"],

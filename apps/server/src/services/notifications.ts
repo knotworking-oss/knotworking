@@ -21,7 +21,7 @@ import {
 } from "@knotworking/core";
 import {
   documents,
-  haccpAssets,
+  assets as assetRegister,
   haccpPlans,
   haccpCorrectiveActions,
   memberModuleAccess,
@@ -686,8 +686,8 @@ const deletedSubjects: { type: NotificationType; module?: ModuleId; table: AnyPg
   { type: "corrective_action_open", module: "site", table: siteCorrectiveActions },
   { type: "deviation_recorded", table: haccpCorrectiveActions },
   { type: "hazard_review_due", table: haccpPlans },
-  { type: "cleaning_due", table: haccpAssets },
-  { type: "calibration_due", table: haccpAssets },
+  { type: "cleaning_due", table: assetRegister },
+  { type: "calibration_due", table: assetRegister },
   { type: "maintenance_due", table: siteMaintenanceTasks },
   { type: "label_stale", table: productLabels },
   { type: "recipe_allergen_drift", table: recipes },

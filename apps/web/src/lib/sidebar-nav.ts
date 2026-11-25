@@ -1,6 +1,7 @@
 import type { ModuleAccessLevel, ModuleId } from "@knotworking/core";
 import {
   BookOpen,
+  Boxes,
   Bug,
   CalendarClock,
   CalendarDays,
@@ -348,6 +349,16 @@ export const navAreas: readonly NavArea[] = [
     ],
   },
   {
+    id: "assets",
+    label: "Assets",
+    description: "Areas, equipment, vehicles, IT and tools",
+    icon: Boxes,
+    group: "Operations",
+    visible: needs("assets"),
+    keywords: ["asset register", "equipment", "areas", "vehicles", "tools", "it"],
+    sections: [{ items: [{ label: "Asset register", path: "assets", icon: Boxes }] }],
+  },
+  {
     id: "purchase_requests",
     label: "Purchase requests",
     description: "Spending requests and approvals",
@@ -546,7 +557,7 @@ export const navAreas: readonly NavArea[] = [
       {
         items: [
           { label: "Health, safety & environment", path: "hse", icon: ShieldCheck, exact: true },
-          { label: "Permits", path: "hse/permits", icon: FileCheck, show: needs("site") },
+          { label: "Permits", path: "hse/permits", icon: FileCheck, show: needs("assets") },
           {
             label: "Incidents",
             path: "hse/incidents",

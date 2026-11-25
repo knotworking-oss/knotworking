@@ -7,7 +7,7 @@ import {
   newId,
   todayInZone,
 } from "@knotworking/core";
-import { hseRecords, hseVersions, hsePermits, workspaces, siteAssets } from "@knotworking/db";
+import { hseRecords, hseVersions, hsePermits, workspaces, assets } from "@knotworking/db";
 import { eq } from "drizzle-orm";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { makeApp, signIn, type TestCtx, type Res } from "./test-utils";
@@ -159,11 +159,12 @@ describe("HSE controlled records, safe permits and restricted investigations", (
         note: "Competence and insurance checked",
       }),
     );
-    const area = (
-      await ok(await call("POST", "/haccp/assets", { name: "HSE mixing room", kind: "area" }), 201)
-    ).id;
+    const area = (await ok(await call("POST", "/assets", { name: "HSE mixing room", kind: "area" }), 201)).id;
     asset = (
-      await ok(await call("POST", "/site/maintenance/assets", { name: "HSE mixer", areaId: area }), 201)
+      await ok(
+        await call("POST", "/assets", { name: "HSE mixer", kind: "equipment", parentAreaId: area }),
+        201,
+      )
     ).id;
   }, 60_000);
   afterAll(() => ctx.handle.close());
@@ -662,7 +663,7 @@ describe("HSE controlled records, safe permits and restricted investigations", (
     // An expired permit left behind when HSE is switched off still holds the asset.
     const [offWorkspace] = await off.handle.db.select().from(workspaces).where(eq(workspaces.slug, "acme"));
     const offArea = await ok(
-      await off.req(`${WS}/haccp/assets`, {
+      await off.req(`${WS}/assets`, {
         method: "POST",
         cookie,
         json: { name: "Isolated mixer area", kind: "area" },
@@ -670,8 +671,13 @@ describe("HSE controlled records, safe permits and restricted investigations", (
       201,
     );
     const [offAsset] = await off.handle.db
-      .insert(siteAssets)
-      .values({ workspaceId: offWorkspace!.id, name: "Isolated mixer", areaId: offArea.id })
+      .insert(assets)
+      .values({
+        workspaceId: offWorkspace!.id,
+        kind: "equipment",
+        name: "Isolated mixer",
+        parentAreaId: offArea.id,
+      })
       .returning();
     await off.handle.db.insert(hsePermits).values({
       workspaceId: offWorkspace!.id,

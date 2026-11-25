@@ -7,7 +7,7 @@ import type { CalibrationState, DeviceKind, DeviceStatus, DeviceUnit } from "@kn
 import { sql } from "drizzle-orm";
 import { boolean, index, numeric, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "../schema";
-import { haccpAssets } from "./haccp";
+import { assets } from "./assets";
 import { pk, timestamps, ts, workspaceRef } from "./helpers";
 import { productionLines, productionPackingChecks } from "./production";
 
@@ -25,7 +25,7 @@ export const productionDevices = pgTable(
     unit: text("unit").$type<DeviceUnit>(),
     lineId: uuid("line_id").references(() => productionLines.id),
     /** HACCP equipment whose calibration records give this device's calibration state. */
-    haccpAssetId: uuid("haccp_asset_id").references(() => haccpAssets.id),
+    haccpAssetId: uuid("haccp_asset_id").references(() => assets.id),
     status: text("status").$type<DeviceStatus>().notNull().default("active"),
     note: text("note"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),

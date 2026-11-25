@@ -22,6 +22,7 @@ export const moduleIds = [
   "docs",
   "time",
   "calendar",
+  "assets",
   "items",
   "recipes",
   "sops",
@@ -196,6 +197,17 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     defaultActive: false,
     syncEntities: ["meeting", "meeting_attendee"],
   },
+  assets: {
+    id: "assets",
+    name: "Assets",
+    description:
+      "One register of areas, equipment, vehicles, IT, tools and other assets: codes, where they are, make and serial, purchase and warranty, and who looks after them.",
+    dependsOn: [],
+    enhancedBy: [],
+    defaultAccess: "none",
+    defaultActive: true,
+    syncEntities: ["asset"],
+  },
   items: {
     id: "items",
     name: "Items and suppliers",
@@ -320,7 +332,8 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Food safety records",
     description:
       "HACCP plan under document control, CCP monitoring logs with automatic out-of-limit flagging, corrective actions, and cleaning and calibration records.",
-    dependsOn: [],
+    // Cleaning and calibration are scheduled against areas and equipment of the asset register.
+    dependsOn: ["assets"],
     enhancedBy: ["items", "recipes", "stock", "production"],
     defaultAccess: "none",
     defaultActive: true,
@@ -433,8 +446,10 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Site programmes",
     description:
       "Prerequisite programmes: pest control, the glass and brittle plastics register, planned maintenance, storage temperature logging, and pre-start and allergen changeover checks, with what is due across them.",
-    dependsOn: ["haccp"],
-    enhancedBy: [],
+    // Areas and maintained equipment are rows of the asset register. HACCP only adds the link
+    // between a maintained asset and its calibration instrument.
+    dependsOn: ["assets"],
+    enhancedBy: ["haccp"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -551,7 +566,8 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Health, safety and environment",
     description: "Assessments, COSHH, contractor permits, inspections, waste and utilities.",
     dependsOn: ["training"],
-    enhancedBy: [],
+    // Contractor permits are raised against an asset of the register.
+    enhancedBy: ["assets"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["hse_record", "hse_entry", "hse_permit"],
@@ -614,6 +630,7 @@ const generalBusinessModules: readonly ModuleId[] = [
   "docs",
   "calendar",
   "time",
+  "assets",
   "sops",
   "customers",
   "people",

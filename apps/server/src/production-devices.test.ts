@@ -1,6 +1,6 @@
 import { addDays, DEFAULT_TIME_ZONE, todayInZone } from "@knotworking/core";
 import { beforeAll, describe, expect, it } from "vitest";
-import { makeApp, signIn, type Res, type TestCtx } from "./test-utils";
+import { addHaccpAsset, makeApp, signIn, type Res, type TestCtx } from "./test-utils";
 
 const WS = "/v1/workspaces/acme";
 const today = todayInZone(DEFAULT_TIME_ZONE);
@@ -87,17 +87,14 @@ describe("device adapters (3.5.4)", () => {
       )
     ).open.id;
     asset = (
-      await ok(
-        await call("POST", "/haccp/assets", {
-          kind: "equipment",
-          code: "SCALE-1",
-          name: "Pack scale 1",
-          calibrationFrequency: { every: 1, unit: "month" },
-          calibrationTolerance: 1,
-          measurementUnit: "g",
-        }),
-        201,
-      )
+      await addHaccpAsset(call, {
+        kind: "equipment",
+        code: "SCALE-1",
+        name: "Pack scale 1",
+        calibrationFrequency: { every: 1, unit: "month" },
+        calibrationTolerance: 1,
+        measurementUnit: "g",
+      })
     ).id;
   });
 
@@ -180,9 +177,7 @@ describe("device adapters (3.5.4)", () => {
       ),
     ).toBe("haccp_access_required");
     // An area reads as not found, without its name; a scale can't read in °C.
-    const area = (
-      await ok(await call("POST", "/haccp/assets", { kind: "area", name: "Secret cold room" }), 201)
-    ).id;
+    const area = (await addHaccpAsset(call, { kind: "area", name: "Secret cold room" })).id;
     const refused = await call("POST", "/production/devices", {
       code: "SC-A",
       name: "Area scale",

@@ -18,7 +18,6 @@ import {
   pestVisitCreateSchema,
   siteActionCreateSchema,
   siteActionUpdateSchema,
-  siteAssetCreateSchema,
   siteAssetUpdateSchema,
   storageMeasureDefaultUnits,
   storageReadingCreateSchema,
@@ -41,16 +40,17 @@ import type { ZodType } from "zod";
  * Seeded with two areas (Packing hall, Dispatch), pest device RB-01, a chiller (0 to 5 °C) and a
  * freezer (at most -18 °C), one overdue pest visit, and a pre-start checklist.
  */
-export function mountFakeSite(app: Hono, ws: string) {
+export function mountFakeSite(app: Hono, ws: string, register: { assets: Record<string, any>[] }) {
   const err = (code: string, message: string) => ({ error: { code, message } });
   const now = "2026-11-11T09:00:00.000Z";
   const today = "2026-11-11";
 
-  const areas = [
-    { id: newId(), code: null as string | null, name: "Packing hall", location: null, status: "active" },
-    { id: newId(), code: "DSP", name: "Dispatch", location: null, status: "active" },
-  ];
-  const areaOf = (id: string | null | undefined) => areas.find((a) => a.id === id) ?? null;
+  // Areas and maintained assets are the asset register's (fake-assets.ts).
+  const areas = register.assets.filter((a) => a.kind === "area");
+  const areaOf = (id: string | null | undefined) => {
+    const area = register.assets.find((a) => a.id === id && a.kind === "area");
+    return area ? { id: area.id, code: area.code, name: area.name, status: area.status } : null;
+  };
 
   const page = <T>(rows: T[], q: Record<string, string>) => {
     const limit = Number(q.limit ?? 50);
@@ -109,7 +109,7 @@ export function mountFakeSite(app: Hono, ws: string) {
 
   // Registers.
   const glassItems: Record<string, any>[] = [];
-  const assets: Record<string, any>[] = [];
+  const assets = register.assets;
   const tasks: Record<string, any>[] = [];
   const units: Record<string, any>[] = [
     {
@@ -203,7 +203,13 @@ export function mountFakeSite(app: Hono, ws: string) {
     return row;
   };
 
-  app.get(`${ws}/site/areas`, (c) => c.json({ areas }));
+  app.get(`${ws}/site/areas`, (c) =>
+    c.json({
+      areas: register.assets
+        .filter((a) => a.kind === "area")
+        .map(({ id, code, name, location, status }) => ({ id, code, name, location, status })),
+    }),
+  );
   app.get(`${ws}/site/due`, (c) => {
     const q = c.req.query();
     const items = [
@@ -398,33 +404,27 @@ export function mountFakeSite(app: Hono, ws: string) {
     return c.json(row);
   });
 
-  // Maintenance.
+  // Maintenance: any asset of the register, with Site's link to a calibration instrument.
+  const links = new Map<string, string | null>();
   const assetView = (a: Record<string, any>) => ({
-    ...a,
-    area: areaOf(a.areaId),
+    id: a.id,
+    kind: a.kind,
+    code: a.code,
+    name: a.name,
+    location: a.location,
+    areaId: a.parentAreaId,
+    status: a.status,
+    calibrationInstrumentId: links.get(a.id) ?? null,
+    area: areaOf(a.parentAreaId),
     calibrationInstrument: null,
   });
   app.get(`${ws}/site/maintenance/assets`, (c) => c.json({ assets: assets.map(assetView) }));
-  app.post(`${ws}/site/maintenance/assets`, async (c) => {
-    const { data, response } = await parse(c, siteAssetCreateSchema);
-    if (response) return response;
-    const row = {
-      ...data!,
-      id: newId(),
-      code: data!.code ?? null,
-      location: data!.location ?? null,
-      areaId: data!.areaId ?? null,
-      status: "active",
-    };
-    assets.push(row);
-    return c.json(assetView(row), 201);
-  });
   app.patch(`${ws}/site/maintenance/assets/:id`, async (c) => {
     const { data, response } = await parse(c, siteAssetUpdateSchema);
     if (response) return response;
     const row = assets.find((a) => a.id === c.req.param("id"));
     if (!row) return c.json(err("not_found", "Asset not found"), 404);
-    Object.assign(row, data);
+    links.set(row.id, data!.calibrationInstrumentId);
     return c.json(assetView(row));
   });
   const taskView = (t: Record<string, any>) => ({
@@ -464,7 +464,7 @@ export function mountFakeSite(app: Hono, ws: string) {
   const workOrderView = (w: Record<string, any>) => ({
     ...w,
     asset: assets.find((a) => a.id === w.assetId) ?? null,
-    area: areaOf(assets.find((a) => a.id === w.assetId)?.areaId),
+    area: areaOf(assets.find((a) => a.id === w.assetId)?.parentAreaId),
     requestedByName: "Agent",
     assignedToName: null,
     totalCost: workOrderTotalCost(w as never),

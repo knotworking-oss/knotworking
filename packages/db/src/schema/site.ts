@@ -6,8 +6,8 @@
  * Records (visits, checks, maintenance records, storage readings, check results) are append-only:
  * no route updates or deletes them, except one-time stamps (a storage reading's review, a
  * maintenance record's hygiene clearance, a check's sign-off). A correction is a new row that
- * points at the one it corrects. Areas are rows of the HACCP register (`haccp_assets`, kind
- * `area`), which is why the module needs `haccp`.
+ * points at the one it corrects. Areas and maintained equipment are rows of the asset register
+ * (`assets`; areas are kind `area`), which is why the module needs `assets`.
  */
 import type {
   BreakageStatus,
@@ -46,14 +46,14 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { users } from "../schema";
-import { haccpAssets } from "./haccp";
+import { assets } from "./assets";
 import { pk, timestamps, ts, workspaceRef } from "./helpers";
 import { productionBatches } from "./production";
 
 const value = (name: string) => numeric(name, { precision: 14, scale: 4, mode: "number" });
 const money = (name: string) => numeric(name, { precision: 12, scale: 2, mode: "number" });
 const userRef = (name: string) => uuid(name).references(() => users.id, { onDelete: "set null" });
-const areaRef = (name = "area_id") => uuid(name).references(() => haccpAssets.id);
+const areaRef = (name = "area_id") => uuid(name).references(() => assets.id);
 
 // ─── Pest control ────────────────────────────────────────────────────────────
 
@@ -143,7 +143,7 @@ export const siteGlassItems = pgTable(
     workspaceId: workspaceRef(),
     areaId: uuid("area_id")
       .notNull()
-      .references(() => haccpAssets.id),
+      .references(() => assets.id),
     kind: text("kind").$type<GlassItemKind>().notNull(),
     description: text("description").notNull(),
     quantity: integer("quantity").notNull().default(1),
@@ -168,7 +168,7 @@ export const siteGlassChecks = pgTable(
     /** Denormalised from the item: the area it was in when checked. */
     areaId: uuid("area_id")
       .notNull()
-      .references(() => haccpAssets.id),
+      .references(() => assets.id),
     condition: text("condition").$type<GlassCondition>().notNull(),
     note: text("note"),
     checkedAt: ts("checked_at").notNull(),
@@ -198,7 +198,7 @@ export const siteGlassBreakages = pgTable(
     workspaceId: workspaceRef(),
     areaId: uuid("area_id")
       .notNull()
-      .references(() => haccpAssets.id),
+      .references(() => assets.id),
     itemId: uuid("item_id").references(() => siteGlassItems.id),
     occurredAt: ts("occurred_at").notNull(),
     description: text("description").notNull(),
@@ -226,32 +226,24 @@ export const siteGlassBreakages = pgTable(
 
 // ─── Planned maintenance ─────────────────────────────────────────────────────
 
-/** A piece of equipment that is maintained. Archived, never deleted. */
-export const siteAssets = pgTable(
-  "site_assets",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    /** Asset tag; unique among live assets when set. */
-    code: text("code"),
-    name: text("name").notNull(),
-    location: text("location"),
-    areaId: areaRef(),
-    /**
-     * The instrument of the HACCP calibration register (`haccp_assets`, equipment) this asset is.
-     * A reference only: HACCP's records are read, never written, from here.
-     */
-    calibrationInstrumentId: uuid("calibration_instrument_id").references(() => haccpAssets.id),
-    status: text("status").$type<SiteStatus>().notNull().default("active"),
-    ...timestamps(),
-  },
-  (t) => [
-    index("site_assets_workspace_idx").on(t.workspaceId, t.name),
-    uniqueIndex("site_assets_workspace_code_key")
-      .on(t.workspaceId, sql`lower(${t.code})`)
-      .where(sql`${t.deletedAt} is null and ${t.code} is not null`),
-  ],
-);
+/**
+ * Site's part of an asset of the register: the instrument of the HACCP calibration register this
+ * maintained asset is, if any (a reference only: HACCP's records are read, never written, from
+ * here). One row per asset, keyed by the asset's id; an asset without a row has no link. Maintenance
+ * tasks, records and work orders point at the asset itself (`assets`).
+ */
+export const siteAssets = pgTable("site_assets", {
+  id: uuid("id")
+    .primaryKey()
+    .references(() => assets.id),
+  workspaceId: workspaceRef(),
+  calibrationInstrumentId: uuid("calibration_instrument_id").references(() => assets.id),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
 
 /** A recurring maintenance task on an asset. Archived, never deleted. */
 export const siteMaintenanceTasks = pgTable(
@@ -261,7 +253,7 @@ export const siteMaintenanceTasks = pgTable(
     workspaceId: workspaceRef(),
     assetId: uuid("asset_id")
       .notNull()
-      .references(() => siteAssets.id),
+      .references(() => assets.id),
     title: text("title").notNull(),
     description: text("description"),
     frequencyEvery: integer("frequency_every").notNull(),
@@ -289,7 +281,7 @@ export const siteMaintenanceRecords = pgTable(
       .references(() => siteMaintenanceTasks.id),
     assetId: uuid("asset_id")
       .notNull()
-      .references(() => siteAssets.id),
+      .references(() => assets.id),
     /** The asset's area when the work was done. */
     areaId: areaRef(),
     completedAt: ts("completed_at").notNull(),
@@ -328,7 +320,7 @@ export const siteWorkOrders = pgTable(
     workspaceId: workspaceRef(),
     assetId: uuid("asset_id")
       .notNull()
-      .references(() => siteAssets.id),
+      .references(() => assets.id),
     /** The planned task this is about, if any. */
     taskId: uuid("task_id").references(() => siteMaintenanceTasks.id),
     /** The asset's area when raised. */

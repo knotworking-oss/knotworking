@@ -47,12 +47,13 @@ export function HsePicker({
       }
       if (kind === "asset") {
         const r = await unwrap(
-          api.site.maintenance.assets.$get({ param: { slug }, query: { status: "active" } }),
+          api.assets.$get({
+            param: { slug },
+            query: { status: "active", limit: "50", offset: String(next), ...(q.trim() ? { q } : {}) },
+          }),
         );
-        rows = r.assets
-          .filter((a) => a.name.toLowerCase().includes(q.toLowerCase()))
-          .map((a) => ({ id: a.id, name: a.name }));
-        total = rows.length;
+        rows = r.assets.map((a) => ({ id: a.id, name: a.code ? `${a.code} · ${a.name}` : a.name }));
+        total = r.total;
       }
       if (kind === "staff") {
         const r = await unwrap(

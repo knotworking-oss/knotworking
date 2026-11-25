@@ -13,8 +13,7 @@ import {
   hseVersions,
   hseEntries,
   hsePermits,
-  siteAssets,
-  haccpAssets,
+  assets,
   haccpCalibrationRecords,
   haccpCleaningRecords,
   haccpCorrectiveActions,
@@ -149,9 +148,7 @@ describe("attachments on module records", () => {
           .values({ workspaceId: w, code: "FLOUR", name: "Flour", type: "ingredient", unit: "g" })
           .returning(),
       ),
-      await one(
-        db.insert(haccpAssets).values({ workspaceId: w, kind: "area", name: "Bake hall" }).returning(),
-      ),
+      await one(db.insert(assets).values({ workspaceId: w, kind: "area", name: "Bake hall" }).returning()),
       await one(
         db
           .insert(trainingCourses)
@@ -240,7 +237,7 @@ describe("attachments on module records", () => {
         .returning(),
     );
     const hseAsset = await one(
-      db.insert(siteAssets).values({ workspaceId: w, name: "Fixture asset" }).returning(),
+      db.insert(assets).values({ workspaceId: w, kind: "equipment", name: "Fixture asset" }).returning(),
     );
     const hsePermit = await one(
       db
@@ -543,14 +540,14 @@ describe("attachments on module records", () => {
     }
   }, 60_000);
 
-  it("keeps contractor permit evidence behind Site access when HSE registers are visible", async () => {
+  it("keeps contractor permit evidence behind Assets access when HSE registers are visible", async () => {
     const { cursor } = await (await ctx.req(`${base}/bootstrap`, { cookie: ada })).json();
     const uploaded = await upload({ cookie: ada }, on("hse_permit"));
     expect(uploaded.status).toBe(201);
     const { id } = await uploaded.json();
     const link = await (await ctx.req(`${base}/attachments/${id}/link`, { cookie: marcus })).json();
     const publicPath = new URL(link.url).pathname.replace(/^\/api/, "");
-    await level("site", "none");
+    await level("assets", "none");
     try {
       expect((await ctx.req(`${base}/hse/registers`, { cookie: marcus })).status).toBe(200);
       expect((await list(marcus, "hse_permit", records.hse_permit)).status).toBe(403);
@@ -559,7 +556,7 @@ describe("attachments on module records", () => {
       const sync = await (await ctx.req(`${base}/sync?after=${cursor}`, { cookie: marcus })).json();
       expect(sync.changes.some((change: { entityId: string }) => change.entityId === id)).toBe(false);
     } finally {
-      await level("site", "write");
+      await level("assets", "write");
     }
   });
 

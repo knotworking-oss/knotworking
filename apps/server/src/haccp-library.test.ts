@@ -5,7 +5,7 @@ import { makeApp, signIn, type TestCtx } from "./test-utils";
 
 const WS = "/v1/workspaces/acme";
 const today = todayInZone(DEFAULT_TIME_ZONE);
-const DEPENDENCIES = ["items", "recipes", "stock", "demand", "production"] as const;
+const DEPENDENCIES = ["assets", "items", "recipes", "stock", "demand", "production"] as const;
 const MODULES = [...DEPENDENCIES, "haccp"] as const;
 
 const hazard = (extra: object = {}) => ({

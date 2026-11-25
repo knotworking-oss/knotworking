@@ -14,9 +14,8 @@ import {
   correctiveActionListQuerySchema,
   correctiveActionUpdateSchema,
   deviationListQuerySchema,
-  haccpAssetCreateSchema,
   haccpAssetListQuerySchema,
-  haccpAssetUpdateSchema,
+  haccpAssetScheduleSchema,
   haccpBulkSignoffSchema,
   haccpDaySignoffSchema,
   haccpHazardReviewSchema,
@@ -49,7 +48,6 @@ import {
   correctCalibration,
   correctCleaning,
   correctLog,
-  createAsset,
   createCorrectiveAction,
   createHazardLibraryEntry,
   createPlan,
@@ -87,7 +85,7 @@ import {
   setPlanStatus,
   signOffDay,
   signOffDays,
-  updateAsset,
+  updateAssetSchedule,
   updateCorrectiveAction,
   updateHazardLibraryEntry,
   updatePlan,
@@ -495,20 +493,17 @@ export const haccpRoutes = new Hono<WorkspaceEnv>()
       ),
   )
 
-  // ── Areas and equipment ──
+  // ── Areas and equipment: assets of the register (Assets module) with their schedules ──
   .get("/haccp/assets", validate("query", haccpAssetListQuerySchema), async (c) =>
     c.json(await listAssets(c.var.db, c.var.workspace.id, c.req.valid("query"))),
-  )
-  .post("/haccp/assets", validate("json", haccpAssetCreateSchema), async (c) =>
-    c.json(await createAsset(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
   )
   .patch(
     "/haccp/assets/:id",
     validate("param", idParam),
-    validate("json", haccpAssetUpdateSchema),
+    validate("json", haccpAssetScheduleSchema),
     async (c) =>
       c.json(
-        await updateAsset(
+        await updateAssetSchedule(
           c.var.db,
           c.var.workspace.id,
           c.var.user.id,

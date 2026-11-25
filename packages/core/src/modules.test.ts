@@ -32,8 +32,13 @@ describe("module manifest", () => {
   });
 
   it("keeps the loosened modules' integrations soft", () => {
-    expect(modules.haccp.dependsOn).toEqual([]);
+    // HACCP needs the asset register (its cleaning and calibration schedule is of assets), nothing else.
+    expect(modules.haccp.dependsOn).toEqual(["assets"]);
     expect(modules.haccp.enhancedBy).toEqual(expect.arrayContaining(["items", "production"]));
+    // Site needs areas from the asset register; HACCP (calibration instruments) is only soft.
+    expect(modules.site.dependsOn).toEqual(["assets"]);
+    expect(modules.site.enhancedBy).toContain("haccp");
+    expect(modules.hse.enhancedBy).toContain("assets");
     expect(modules.production.dependsOn).toEqual(["recipes", "stock"]);
     expect(modules.production.enhancedBy).toContain("demand");
     expect(modules.quality.dependsOn).toEqual([]);
@@ -72,7 +77,8 @@ describe("parseActiveModules", () => {
   });
 
   it("never requires a soft dependency", () => {
-    expect(parseActiveModules("haccp")).toEqual(["haccp"]);
+    expect(parseActiveModules("assets,haccp")).toEqual(["assets", "haccp"]);
+    expect(parseActiveModules("assets,site")).toEqual(["assets", "site"]);
     expect(parseActiveModules("quality")).toEqual(["quality"]);
     expect(parseActiveModules("items,recipes,stock,production")).toEqual([
       "items",
@@ -80,7 +86,11 @@ describe("parseActiveModules", () => {
       "stock",
       "production",
     ]);
-    expect(activeWorkspaceModules([...moduleIds], ["haccp", "quality"])).toEqual(["haccp", "quality"]);
+    expect(activeWorkspaceModules([...moduleIds], ["assets", "haccp", "quality"])).toEqual([
+      "assets",
+      "haccp",
+      "quality",
+    ]);
     expect(activeWorkspaceModules([...moduleIds], ["items", "recipes", "stock", "production"])).toContain(
       "production",
     );
@@ -148,6 +158,7 @@ describe("resolveModuleAccess", () => {
       grants: {
         quality: "write",
         haccp: "write",
+        assets: "read",
         items: "read",
         recipes: "read",
         stock: "read",
@@ -163,7 +174,7 @@ describe("resolveModuleAccess", () => {
     const noItems = resolveModuleAccess({
       role: "member",
       active,
-      grants: { quality: "write", haccp: "write", production: "write" },
+      grants: { quality: "write", haccp: "write", assets: "read", production: "write" },
     });
     expect(noItems.quality).toBe("write");
     expect(noItems.haccp).toBe("write");
@@ -177,6 +188,7 @@ describe("resolveModuleAccess", () => {
       docs: "manage",
       time: "none",
       calendar: "none",
+      assets: "none",
       items: "none",
       recipes: "none",
       sops: "none",

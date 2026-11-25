@@ -55,6 +55,7 @@ import { mountFakePurchaseInvoices } from "./fake-purchase-invoices";
 import { mountFakePurchasing } from "./fake-purchasing";
 import { mountFakeCosting } from "./fake-costing";
 import { mountFakeSite } from "./fake-site";
+import { mountFakeAssets } from "./fake-assets";
 import { mountFakeLabels } from "./fake-labels";
 
 /**
@@ -1045,6 +1046,7 @@ export function createFakeApi() {
       });
   }
 
+  const assetsModule = mountFakeAssets(app, ws);
   const itemsModule = mountFakeItems(app, ws);
   const recipesModule = mountFakeRecipes(app, ws, itemsModule.items);
   const sopsModule = mountFakeSops(app, ws);
@@ -1069,7 +1071,7 @@ export function createFakeApi() {
   const purchasingModule = mountFakePurchasing(app, ws, { items: itemsModule, stock: stockModule });
   const purchaseInvoicesModule = mountFakePurchaseInvoices(app, ws, purchasingModule);
   const costingModule = mountFakeCosting(app, ws);
-  const siteModule = mountFakeSite(app, ws);
+  const siteModule = mountFakeSite(app, ws, assetsModule);
   const labelsModule = mountFakeLabels(app, ws, { items: itemsModule.items, recipes: recipesModule.recipes });
   const specificationsModule = mountFakeSpecifications(app, ws, {
     items: itemsModule.items,
@@ -1136,6 +1138,7 @@ export function createFakeApi() {
     purchaseInvoicesModule,
     costingModule,
     siteModule,
+    assetsModule,
     labelsModule,
     fetch: fetchImpl,
   };

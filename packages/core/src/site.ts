@@ -623,7 +623,7 @@ const deviceFields = {
   /** Contractor's reference, e.g. `RB-07`; unique among live devices. */
   code: requiredText(40),
   location: requiredText(200),
-  /** The area (an area of the HACCP register) the device is in. */
+  /** The area (an asset of kind `area` of the asset register) the device is in. */
   areaId: z.uuid().nullable(),
 };
 
@@ -882,33 +882,13 @@ export type GlassBreakageListQuery = z.infer<typeof glassBreakageListQuerySchema
 
 // Planned maintenance --------------------------------------------------------
 
-const assetFields = {
-  code: optionalText(40),
-  name: requiredText(200),
-  location: optionalText(200),
-  /** The area it stands in. */
-  areaId: z.uuid().nullable(),
-  /**
-   * The instrument of the HACCP calibration register (equipment) this asset is, when it is one: a
-   * reference only, so the asset shows its calibration status and the register is not changed.
-   */
-  calibrationInstrumentId: z.uuid().nullable(),
-};
-
-export const siteAssetCreateSchema = z.object({
-  id: z.uuid().optional(),
-  code: assetFields.code.optional(),
-  name: assetFields.name,
-  location: assetFields.location.optional(),
-  areaId: assetFields.areaId.optional(),
-  calibrationInstrumentId: assetFields.calibrationInstrumentId.optional(),
-});
-export type SiteAssetCreateInput = z.infer<typeof siteAssetCreateSchema>;
-
-export const siteAssetUpdateSchema = z
-  .object({ ...assetFields, status: z.enum(siteStatuses) })
-  .partial()
-  .refine(nonEmptyPatch, "Nothing to update");
+/**
+ * Site's part of an asset of the register: the instrument of the HACCP calibration register
+ * (equipment) this maintained asset is, when it is one. A reference only, so the asset shows its
+ * calibration status and the register is not changed. Needs HACCP. The asset itself (code, name,
+ * area, status) is changed in the asset register.
+ */
+export const siteAssetUpdateSchema = z.object({ calibrationInstrumentId: z.uuid().nullable() });
 export type SiteAssetUpdateInput = z.infer<typeof siteAssetUpdateSchema>;
 
 export const siteAssetListQuerySchema = z.object({

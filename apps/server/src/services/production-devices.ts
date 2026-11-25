@@ -18,6 +18,7 @@ import {
   type ReadingOutcome,
 } from "@knotworking/core";
 import {
+  assets as assetRegister,
   haccpAssets,
   haccpCalibrationRecords,
   lockWorkspaceLog,
@@ -86,9 +87,16 @@ async function calibrationOf(db: Executor, ws: string, devices: readonly DeviceR
   const assetIds = [...new Set(devices.map((d) => d.haccpAssetId).filter((id): id is string => !!id))];
   const assets = assetIds.length
     ? await db
-        .select()
-        .from(haccpAssets)
-        .where(and(eq(haccpAssets.workspaceId, ws), inArray(haccpAssets.id, assetIds)))
+        .select({
+          id: assetRegister.id,
+          status: assetRegister.status,
+          deletedAt: assetRegister.deletedAt,
+          calibrationEvery: haccpAssets.calibrationEvery,
+          calibrationUnit: haccpAssets.calibrationUnit,
+        })
+        .from(assetRegister)
+        .leftJoin(haccpAssets, eq(haccpAssets.id, assetRegister.id))
+        .where(and(eq(assetRegister.workspaceId, ws), inArray(assetRegister.id, assetIds)))
     : [];
   const records = assetIds.length
     ? await db
@@ -203,9 +211,9 @@ async function assertAsset(db: Executor, ws: string, id: string, access: DeviceA
       "Linking calibrated equipment needs access to the HACCP module",
     );
   const [asset] = await db
-    .select()
-    .from(haccpAssets)
-    .where(and(eq(haccpAssets.id, id), eq(haccpAssets.workspaceId, ws), isNull(haccpAssets.deletedAt)));
+    .select({ kind: assetRegister.kind, status: assetRegister.status })
+    .from(assetRegister)
+    .where(and(eq(assetRegister.id, id), eq(assetRegister.workspaceId, ws), isNull(assetRegister.deletedAt)));
   if (!asset || asset.kind !== "equipment" || asset.status !== "active") throw notFound("Equipment");
 }
 

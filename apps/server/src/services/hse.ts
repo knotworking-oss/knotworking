@@ -24,7 +24,7 @@ import {
   hseEntries as entries,
   hsePermits as permits,
   hsePermitEvents as permitEvents,
-  siteAssets,
+  assets as assetRegister,
   suppliers,
   workspaceMembers,
   trainingCourses,
@@ -519,10 +519,10 @@ export async function voidHseEntry(
 
 async function assetOf(db: Executor, ws: string, id: string) {
   const [a] = await db
-    .select({ id: siteAssets.id, name: siteAssets.name, status: siteAssets.status })
-    .from(siteAssets)
-    .where(and(eq(siteAssets.workspaceId, ws), eq(siteAssets.id, id), isNull(siteAssets.deletedAt)));
-  if (!a) throw notFound("Site asset");
+    .select({ id: assetRegister.id, name: assetRegister.name, status: assetRegister.status })
+    .from(assetRegister)
+    .where(and(eq(assetRegister.workspaceId, ws), eq(assetRegister.id, id), isNull(assetRegister.deletedAt)));
+  if (!a) throw notFound("Asset");
   return a;
 }
 async function permitOf(db: Executor, ws: string, id: string) {

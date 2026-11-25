@@ -176,6 +176,7 @@ describe("accounting dispatch and the finance review queue", () => {
       failed: 0,
       unknown: 0,
       skipped: 0,
+      deferred: 0,
     });
     const detail = await item(xero, id);
     expect(detail.posting).toMatchObject({ state: "posted", externalId: "TX-1" });

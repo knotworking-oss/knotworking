@@ -47,6 +47,8 @@ const taxRates = z.object({
       CanApplyToExpenses: z.boolean().optional(),
       CanApplyToLiabilities: z.boolean().optional(),
       CanApplyToRevenue: z.boolean().optional(),
+      /** The percentage Xero applies, compound components included. */
+      EffectiveRate: z.number().finite().nonnegative().optional(),
     }),
   ),
 });
@@ -58,8 +60,32 @@ const taxByClass = {
   REVENUE: "CanApplyToRevenue",
 } as const;
 const reject = (evidence: string) => ({ outcome: "rejected" as const, evidence });
+const defer = (evidence: string) => ({ outcome: "deferred" as const, evidence });
 /** A definitive reason the adapter refuses a document before any write. */
 class PreflightIssue extends Error {}
+/** How long a lookup of the organisation, chart, tax rates or a contact is reused. */
+const lookupTtlMs = 60_000;
+/** The difference allowed between a line's tax and its Xero rate applied to its amount. */
+const taxToleranceCents = 1;
+
+/** Xero refuses these before processing the request, so a refused write did not happen. */
+function refusedBeforeProcessing(error: unknown): error is XeroHttpError {
+  return error instanceof XeroHttpError && [401, 403, 429].includes(error.status);
+}
+const isReconnect = (error: unknown): error is ApiError =>
+  error instanceof ApiError && error.code === "xero_reconnect_required";
+
+/** The tax Xero expects on one line: amounts are tax-exclusive, tax-inclusive or untaxed. */
+export function expectedLineTaxCents(
+  amount: string,
+  effectiveRate: number,
+  lineAmountTypes: "Exclusive" | "Inclusive" | "NoTax",
+): number {
+  const cents = Math.round(Number(amount) * 100);
+  if (lineAmountTypes === "NoTax") return 0;
+  if (lineAmountTypes === "Inclusive") return (cents * effectiveRate) / (100 + effectiveRate);
+  return (cents * effectiveRate) / 100;
+}
 
 /**
  * Each Knotworking document kind maps to one Xero document. Customer invoices (`ACCREC`) and
@@ -137,6 +163,8 @@ function businessDate(value: string | null | undefined): string | null {
   const instant = new Date(Number(match[1]));
   return Number.isFinite(instant.getTime()) ? instant.toISOString().slice(0, 10) : null;
 }
+/** Bills are sent with tax-exclusive line amounts. */
+const lineAmountTypes = "Exclusive" as const;
 const unavailable = (written: boolean) => ({
   outcome: written ? ("unknown" as const) : ("rejected" as const),
   evidence: written
@@ -157,7 +185,13 @@ export function createXeroAdapter(options: {
   appUrl: string;
   workspaceSlug: string;
   getAccessToken: () => Promise<string>;
+  /** Xero refused this access token (401): mark it expired so the next one is refreshed. */
   onUnauthorized?: (token: string) => Promise<void>;
+  /**
+   * Xero refused this tenant (403). Resolves true when the organisation is no longer connected
+   * to this app in Xero, after marking the setup as needing to be reconnected.
+   */
+  onForbidden?: (token: string) => Promise<boolean>;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
 }): InstalledAccountingAdapter & Required<Pick<InstalledAccountingAdapter, "readBack" | "findExisting">> {
@@ -174,7 +208,10 @@ export function createXeroAdapter(options: {
     appUrl.hash ||
     appUrl.pathname !== "/"
   )
-    throw new Error("Use the trusted application origin");
+    throw new Error(
+      "APP_URL must be the application origin alone (scheme, host and port, no path): " +
+        "Xero bills link back to it and recovery searches for that exact link",
+    );
   const workspaceSlug = z
     .string()
     .regex(/^[a-z0-9][a-z0-9-]*$/)
@@ -205,16 +242,64 @@ export function createXeroAdapter(options: {
     if (issue) throw new PreflightIssue(issue);
     return document as PurchaseBill & { dueDate: string };
   }
-  async function request(path: string, token: string, init: RequestInit = {}) {
+  /**
+   * One operation's access to Xero. A 401 marks the token expired and retries once with a
+   * refreshed one; refusing to refresh (invalid_grant) surfaces as reconnect-required. A 403 asks
+   * whether the organisation is still connected to this app.
+   */
+  function session() {
+    let token: Promise<string> | null = null;
+    return async function request(path: string, init: RequestInit = {}): Promise<unknown> {
+      for (let attempt = 0; ; attempt++) {
+        token ??= options.getAccessToken();
+        const current = await token;
+        try {
+          return await xeroAccountingRequest(transport, binding.companyId, current, path, init, timeout);
+        } catch (error) {
+          if (
+            error instanceof XeroHttpError &&
+            error.status === 401 &&
+            attempt === 0 &&
+            options.onUnauthorized
+          ) {
+            await options.onUnauthorized(current);
+            token = null;
+            continue;
+          }
+          if (error instanceof XeroHttpError && error.status === 403 && (await forbidden(current)))
+            throw new ApiError(
+              409,
+              "xero_reconnect_required",
+              "This Xero organisation is no longer connected to Knotworking. Reconnect Xero to continue.",
+            );
+          throw error;
+        }
+      }
+    };
+  }
+  type Request = ReturnType<typeof session>;
+  async function forbidden(token: string) {
     try {
-      return await xeroAccountingRequest(transport, binding.companyId, token, path, init, timeout);
-    } catch (error) {
-      if (error instanceof XeroHttpError && error.status === 401) await options.onUnauthorized?.(token);
-      throw error;
+      return (await options.onForbidden?.(token)) ?? false;
+    } catch {
+      return false;
     }
   }
-  async function verifyOrganisation(token: string) {
-    const organisation = await readXeroOrganisation((path) => request(path, token));
+  // Lookups are shared by the bills of one dispatch pass (Xero allows 60 calls a minute per
+  // organisation), and expire quickly so a long-lived adapter still sees changes in Xero.
+  const lookups = new Map<string, { at: number; value: Promise<unknown> }>();
+  function lookup<T>(path: string, request: Request, parse: (data: unknown) => T): Promise<T> {
+    const hit = lookups.get(path);
+    if (hit && Date.now() - hit.at < lookupTtlMs) return hit.value as Promise<T>;
+    const value = request(path).then(parse);
+    lookups.set(path, { at: Date.now(), value });
+    value.catch(() => lookups.get(path)?.value === value && lookups.delete(path));
+    return value;
+  }
+  async function verifyOrganisation(request: Request) {
+    const organisation = await lookup("/Organisation", request, (data) =>
+      readXeroOrganisation(async () => data),
+    );
     if (
       organisation.OrganisationID.toLowerCase() !== binding.organisationId.toLowerCase() ||
       organisation.BaseCurrency !== binding.baseCurrency
@@ -222,13 +307,14 @@ export function createXeroAdapter(options: {
       return null;
     return organisation;
   }
-  async function mappingIssue(token: string, document: PurchaseBill) {
+  async function mappingIssue(request: Request, document: PurchaseBill) {
     const id = document.supplierReference.toLowerCase();
-    const contact = activeContact.parse(await request(`/Contacts/${id}`, token)).Contacts[0]!;
+    const contact = (await lookup(`/Contacts/${id}`, request, (data) => activeContact.parse(data)))
+      .Contacts[0]!;
     if (contact.ContactID.toLowerCase() !== id || contact.ContactStatus !== "ACTIVE")
       return "The reviewed supplier contact is not active in Xero";
-    const accounts = chart.parse(await request("/Accounts", token)).Accounts;
-    const rates = taxRates.parse(await request("/TaxRates", token)).TaxRates;
+    const accounts = (await lookup("/Accounts", request, (data) => chart.parse(data))).Accounts;
+    const rates = (await lookup("/TaxRates", request, (data) => taxRates.parse(data))).TaxRates;
     for (const [index, line] of document.lines.entries()) {
       const account = accounts.find((a) => a.Code === line.accountReference && a.Status === "ACTIVE");
       if (!account) return `Line ${index + 1} needs an active Xero account code`;
@@ -236,14 +322,23 @@ export function createXeroAdapter(options: {
       const applies = account.Class && taxByClass[account.Class as keyof typeof taxByClass];
       if (!tax || (applies && tax[applies] === false))
         return `Line ${index + 1} needs an active Xero tax type applicable to its account`;
-      if (line.taxReference === "NONE" && line.tax !== "0.00")
-        return `Line ${index + 1} has a tax amount against Xero's no-tax code`;
+      const issue = taxIssue(index, line, tax.EffectiveRate ?? (tax.TaxType === "NONE" ? 0 : undefined));
+      if (issue) return issue;
     }
     return null;
   }
-  function invoiceResponse(token: string, externalId: string) {
+  function taxIssue(index: number, line: PurchaseBill["lines"][number], rate: number | undefined) {
+    if (rate === undefined) return null; // Xero did not say; its own validation still applies.
+    if (rate === 0)
+      return line.tax === "0.00" ? null : `Line ${index + 1} has a tax amount against a 0% Xero tax rate`;
+    const expected = expectedLineTaxCents(line.net, rate, lineAmountTypes);
+    if (Math.abs(Math.round(Number(line.tax) * 100) - expected) > taxToleranceCents + 1e-9)
+      return `Line ${index + 1} tax ${line.tax} is not ${rate}% of its net amount ${line.net} in Xero`;
+    return null;
+  }
+  function invoiceResponse(request: Request, externalId: string) {
     z.uuid().parse(externalId);
-    return request(`/Invoices/${encodeURIComponent(externalId)}`, token);
+    return request(`/Invoices/${encodeURIComponent(externalId)}`);
   }
   function verifyInvoice(
     data: unknown,
@@ -300,7 +395,7 @@ export function createXeroAdapter(options: {
       gross: document.gross,
     });
   }
-  async function findInvoice(token: string, postingKey: string, document: PurchaseBill) {
+  async function findInvoice(request: Request, postingKey: string, document: PurchaseBill) {
     // Purchase bill numbers are not unique. Look for the source URL under the original contact
     // and date, then verify the whole invoice by ID. Ambiguity and incomplete searches stay unknown.
     const candidates = z.object({
@@ -323,7 +418,7 @@ export function createXeroAdapter(options: {
     const matches = new Set<string>();
     for (let page = 1; page <= 5; page++) {
       query.set("page", String(page));
-      const { Invoices } = candidates.parse(await request(`/Invoices?${query}`, token));
+      const { Invoices } = candidates.parse(await request(`/Invoices?${query}`));
       for (const invoice of Invoices) {
         if (invoice.InvoiceNumber === document.reference && (invoice.Url === source || !invoice.Url))
           matches.add(invoice.InvoiceID.toLowerCase());
@@ -332,7 +427,7 @@ export function createXeroAdapter(options: {
       if (Invoices.length < 100) {
         let receipt: AccountingReceipt | null = null;
         for (const id of matches) {
-          const data = await invoiceResponse(token, id);
+          const data = await invoiceResponse(request, id);
           const {
             Invoices: [invoice],
           } = z
@@ -352,11 +447,11 @@ export function createXeroAdapter(options: {
   async function readBack(input: { postingKey: string; document: AccountingPosting; externalId?: string }) {
     try {
       const document = prepare(input.postingKey, input.document);
-      const token = await options.getAccessToken();
-      if (!(await verifyOrganisation(token))) return null;
-      if (!input.externalId) return await findInvoice(token, input.postingKey, document);
+      const request = session();
+      if (!(await verifyOrganisation(request))) return null;
+      if (!input.externalId) return await findInvoice(request, input.postingKey, document);
       return verifyInvoice(
-        await invoiceResponse(token, input.externalId),
+        await invoiceResponse(request, input.externalId),
         input.postingKey,
         document,
         input.externalId,
@@ -377,13 +472,13 @@ export function createXeroAdapter(options: {
       try {
         const document = prepare(input.postingKey, input.document);
         z.uuid().parse(input.attemptId);
-        const token = await options.getAccessToken();
-        const organisation = await verifyOrganisation(token);
+        const request = session();
+        const organisation = await verifyOrganisation(request);
         if (!organisation) return reject("The Xero organisation or base currency differs from this setup");
         const lockDates = [organisation.PeriodLockDate, organisation.EndOfYearLockDate].map(businessDate);
         if (lockDates.some((date) => date && document.date <= date))
           return reject("The invoice date falls in a locked Xero accounting period");
-        const issue = await mappingIssue(token, document);
+        const issue = await mappingIssue(request, document);
         if (issue) return reject(issue);
         const invoice = {
           Type: xeroDocuments[document.kind].type,
@@ -394,7 +489,7 @@ export function createXeroAdapter(options: {
           DueDate: document.dueDate,
           Url: urlFor(input.postingKey, document),
           CurrencyCode: document.currency,
-          LineAmountTypes: "Exclusive",
+          LineAmountTypes: lineAmountTypes,
           LineItems: document.lines.map((line) => ({
             Description: line.description,
             Quantity: 1,
@@ -405,8 +500,22 @@ export function createXeroAdapter(options: {
             TaxType: line.taxReference,
           })),
         };
-        // Mark uncertainty before invoking the transport, including timeout/HTTP errors.
-        written = true;
+        let response: unknown;
+        try {
+          // Mark uncertainty before invoking the transport, including timeout/HTTP errors.
+          written = true;
+          // A 401 is retried once, after a refresh, under the same Idempotency-Key.
+          response = await request("/Invoices?summarizeErrors=false", {
+            method: "PUT",
+            headers: { "Idempotency-Key": input.postingKey },
+            body: JSON.stringify({ Invoices: [invoice] }),
+          });
+        } catch (error) {
+          // Authentication, authorisation and rate limiting refuse a request before Xero
+          // processes it, and needing to reconnect means the request was never sent again.
+          if (refusedBeforeProcessing(error) || isReconnect(error)) written = false;
+          throw error;
+        }
         const created = z
           .object({
             Invoices: z
@@ -420,13 +529,7 @@ export function createXeroAdapter(options: {
               )
               .length(1),
           })
-          .parse(
-            await request("/Invoices?summarizeErrors=false", token, {
-              method: "PUT",
-              headers: { "Idempotency-Key": input.postingKey },
-              body: JSON.stringify({ Invoices: [invoice] }),
-            }),
-          );
+          .parse(response);
         const result = created.Invoices[0]!;
         const hasId = result.InvoiceID && result.InvoiceID !== "00000000-0000-0000-0000-000000000000";
         if (!hasId && result.StatusAttributeString === "ERROR" && result.ValidationErrors?.length)
@@ -435,7 +538,7 @@ export function createXeroAdapter(options: {
         return {
           outcome: "posted" as const,
           receipt: verifyInvoice(
-            await invoiceResponse(token, result.InvoiceID!),
+            await invoiceResponse(request, result.InvoiceID!),
             input.postingKey,
             document,
             result.InvoiceID!,
@@ -443,11 +546,17 @@ export function createXeroAdapter(options: {
         };
       } catch (error) {
         if (!written && error instanceof PreflightIssue) return reject(error.message);
-        if (!written && error instanceof ApiError && error.code === "xero_reconnect_required")
-          return reject("Reconnect Xero before retrying this bill");
+        if (!written && isReconnect(error))
+          return defer(`${error.message} The bill stays queued and is sent once Xero is reconnected.`);
+        if (!written && error instanceof XeroHttpError && error.status === 429)
+          return defer("Xero's rate limit was reached before the bill was sent; it stays queued");
         if (!written && error instanceof XeroHttpError && error.status === 401)
           return reject(
-            "Xero denied access during preflight. Check the connection and consent before retrying.",
+            "Xero denied access, even after refreshing it. Check the connection and consent before retrying.",
+          );
+        if (!written && error instanceof XeroHttpError && error.status === 403)
+          return reject(
+            "Xero refused access to this organisation. Check the connected user's Xero permissions before retrying.",
           );
         if (error instanceof XeroHttpError && error.validationRejected)
           return reject("Xero rejected the bill during validation and did not create it");

@@ -260,7 +260,7 @@ describe("Xero purchase invoice HTTP adapter (fake transport)", () => {
     for (const failure of ["timeout", "http"] as const) {
       const f = fixture();
       if (failure === "timeout") f.state.loseWriteReply = true;
-      else f.state.writeStatus = 429;
+      else f.state.writeStatus = 503;
       const result = await f.adapter.post({
         postingKey: f.postingKey,
         attemptId: newId(),

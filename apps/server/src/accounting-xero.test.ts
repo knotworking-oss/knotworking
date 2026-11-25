@@ -70,7 +70,8 @@ function mockXero() {
         return tokens(20);
       }
       state.refreshes++;
-      if (state.denyRefresh || body.get("refresh_token") !== grantedRefresh)
+      // Revoked consent also invalidates the refresh token.
+      if (state.denyRefresh || state.revoked || body.get("refresh_token") !== grantedRefresh)
         return Response.json({ error: "invalid_grant" }, { status: 400 });
       return tokens(1800);
     }

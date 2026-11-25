@@ -17,5 +17,8 @@ export interface AccountingAdapter {
     // Only return rejected if the destination definitively performed NO write.
     | { outcome: "rejected"; evidence: string }
     | { outcome: "unknown"; evidence: string }
+    // Only if NO write happened and sending later may succeed without anyone acting (a rate
+    // limit, a setup waiting to be reconnected): the posting returns to the queue.
+    | { outcome: "deferred"; evidence: string }
   >;
 }

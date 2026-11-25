@@ -41,6 +41,7 @@ const actionLabels: Record<string, string> = {
   reconciled: "Confirmed in accounting system",
   rejected: "Rejected, nothing recorded",
   unknown: "Outcome uncertain",
+  deferred: "Not sent yet, back in the queue",
   retry_requested: "Retry requested",
 };
 

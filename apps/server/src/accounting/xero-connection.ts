@@ -41,6 +41,14 @@ const unavailable = () =>
     "xero_unavailable",
     "Xero could not be reached or returned an unexpected response. Try again.",
   );
+/** Refresh this long before expiry, so a token never lapses part-way through a dispatch pass. */
+const refreshMarginMs = 5 * 60_000;
+const removedInXero = () =>
+  new ApiError(
+    409,
+    "xero_reconnect_required",
+    "This Xero organisation is no longer connected to Knotworking in Xero. Reconnect Xero to continue.",
+  );
 const hash = (state: string) => createHash("sha256").update(state).digest("hex");
 const flowScope = (dest: Destination) =>
   and(eq(flows.workspaceId, dest.workspaceId), eq(flows.connectionId, dest.connectionId));
@@ -95,7 +103,7 @@ export function createXeroConnectionService(
 
   async function getTokens(tx: Transaction, row: Grant) {
     const tokens = unseal(row.ciphertext, grantContext(row), xeroTokens);
-    if (tokens && tokens.expires > Date.now() + 30_000) return tokens;
+    if (tokens && tokens.expires > Date.now() + refreshMarginMs) return tokens;
     let next: XeroTokens | null = null;
     if (tokens) {
       try {
@@ -132,15 +140,57 @@ export function createXeroConnectionService(
     return tokens.access;
   }
 
+  /**
+   * Xero refused this access token: mark it expired so the next request refreshes it. Only a
+   * refresh Xero refuses (invalid_grant) makes the setup need reconnecting.
+   */
   async function markUnauthorized(dest: Destination, access: string) {
     await db.transaction(async (tx) => {
       const row = await lockedGrant(tx, dest);
       if (!row) return;
       const tokens = unseal(row.ciphertext, grantContext(row), xeroTokens);
-      if (tokens?.access === access && tokens.expires > Date.now()) {
-        await tx.update(grants).set({ ciphertext: null }).where(grantScope(dest));
+      if (tokens?.access === access && tokens.expires > 0) {
+        await tx
+          .update(grants)
+          .set({ ciphertext: seal({ ...tokens, expires: 0 }, grantContext(row)) })
+          .where(grantScope(dest));
       }
     });
+  }
+
+  /**
+   * Xero refused this tenant (403). If the organisation is gone from this app's connections in
+   * Xero (removed there while the refresh token still works), the setup must be reconnected:
+   * clear its credentials and resolve true. Anything else (such as a user without permission)
+   * leaves the setup alone.
+   */
+  async function markForbidden(row: Grant, access: string) {
+    const connected = await oauth.tenants(access);
+    if (connected.some((tenant) => tenant.tenantId === row.tenantId)) return false;
+    await db
+      .update(grants)
+      .set({ ciphertext: null })
+      .where(and(grantScope(row), eq(grants.remoteConnectionId, row.remoteConnectionId!)));
+    return true;
+  }
+
+  /** Calls Xero for a verified setup: a 401 refreshes once; a 403 checks the organisation is still connected. */
+  async function withAccess<T>(row: Grant, call: (token: string) => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      const token = await getAccessToken(row);
+      try {
+        return await call(token);
+      } catch (error) {
+        if (error instanceof XeroHttpError && error.status === 401 && attempt === 0) {
+          await markUnauthorized(row, token);
+          continue;
+        }
+        if (error instanceof XeroHttpError && error.status === 403) {
+          if (await markForbidden(row, token).catch(() => false)) throw removedInXero();
+        }
+        throw error;
+      }
+    }
   }
 
   function chooseTenant(value: NonNullable<Awaited<ReturnType<typeof pending>>>, tenantId: string): Tenant {
@@ -395,14 +445,12 @@ export function createXeroConnectionService(
       await connection(db, dest);
       const row = await findGrant(db, dest);
       if (!row?.remoteConnectionId) throw reconnect();
-      const token = await getAccessToken(row);
-      const organisation = await oauth.organisation(row.tenantId, token).catch(async (error) => {
-        if (error instanceof XeroHttpError && error.status === 401) {
-          await markUnauthorized(dest, token);
-          throw reconnect();
-        }
-        throw unavailable();
-      });
+      const organisation = await withAccess(row, (token) => oauth.organisation(row.tenantId, token)).catch(
+        (error) => {
+          if (error instanceof ApiError) throw error;
+          throw unavailable();
+        },
+      );
       if (
         organisation.OrganisationID !== row.organisationId ||
         organisation.BaseCurrency !== row.baseCurrency ||
@@ -492,6 +540,7 @@ export function createXeroConnectionService(
         workspaceSlug: binding.workspaceSlug,
         getAccessToken: () => getAccessToken(row),
         onUnauthorized: (token) => markUnauthorized(row, token),
+        onForbidden: (token) => markForbidden(row, token),
         fetch: oauth.transport,
       });
     },

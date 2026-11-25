@@ -26,6 +26,7 @@ export const moduleIds = [
   "maintenance",
   "checklists",
   "items",
+  "food_items",
   "recipes",
   "sops",
   "stock",
@@ -242,10 +243,9 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
   items: {
     id: "items",
     name: "Items and suppliers",
-    description:
-      "Master data for manufacturing: ingredients, packaging and products with units and allergens, and approved suppliers.",
+    description: "Catalogue of materials, products and services with units, costs and supplier links.",
     dependsOn: [],
-    enhancedBy: [],
+    enhancedBy: ["food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -257,13 +257,22 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
       "supplier_control_settings",
     ],
   },
+  food_items: {
+    id: "food_items",
+    name: "Food items",
+    description: "Allergen declarations, storage conditions and shelf life on items.",
+    dependsOn: ["items"],
+    enhancedBy: [],
+    defaultAccess: "none",
+    defaultActive: true,
+    syncEntities: ["food_item"],
+  },
   recipes: {
     id: "recipes",
     name: "Recipes",
-    description:
-      "Versioned recipes (bills of materials) with yields and scaling, allergen and cost roll-up, and approval before use.",
+    description: "Versioned bills of materials with yields, scaling, cost roll-up and approval before use.",
     dependsOn: ["items"],
-    enhancedBy: [],
+    enhancedBy: ["food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["recipe", "recipe_version", "recipe_line"],
@@ -285,7 +294,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Locations, lots with use-by and best-before dates, goods-in and an append-only movement ledger with traceability.",
     dependsOn: ["items"],
-    enhancedBy: [],
+    enhancedBy: ["food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["stock_location", "stock_lot", "stock_movement", "lot_release_rule"],
@@ -337,7 +346,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Batch schedule from approved recipe versions, material requirements against stock, and batch records that consume and produce lots.",
     dependsOn: ["recipes", "stock"],
-    enhancedBy: ["demand", "sales", "haccp", "labels", "specifications", "costing"],
+    enhancedBy: ["demand", "sales", "haccp", "labels", "specifications", "costing", "food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -365,7 +374,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
       "HACCP plan under document control, CCP monitoring logs with automatic out-of-limit flagging, corrective actions, and cleaning and calibration records.",
     // Cleaning and calibration are scheduled against areas and equipment of the asset register.
     dependsOn: ["assets"],
-    enhancedBy: ["items", "recipes", "stock", "production"],
+    enhancedBy: ["items", "recipes", "stock", "production", "food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -478,7 +487,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Prerequisite programmes: pest control, the glass and brittle plastics register, storage temperature logging, and pre-start and allergen changeover checks, with what is due across them.",
     dependsOn: ["assets"],
-    enhancedBy: ["maintenance", "checklists", "production"],
+    enhancedBy: ["maintenance", "checklists", "production", "food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -502,7 +511,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Labels and nutrition",
     description:
       "Nutrition per 100 g on ingredients, rolled up through recipe versions; ingredient declarations in weight order with allergens emphasised (UK PPDS); and product labels approved per recipe version.",
-    dependsOn: ["recipes"],
+    dependsOn: ["recipes", "food_items"],
     enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
@@ -513,7 +522,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Specifications",
     description:
       "Controlled, versioned specifications for ingredients, packaging and products: limits, allergens, storage, shelf life, provenance and claims, agreed with the supplier or customer, approved, reviewed, and checked against the item, recipes, labels and open production.",
-    dependsOn: ["items"],
+    dependsOn: ["items", "food_items"],
     enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
@@ -537,7 +546,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Product development",
     description:
       "New product development: the brief, kitchen and factory trials, shelf-life studies and sensory panels, HACCP, artwork and customer sign-offs, and a launch checklist read from the recipe, specification and label.",
-    dependsOn: ["items", "recipes"],
+    dependsOn: ["items", "recipes", "food_items"],
     enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,

@@ -20,6 +20,7 @@ const config = (over: Partial<McpConfig> = {}): McpConfig => ({
     "time",
     "calendar",
     "items",
+    "food_items",
     "recipes",
     "sops",
     "stock",

@@ -397,7 +397,7 @@ export function registerStockTools({ define, slugOf, workspaceParam }: ToolConte
     {
       module: "stock",
       title: "Receive stock (goods-in)",
-      description: `Record a delivery: creates a lot and its goods-in movement. Ingredients and packaging only. Give the item (id or code), quantity and unit (converted to the item's unit; ${UNIT_HELP}), location and received date. Pass the supplier and the supplier's own lot code for traceability, and the expiry date with its type when the label shows one (otherwise the item's shelf life sets a best-before date). A suspended or rejected supplier is refused, and a supplier pending approval can only deliver into quarantine (\`quarantine: true\`). The lot code is generated when left out. ${PERSON_ONLY}`,
+      description: `Record a delivery: creates a lot and its goods-in movement. Choose a purchasable stock item. Give the item (id or code), quantity and unit (converted to the item's unit; ${UNIT_HELP}), location and received date. Pass the supplier and the supplier's own lot code for traceability, and the expiry date with its type when the label shows one (otherwise the item's shelf life sets a best-before date). A suspended or rejected supplier is refused, and a supplier pending approval can only deliver into quarantine (\`quarantine: true\`). The lot code is generated when left out. ${PERSON_ONLY}`,
       annotations: CREATE,
       input: {
         workspace: workspaceParam,

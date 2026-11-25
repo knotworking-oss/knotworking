@@ -39,7 +39,7 @@ describe("packing checks (3.5.3)", () => {
     const { members } = await ok(await call("GET", "/members"));
     const m = members.find((x: { email: string }) => x.email === "marcus@knotworking.dev");
     marcus = { userId: m.userId, cookie: (await signIn(ctx, m.email)).cookie };
-    for (const module of ["recipes", "stock", "demand", "items"])
+    for (const module of ["recipes", "stock", "demand", "items", "food_items"])
       await ok(await call("PUT", `/members/${m.userId}/module-access/${module}`, { level: "read" }));
     await ok(await call("PUT", `/members/${m.userId}/module-access/production`, { level: "write" }));
     await ok(await call("PUT", `/members/${m.userId}/module-access/labels`, { level: "write" }));

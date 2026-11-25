@@ -393,6 +393,7 @@ export async function receiveDespatchReturn(
   actor: string,
   id: string,
   input: DespatchReturnInput,
+  foodItems = false,
 ) {
   return executeLedgerCommand(db, ws, actor, "despatch.return", input, { id, ...input }, async (tx) => {
     const row = await findDespatch(tx, ws, id);
@@ -441,6 +442,7 @@ export async function receiveDespatchReturn(
       receivedOn: input.receivedOn,
       expiresOn: original.expiresOn,
       expiryType: original.expiryType,
+      foodItems,
       status: "quarantine",
       statusNote: `Customer return from ${row.reference}; awaiting QA disposition`,
       notes: input.condition,

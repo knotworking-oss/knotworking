@@ -131,6 +131,7 @@ export const despatchOperationRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json"),
+          c.var.activeModules.includes("food_items"),
         ),
         201,
       );

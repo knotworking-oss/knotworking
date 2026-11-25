@@ -88,7 +88,7 @@ describe("product development module", () => {
 
   afterAll(() => ctx.handle.close());
 
-  it("is opt-in and needs Items and Recipes", async () => {
+  it("is opt-in and needs Items, Food items and Recipes", async () => {
     expect((await as(marcus.cookie).get("/npd/projects")).status).toBe(403);
     for (const [mod, level] of [
       ["npd", "write"],
@@ -101,6 +101,12 @@ describe("product development module", () => {
         json: { level },
       });
     }
+    expect((await as(marcus.cookie).get("/npd/projects")).status).toBe(403);
+    await ctx.req(`${WS}/members/${marcus.userId}/module-access/food_items`, {
+      method: "PUT",
+      cookie: ada,
+      json: { level: "read" },
+    });
     await ok(await as(marcus.cookie).get("/npd/projects"));
   });
 

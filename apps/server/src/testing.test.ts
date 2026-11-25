@@ -164,6 +164,7 @@ describe("testing module", () => {
   });
 
   it("logs a lot sample with limits from the item's approved specification", async () => {
+    await grant("food_items", "read");
     await grant("specifications", "manage");
     const created = await ok(
       await as(ada).send("POST", "/specifications", {

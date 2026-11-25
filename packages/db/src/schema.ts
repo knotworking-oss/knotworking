@@ -526,6 +526,7 @@ export * from "./schema/time";
 export * from "./schema/calendar";
 export * from "./schema/assets";
 export * from "./schema/items";
+export * from "./schema/food-items";
 export * from "./schema/recipes";
 export * from "./schema/sops";
 export * from "./schema/stock";

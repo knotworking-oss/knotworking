@@ -1,3 +1,4 @@
+import { foodFieldsByItem } from "./food-items";
 import {
   addDays,
   batchHours,
@@ -11,7 +12,6 @@ import {
   sortAllergens,
   stockAmount,
   weekStart,
-  type AllergenCode,
   type DailyDemandQuery,
   type LineChangeoversSetInput,
   type LineDayQuery,
@@ -189,10 +189,17 @@ async function dayBatches(db: Executor, ws: string, lineId: string, date: string
  * The timed plan of one line on one day (shift windows, changeovers, allergen clean-downs, crew,
  * overruns), in the applied order, and a proposed order with the reason for each place.
  */
-export async function getLineDayPlan(db: Executor, ws: string, query: LineDayQuery) {
+export async function getLineDayPlan(db: Executor, ws: string, query: LineDayQuery, withFood: boolean) {
   const line = await findLine(db, ws, query.lineId);
   const rates = (await ratesOf(db, [line.id])).get(line.id) ?? {};
   const rows = await dayBatches(db, ws, line.id, query.date);
+  const food = withFood
+    ? await foodFieldsByItem(
+        db,
+        ws,
+        rows.map((row) => row.output.id),
+      )
+    : undefined;
   const calendar = await loadCalendar(db, ws, query.date, query.date);
   const shifts = (await shiftsOf(db, [line.id])).get(line.id) ?? [];
   const rules = (await changeoversOf(db, [line.id])).get(line.id) ?? [];
@@ -206,15 +213,16 @@ export async function getLineDayPlan(db: Executor, ws: string, query: LineDayQue
     hoursPerDay: line.hoursPerDay,
     shifts,
     changeoverMinutes: line.changeoverMinutes,
-    allergenCleanMinutes: line.allergenCleanMinutes,
+    allergenCleanMinutes: withFood ? line.allergenCleanMinutes : 0,
     crewAvailable: line.crewAvailable,
     changeovers: rules,
   };
   const batches: DayPlanBatch[] = rows.map(({ batch, version, output }) => {
     const hours = batchHours(batch.plannedQuantity, rates[batch.recipeId]);
-    const approved = version.approvedAllergens;
+    const approved = withFood ? version.approvedAllergens : null;
+    const declaration = food?.get(output.id);
     // Both the approved ingredient roll-up and the product's own declaration: either may list more.
-    const contains = [...(approved?.contains ?? []), ...(output.allergens as AllergenCode[])];
+    const contains = [...(approved?.contains ?? []), ...(declaration?.allergens ?? [])];
     return {
       id: batch.id,
       batchCode: batch.batchCode,
@@ -225,7 +233,7 @@ export async function getLineDayPlan(db: Executor, ws: string, query: LineDayQue
       contains: sortAllergens(new Set(contains)),
       mayContain: sortAllergens(
         new Set(
-          [...(approved?.mayContain ?? []), ...(output.mayContain as AllergenCode[])].filter(
+          [...(approved?.mayContain ?? []), ...(declaration?.mayContain ?? [])].filter(
             (a) => !contains.includes(a),
           ),
         ),
@@ -276,7 +284,13 @@ export async function getLineDayPlan(db: Executor, ws: string, query: LineDayQue
  * Applies an order to a line's day: `batchIds` must be exactly its live, uncancelled batches, so an
  * order made against a stale view is refused (`sequence_stale`) rather than half-applied.
  */
-export async function setLineSequence(db: Database, ws: string, actor: string, input: LineSequenceSetInput) {
+export async function setLineSequence(
+  db: Database,
+  ws: string,
+  actor: string,
+  input: LineSequenceSetInput,
+  withFood: boolean,
+) {
   await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, ws);
     await findLine(tx, ws, input.lineId);
@@ -314,7 +328,7 @@ export async function setLineSequence(db: Database, ws: string, actor: string, i
     }
     if (changes.length) await recordChanges(tx, ws, actor, changes);
   });
-  return getLineDayPlan(db, ws, { lineId: input.lineId, date: input.date });
+  return getLineDayPlan(db, ws, { lineId: input.lineId, date: input.date }, withFood);
 }
 
 // ─── Daily demand ────────────────────────────────────────────────────────────

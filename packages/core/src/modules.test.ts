@@ -194,6 +194,7 @@ describe("resolveModuleAccess", () => {
       maintenance: "none",
       checklists: "none",
       items: "none",
+      food_items: "none",
       recipes: "none",
       sops: "none",
       stock: "none",

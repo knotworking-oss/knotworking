@@ -71,7 +71,7 @@ export function ReceiveDialog({
 }) {
   const today = useWorkspaceToday();
   const router = useRouter();
-  const choices = items.filter((i) => canManage || receivable(i));
+  const choices = items.filter((i) => i.type !== "service" && (canManage || receivable(i)));
   const [pending, setPending] = useState(false);
   const [itemId, setItemId] = useState(choices[0]?.id ?? "");
   const item = choices.find((i) => i.id === itemId);

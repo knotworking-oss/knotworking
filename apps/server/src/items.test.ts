@@ -142,6 +142,21 @@ describe("items module", () => {
     });
 
     it("creates an item with allergens (sorted, deduplicated) and suppliers", async () => {
+      expect((await as(marcus.cookie).get("/items?allergen=milk")).status).toBe(403);
+      const denied = await as(marcus.cookie).send("POST", "/items", {
+        code: "NO-FOOD",
+        name: "Permission check",
+        type: "ingredient",
+        unit: "kg",
+        allergens: ["milk"],
+      });
+      expect(denied.status).toBe(403);
+      const foodGrant = await ctx.req(`${WS}/members/${marcus.userId}/module-access/food_items`, {
+        method: "PUT",
+        cookie: ada,
+        json: { level: "write" },
+      });
+      expect(foodGrant.status).toBe(200);
       const res = await as(marcus.cookie).send("POST", "/items", {
         code: "FLR-001",
         name: "Strong white flour",

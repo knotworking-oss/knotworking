@@ -180,7 +180,9 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
   // One line's day timed against its shifts, with changeovers, allergen clean-downs and a proposed
   // order (advisory: nothing changes until an order is applied).
   .get("/production/schedule/day", validate("query", lineDayQuerySchema), async (c) =>
-    c.json(await getLineDayPlan(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+    c.json(
+      await getLineDayPlan(c.var.db, c.var.workspace.id, c.req.valid("query"), canRead(c, "food_items")),
+    ),
   )
   // Per product per day: confirmed sales commitments, planned output and projected stock. Each
   // source only for callers who can read its module; weekly demand is shown beside, never added.
@@ -563,7 +565,15 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
   )
   // Applying an order to a line's day is planning, like moving a batch: `write`, tokens allowed.
   .put("/production/schedule/sequence", validate("json", lineSequenceSetSchema), async (c) =>
-    c.json(await setLineSequence(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"))),
+    c.json(
+      await setLineSequence(
+        c.var.db,
+        c.var.workspace.id,
+        c.var.user.id,
+        c.req.valid("json"),
+        canRead(c, "food_items"),
+      ),
+    ),
   )
   // Registering and retiring devices is configuration: `manage`.
   .post(
@@ -712,6 +722,7 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           ledgerInput(c, c.req.valid("json")),
+          c.var.activeModules.includes("food_items"),
         ),
         201,
       ),

@@ -1,5 +1,6 @@
 import {
   addDaysToIsoDate,
+  hasModuleLevel,
   sopReminderDueOn,
   sopReminderRound,
   AUDIT_UPCOMING_DAYS,
@@ -203,7 +204,7 @@ async function sweepWorkspace(
     if (active.has("haccp")) await sweepHaccp(ctx, active.has("production"));
     if (active.has("maintenance")) await sweepMaintenance(ctx);
     if (active.has("site")) await sweepSite(ctx, active.has("checklists"), active.has("production"));
-    if (active.has("recipes")) await sweepRecipes(ctx);
+    if (active.has("recipes") && active.has("food_items")) await sweepRecipes(ctx);
     if (active.has("quality")) await sweepQuality(ctx);
     if (active.has("labels")) await sweepLabels(ctx);
     if (active.has("sops")) await sweepSops(ctx, activeModules);
@@ -728,7 +729,9 @@ async function sweepAttendance(ctx: Ctx) {
  * notifies again; approving a new version clears the flag). Archived recipes are left out.
  */
 async function sweepRecipes(ctx: Ctx) {
-  const managers = audience(ctx.access, "recipes", "manage");
+  const managers = audience(ctx.access, "recipes", "manage").filter((id) =>
+    hasModuleLevel(ctx.access.get(id)?.food_items, "read"),
+  );
   if (managers.length === 0) return;
   for (const flagged of await recipesWithAllergenDrift(ctx.db, ctx.workspaceId)) {
     if (flagged.status !== "active") continue;

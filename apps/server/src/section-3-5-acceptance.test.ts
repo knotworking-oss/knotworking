@@ -47,7 +47,7 @@ describe("Section 3.5 acceptance exercise", () => {
     marcus = (await signIn(ctx, "marcus@knotworking.dev")).cookie;
     const { members } = await ok(await call("GET", "/members"));
     const m = members.find((x: { email: string }) => x.email === "marcus@knotworking.dev");
-    for (const module of ["recipes", "items"])
+    for (const module of ["recipes", "items", "food_items"])
       await ok(await call("PUT", `/members/${m.userId}/module-access/${module}`, { level: "read" }));
     for (const module of ["labels", "specifications"])
       await ok(await call("PUT", `/members/${m.userId}/module-access/${module}`, { level: "write" }));

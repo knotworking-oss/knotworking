@@ -87,7 +87,7 @@ export const customerDocumentClaims = pgTable(
     foreignKey({
       name: "customer_document_claims_document_fk",
       columns: [t.workspaceId, t.documentId],
-      foreignColumns: [t.workspaceId, t.id],
+      foreignColumns: [customerDocuments.workspaceId, customerDocuments.id],
     }),
     uniqueIndex("customer_document_active_claim_key")
       .on(t.workspaceId, t.kind, t.sourceId)
@@ -114,7 +114,7 @@ export const customerDocumentEvents = pgTable(
     foreignKey({
       name: "customer_document_events_document_fk",
       columns: [t.workspaceId, t.documentId],
-      foreignColumns: [t.workspaceId, t.id],
+      foreignColumns: [customerDocuments.workspaceId, customerDocuments.id],
     }),
     uniqueIndex("customer_document_events_revision_key").on(t.workspaceId, t.documentId, t.revision),
   ],

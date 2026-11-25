@@ -42606,7 +42606,7 @@
         "customer_document_claims_document_fk": {
           "name": "customer_document_claims_document_fk",
           "tableFrom": "customer_document_claims",
-          "tableTo": "customer_document_claims",
+          "tableTo": "customer_documents",
           "columnsFrom": [
             "workspace_id",
             "document_id"
@@ -42744,7 +42744,7 @@
         "customer_document_events_document_fk": {
           "name": "customer_document_events_document_fk",
           "tableFrom": "customer_document_events",
-          "tableTo": "customer_document_events",
+          "tableTo": "customer_documents",
           "columnsFrom": [
             "workspace_id",
             "document_id"

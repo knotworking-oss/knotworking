@@ -52,11 +52,12 @@ CREATE TABLE "customer_documents" (
 	CONSTRAINT "customer_documents_credit_check" CHECK (("customer_documents"."kind" = 'credit' and "customer_documents"."credit_of" is not null and "customer_documents"."credit_reason" is not null and "customer_documents"."due_date" is null) or ("customer_documents"."kind" = 'invoice' and "customer_documents"."credit_of" is null and "customer_documents"."due_date" >= "customer_documents"."date" and "customer_documents"."due_date" is not null))
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX "customer_documents_workspace_id_key" ON "customer_documents" USING btree ("workspace_id","id");--> statement-breakpoint
 ALTER TABLE "customer_document_claims" ADD CONSTRAINT "customer_document_claims_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "customer_document_claims" ADD CONSTRAINT "customer_document_claims_document_fk" FOREIGN KEY ("workspace_id","document_id") REFERENCES "public"."customer_document_claims"("workspace_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "customer_document_claims" ADD CONSTRAINT "customer_document_claims_document_fk" FOREIGN KEY ("workspace_id","document_id") REFERENCES "public"."customer_documents"("workspace_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "customer_document_events" ADD CONSTRAINT "customer_document_events_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "customer_document_events" ADD CONSTRAINT "customer_document_events_actor_id_users_id_fk" FOREIGN KEY ("actor_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "customer_document_events" ADD CONSTRAINT "customer_document_events_document_fk" FOREIGN KEY ("workspace_id","document_id") REFERENCES "public"."customer_document_events"("workspace_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "customer_document_events" ADD CONSTRAINT "customer_document_events_document_fk" FOREIGN KEY ("workspace_id","document_id") REFERENCES "public"."customer_documents"("workspace_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "customer_documents" ADD CONSTRAINT "customer_documents_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "customer_documents" ADD CONSTRAINT "customer_documents_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."customers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "customer_documents" ADD CONSTRAINT "customer_documents_credit_fk" FOREIGN KEY ("workspace_id","credit_of") REFERENCES "public"."customer_documents"("workspace_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -64,7 +65,6 @@ CREATE UNIQUE INDEX "customer_document_active_claim_key" ON "customer_document_c
 CREATE INDEX "customer_document_claims_document_idx" ON "customer_document_claims" USING btree ("workspace_id","document_id");--> statement-breakpoint
 CREATE INDEX "customer_document_claims_order_line_idx" ON "customer_document_claims" USING btree ("workspace_id","order_line_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "customer_document_events_revision_key" ON "customer_document_events" USING btree ("workspace_id","document_id","revision");--> statement-breakpoint
-CREATE UNIQUE INDEX "customer_documents_workspace_id_key" ON "customer_documents" USING btree ("workspace_id","id");--> statement-breakpoint
 CREATE UNIQUE INDEX "customer_documents_serial_key" ON "customer_documents" USING btree ("workspace_id","kind","serial");--> statement-breakpoint
 CREATE UNIQUE INDEX "customer_documents_number_key" ON "customer_documents" USING btree ("workspace_id","number");--> statement-breakpoint
 CREATE INDEX "customer_documents_list_idx" ON "customer_documents" USING btree ("workspace_id","created_at");

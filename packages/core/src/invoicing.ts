@@ -18,7 +18,11 @@ export const invoiceTaxRate = z
   .refine((rate) => Number(rate.toFixed(4)) === rate);
 const reason = z.string().trim().min(1).max(2000);
 const commandId = z.uuid();
-const dates = { date: z.iso.date(), dueDate: z.iso.date() };
+const dates = {
+  date: z.iso.date(),
+  dueDate: z.iso.date(),
+  issuerAddress: z.string().trim().max(600).optional(),
+};
 
 export const invoiceManualLineSchema = z.object({
   description,
@@ -85,6 +89,7 @@ export type InvoiceLine = InvoiceManualLine & {
   net: string;
   tax: string;
   priceLocked: boolean;
+  pricePending?: boolean;
   /** Shipment, sales line or original invoice line which produced this line. */
   sourceLineId: string | null;
 };

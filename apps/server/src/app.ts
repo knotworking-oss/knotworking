@@ -40,6 +40,7 @@ import { recipeRoutes } from "./routes/recipes";
 import { sopRoutes } from "./routes/sops";
 import { stockRoutes } from "./routes/stock";
 import { customerRoutes } from "./routes/customers";
+import { invoicingRoutes } from "./routes/invoicing";
 import { despatchOperationRoutes } from "./routes/despatch-operations";
 import { hseRoutes, hseIncidentRoutes } from "./routes/hse";
 import { workforceRoutes } from "./routes/workforce";
@@ -335,6 +336,7 @@ export function createApp({
     .route("/v1/workspaces/:slug", sopRoutes)
     .route("/v1/workspaces/:slug", stockRoutes)
     .route("/v1/workspaces/:slug", customerRoutes)
+    .route("/v1/workspaces/:slug", invoicingRoutes)
     .route("/v1/workspaces/:slug", hseRoutes)
     .route("/v1/workspaces/:slug", hseIncidentRoutes)
     .route("/v1/workspaces/:slug", workforceRoutes)

@@ -39,6 +39,7 @@ import { ApiError, badRequest, notFound } from "../errors";
 import { findCustomer } from "./customers";
 import { findDeliverySite } from "./customer-sites";
 import { findItem, toBase } from "./ports/stock";
+import { assertInvoiceFulfilmentUnclaimed } from "./invoice-sources";
 import { executeLedgerCommand } from "./ledger-command";
 import { workspaceToday } from "./time-zone";
 
@@ -727,6 +728,7 @@ export async function linkSalesFulfilment(
         ),
       );
     if (linked) throw conflict("This despatch line is already assigned to an order");
+    await assertInvoiceFulfilmentUnclaimed(tx, ws, input.despatchLineId, line.id, false);
     const { totals } = await fulfilmentTotals(tx, ws, id);
     if (roundQuantity((totals.get(line.id)?.shipped ?? 0) + delivery.line.quantity) > line.baseQuantity)
       throw conflict("Delivery exceeds the remaining order quantity; amend the order first");
@@ -771,6 +773,7 @@ export async function unlinkSalesFulfilment(
         .where(and(eq(fulfilments.workspaceId, ws), eq(fulfilments.orderId, id), eq(fulfilments.id, linkId)));
       if (!link) throw notFound("Fulfilment link");
       if (link.voidedAt) throw conflict("This link is already corrected");
+      await assertInvoiceFulfilmentUnclaimed(tx, ws, link.despatchLineId, link.orderLineId, true);
       await tx
         .update(fulfilments)
         .set({ voidedAt: new Date(), voidedBy: actor, voidReason: input.reason })

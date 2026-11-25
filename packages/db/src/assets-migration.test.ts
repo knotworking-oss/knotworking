@@ -72,6 +72,32 @@ describe("0097 assets migration", () => {
         dsql`INSERT INTO site_assets (id, workspace_id, code, name) VALUES (${newId()}, ${ws}, 'HALL-M', 'Hall mixer')`,
       );
 
+      const ovenSuffix = `HALL-M-${oven.slice(0, 8)}`;
+      const longCode = "🔧".repeat(20);
+      const longSite = newId();
+      await run(dsql`INSERT INTO haccp_assets (id, workspace_id, kind, code, name)
+        VALUES (${newId()}, ${ws}, 'equipment', ${longCode}, 'Long HACCP code')`);
+      await run(dsql`INSERT INTO site_assets (id, workspace_id, code, name, calibration_instrument_id)
+        VALUES
+          (${newId()}, ${ws}, ${ovenSuffix}, 'Original suffix already in use', NULL),
+          (${longSite}, ${ws}, ${longCode}, 'Long Site code', NULL),
+          (${probe}, ${ws}, 'REUSE', 'Separate equipment with a shared legacy ID', ${probe})`);
+      const remapTask = newId();
+      const remapRecord = newId();
+      const remapWorkOrder = newId();
+      const remapPermit = newId();
+      await run(dsql`INSERT INTO site_maintenance_tasks (id, workspace_id, asset_id, title, frequency_every, frequency_unit)
+        VALUES (${remapTask}, ${ws}, ${probe}, 'Inspect', 1, 'month')`);
+      await run(dsql`INSERT INTO site_maintenance_records (id, workspace_id, task_id, asset_id, completed_at, next_due_on)
+        VALUES (${remapRecord}, ${ws}, ${remapTask}, ${probe}, now(), current_date + 30)`);
+      await run(dsql`INSERT INTO site_work_orders (id, workspace_id, task_id, asset_id, title)
+        VALUES (${remapWorkOrder}, ${ws}, ${remapTask}, ${probe}, 'Inspect damaged handle')`);
+      await run(dsql`INSERT INTO hse_permits (id, workspace_id, asset_id, title, isolation_required, body)
+        VALUES (${remapPermit}, ${ws}, ${probe}, 'Isolate equipment', true, jsonb_build_object('assetId', ${probe}::text))`);
+      await run(dsql`INSERT INTO sync_changes (workspace_id, entity, entity_id, action, data)
+        VALUES
+          (${ws}, 'site_asset', ${probe}, 'upsert', jsonb_build_object('id', ${probe}::text)),
+          (${ws}, 'site_maintenance_task', ${remapTask}, 'upsert', jsonb_build_object('assetId', ${probe}::text))`);
       // References to both registers.
       const cleaning = newId();
       const calibration = newId();
@@ -110,7 +136,7 @@ describe("0097 assets migration", () => {
           )
         ).rows.map((r) => [r.id as string, r]),
       );
-      expect(assets.size).toBe(8);
+      expect(assets.size).toBe(12);
       expect(assets.get(hall)).toMatchObject({
         kind: "area",
         code: "HALL",
@@ -130,7 +156,34 @@ describe("0097 assets migration", () => {
       });
       // Collisions with a live HACCP code are renamed deterministically; HACCP keeps its codes.
       expect(assets.get(probeTwin)!.code).toBe("prb-01-M");
-      expect(assets.get(oven)).toMatchObject({ code: `HALL-M-${oven.slice(0, 8)}`, status: "archived" });
+      expect(assets.get(oven)).toMatchObject({ code: `${ovenSuffix}-2`, status: "archived" });
+      expect(assets.get(longSite)?.code).toBe(`${longCode.slice(0, 38)}-M`);
+      const reused = [...assets.values()].find((asset) => asset.code === "REUSE");
+      expect(reused).toMatchObject({ id: expect.any(String), kind: "equipment" });
+      expect(reused!.id).not.toBe(probe);
+      const replacement = reused!.id as string;
+      const remapped = await run(dsql`
+        SELECT asset_id, asset_id AS saved FROM site_maintenance_tasks WHERE id = ${remapTask}
+        UNION ALL SELECT asset_id, asset_id FROM site_maintenance_records WHERE id = ${remapRecord}
+        UNION ALL SELECT asset_id, asset_id FROM site_work_orders WHERE id = ${remapWorkOrder}
+        UNION ALL SELECT asset_id, (body->>'assetId')::uuid FROM hse_permits WHERE id = ${remapPermit}`);
+      expect(remapped.rows).toEqual(
+        Array.from({ length: 4 }, () => ({ asset_id: replacement, saved: replacement })),
+      );
+      expect(
+        (await run(dsql`SELECT calibration_instrument_id FROM site_assets WHERE id = ${replacement}`)).rows,
+      ).toEqual([{ calibration_instrument_id: probe }]);
+      expect(
+        (
+          await run(
+            dsql`SELECT entity, entity_id, data FROM sync_changes WHERE workspace_id = ${ws} ORDER BY id`,
+          )
+        ).rows,
+      ).toEqual([
+        { entity: "site_asset", entity_id: replacement, data: { id: replacement } },
+        { entity: "site_maintenance_task", entity_id: remapTask, data: { assetId: replacement } },
+      ]);
+
       // A deleted row keeps its code: only live codes must be unique.
       expect(assets.get(gone)).toMatchObject({ code: "PRB-01" });
       expect(assets.get(gone)!.deleted_at).not.toBeNull();
@@ -152,7 +205,7 @@ describe("0097 assets migration", () => {
       const joined = await run(dsql`
         SELECT 'cleaning' AS what, a.id FROM haccp_cleaning_records r JOIN assets a ON a.id = r.asset_id
         UNION ALL SELECT 'calibration', a.id FROM haccp_calibration_records r JOIN assets a ON a.id = r.asset_id
-        UNION ALL SELECT 'task', a.id FROM site_maintenance_tasks r JOIN assets a ON a.id = r.asset_id
+        UNION ALL SELECT 'task', a.id FROM site_maintenance_tasks r JOIN assets a ON a.id = r.asset_id WHERE r.id = ${task}
         UNION ALL SELECT 'glass', a.id FROM site_glass_items r JOIN assets a ON a.id = r.area_id`);
       expect(Object.fromEntries(joined.rows.map((r) => [r.what, r.id]))).toEqual({
         cleaning: hall,

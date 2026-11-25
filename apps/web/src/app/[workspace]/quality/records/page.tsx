@@ -27,7 +27,7 @@ export default async function QualityRecordsPage({
   const details = await Promise.all(
     audits.filter((a) => auditInRange(a, range)).map((a) => getAudit(slug, a.id)),
   );
-  const tests = recallTests.filter((t) => inDayRange(t.conductedOn, range, timeZone));
+  const tests = (recallTests ?? []).filter((t) => inDayRange(t.conductedOn, range, timeZone));
   // Oldest first, like the other record prints.
   const auditEntries = qualityAuditEntries(details, timeZone).sort((a, b) => a.at.localeCompare(b.at));
   const recallEntries = recallTestEntries(tests, timeZone).sort((a, b) => a.at.localeCompare(b.at));
@@ -47,7 +47,7 @@ export default async function QualityRecordsPage({
         timeZone={timeZone}
         workspace={boot.workspace.name}
         title="Quality audit records"
-        subtitle={`Internal audits and mock recall tests · ${describeRange(range)}`}
+        subtitle={`Internal audits${recallTests ? " and mock recall tests" : ""} · ${describeRange(range)}`}
       />
       {failed > 0 && (
         <div className="mb-2">
@@ -61,11 +61,13 @@ export default async function QualityRecordsPage({
         description="Audits completed in the range, and those planned or cancelled for it, with their findings and sign-off."
         entries={auditEntries}
       />
-      <AuditRecordList
-        title="Mock recall tests"
-        description="A voided test stays on the record, struck through."
-        entries={recallEntries}
-      />
+      {recallTests && (
+        <AuditRecordList
+          title="Mock recall tests"
+          description="A voided test stays on the record, struck through."
+          entries={recallEntries}
+        />
+      )}
     </PrintPage>
   );
 }

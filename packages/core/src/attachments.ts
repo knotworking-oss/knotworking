@@ -162,7 +162,12 @@ export const attachmentTargets = {
   purchase_order: { module: "purchasing", label: "purchase order", kinds: ["document"] },
   purchase_invoice: { module: "purchasing", label: "supplier invoice", kinds: ["document"] },
   quality_audit: { module: "quality", label: "audit", kinds: ["document", "photo"] },
-  quality_recall_test: { module: "quality", label: "recall test", kinds: ["document", "photo"] },
+  quality_recall_test: {
+    module: "quality",
+    requiresModules: ["stock"],
+    label: "recall test",
+    kinds: ["document", "photo"],
+  },
   // A delivery is several receipt rows sharing a `deliveryId`; its files hang on the first row.
   purchase_receipt: { module: "purchasing", label: "delivery", kinds: ["document", "photo"] },
   // One line of a delivery (a receipt row): photos of that item as it arrived, kept apart from

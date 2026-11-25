@@ -447,7 +447,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
     {
       module: "purchasing",
       title: "Draft or edit a purchase order",
-      description: `Create a draft purchase order, or, with \`order_id\`, edit a draft or sent order. A draft needs a supplier (id, code or exact name; suspended or rejected suppliers are refused, a pending one may be ordered from) and may have lines of two kinds. A **stock** line (the default \`kind\`) is an ingredient or packaging item received into stock: an item (id or stock code), quantity and unit (${UNIT_HELP}); a price per unit is optional and defaults to the supplier's price list or the item's standard cost (\`unit_price: null\` = unknown); it needs the stock module. A **non_stock** line is a service, subscription or goods not kept in stock (cleaning, a software licence, office supplies): a \`description\`, quantity, optional free-text \`unit\` (hour, month, visit), price, optional \`nominal_code\` (the expense account it is coded to) and optionally an \`item\` it refers to; it is received without a lot. A delivery location only applies to stock lines. IMPORTANT when editing: \`lines\` replaces the whole list. Lines you leave out are removed, so pass every line you want to keep. Pass an existing line's \`id\` (from get_purchase_order) to keep and edit that line, leaving out fields you do not want to change (price, date, notes keep their values); a line without an \`id\` is new. A sent order's supplier can't change, lines with receipts can't be removed, no quantity can go below what was accepted, it must keep at least one line and an expected date for every line, and while its supplier is suspended or rejected no line can be added or increased; closed and cancelled orders can't be edited. Only the fields given change. Needs an expected date on the order or on every line before a person can send it. ${PERSON_ONLY}`,
+      description: `Create a draft purchase order, or, with \`order_id\`, edit a draft or sent order. A draft needs a supplier (id, code or exact name; suspended or rejected suppliers are refused, a pending one may be ordered from) and may have lines of two kinds. A **stock** line (the default \`kind\`) is an ingredient or packaging item received into stock: an item (id or stock code), quantity and unit (${UNIT_HELP}); a price per unit is optional and defaults to the supplier's price list or the item's standard cost (\`unit_price: null\` = unknown); it needs the stock module. A **non_stock** line is a service, subscription or goods not kept in stock (cleaning, a software licence, office supplies): a \`description\`, quantity, optional free-text \`unit\` (hour, month, visit), price, optional \`nominal_code\` (the expense account it is coded to) and optionally an \`item\` it refers to; it is received without a lot. A delivery location only applies to stock lines. IMPORTANT when editing: \`lines\` replaces the whole list. Lines you leave out are removed, so pass every line you want to keep. Pass an existing line's \`id\` (from get_purchase_order) to keep and edit that line, leaving out fields you do not want to change (price, date and notes, plus item, unit and nominal code on non-stock lines); a line without an \`id\` is new. A sent order's supplier can't change, lines with receipts can't be removed, no quantity can go below what was accepted, it must keep at least one line and an expected date for every line, and while its supplier is suspended or rejected no line can be added or increased; closed and cancelled orders can't be edited. Use null to clear an optional item, unit or nominal code on a non-stock line. Needs an expected date on the order or on every line before a person can send it. ${PERSON_ONLY}`,
       annotations: DRAFT,
       input: {
         workspace: workspaceParam,
@@ -487,6 +487,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
                 .string()
                 .min(1)
                 .max(60)
+                .nullable()
                 .optional()
                 .describe("Item id or stock code. Required on stock lines; optional on non_stock lines."),
               description: z
@@ -499,6 +500,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
               unit: z
                 .string()
                 .max(PURCHASE_UNIT_LABEL_MAX)
+                .nullable()
                 .optional()
                 .describe(
                   `Stock lines (required): ${UNIT_HELP} non_stock lines: any unit as text (hour, month, visit), or leave out.`,
@@ -506,6 +508,7 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
               nominal_code: z
                 .string()
                 .max(PURCHASE_NOMINAL_CODE_MAX)
+                .nullable()
                 .optional()
                 .describe("non_stock lines: the expense account or nominal code it is coded to (e.g. 7500)."),
               unit_price: z
@@ -553,9 +556,11 @@ export function registerPurchasingTools({ define, slugOf, workspaceParam }: Tool
                     ...common,
                     kind: "non_stock" as const,
                     description: l.description,
-                    ...(l.item ? { itemId: await resolveItemId(api, slug, l.item) } : {}),
-                    ...(l.unit ? { unit: l.unit } : {}),
-                    ...(l.nominal_code ? { nominalCode: l.nominal_code } : {}),
+                    ...(l.item === undefined
+                      ? {}
+                      : { itemId: l.item === null ? null : await resolveItemId(api, slug, l.item) }),
+                    ...(l.unit === undefined ? {} : { unit: l.unit }),
+                    ...(l.nominal_code === undefined ? {} : { nominalCode: l.nominal_code }),
                   };
                 }
                 if (!l.item)

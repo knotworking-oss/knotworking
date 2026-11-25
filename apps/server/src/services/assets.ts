@@ -7,6 +7,11 @@ import type {
 } from "@knotworking/core";
 import {
   assets,
+  haccpAssets,
+  haccpCalibrationRecords,
+  haccpCleaningRecords,
+  productionDevices,
+  siteAssets,
   lockWorkspaceLog,
   recordChanges,
   users,
@@ -158,15 +163,46 @@ async function assertParent(db: Executor, workspaceId: string, parentId: string,
   if (parentId === selfId) throw badRequest("An area can't be inside itself");
   await assertArea(db, workspaceId, parentId);
   if (!selfId) return;
-  // Walk up from the new parent: meeting this asset would make a loop.
-  let current: string | null = parentId;
-  for (let depth = 0; current && depth < 50; depth++) {
-    const [row]: { parentAreaId: string | null }[] = await db
-      .select({ parentAreaId: assets.parentAreaId })
-      .from(assets)
-      .where(and(eq(assets.id, current), eq(assets.workspaceId, workspaceId)));
-    current = row?.parentAreaId ?? null;
-    if (current === selfId) throw badRequest("An area can't be inside one of its own areas");
+  const [result] = await db
+    .select({
+      invalid: sql<boolean>`(
+      WITH RECURSIVE ancestors(id, parent_id) AS (
+        SELECT id, parent_area_id FROM assets WHERE id = ${parentId} AND workspace_id = ${workspaceId}
+        UNION
+        SELECT a.id, a.parent_area_id FROM assets a
+        JOIN ancestors p ON a.id = p.parent_id
+        WHERE a.workspace_id = ${workspaceId}
+      )
+      SELECT EXISTS (SELECT 1 FROM ancestors WHERE id = ${selfId})
+        OR NOT EXISTS (SELECT 1 FROM ancestors WHERE parent_id IS NULL)
+    )`,
+    })
+    .from(assets)
+    .where(and(eq(assets.id, parentId), eq(assets.workspaceId, workspaceId)));
+  if (result?.invalid) throw badRequest("An area can't be placed inside a cycle");
+}
+
+/** Keep equipment references valid even when the modules that own them are switched off. */
+async function assertEquipmentCanChangeKind(db: Executor, workspaceId: string, id: string) {
+  const [row] = await db
+    .select({
+      linked: sql<boolean>`
+      EXISTS (SELECT 1 FROM ${haccpAssets} WHERE ${haccpAssets.id} = ${id}
+        AND (${haccpAssets.cleaningEvery} IS NOT NULL OR ${haccpAssets.calibrationEvery} IS NOT NULL))
+      OR EXISTS (SELECT 1 FROM ${haccpCleaningRecords} WHERE ${haccpCleaningRecords.assetId} = ${id})
+      OR EXISTS (SELECT 1 FROM ${haccpCalibrationRecords} WHERE ${haccpCalibrationRecords.assetId} = ${id})
+      OR EXISTS (SELECT 1 FROM ${siteAssets} WHERE ${siteAssets.calibrationInstrumentId} = ${id})
+      OR EXISTS (SELECT 1 FROM ${productionDevices} WHERE ${productionDevices.haccpAssetId} = ${id})
+    `,
+    })
+    .from(assets)
+    .where(and(eq(assets.id, id), eq(assets.workspaceId, workspaceId)));
+  if (row?.linked) {
+    throw new ApiError(
+      409,
+      "kind_fixed",
+      "This equipment has linked schedules or records and must stay equipment",
+    );
   }
 }
 
@@ -284,6 +320,9 @@ export async function updateAsset(
         "kind_fixed",
         "An area stays an area, and other assets can't become areas: other records point at areas",
       );
+    }
+    if (asset.kind === "equipment" && patch.kind && patch.kind !== asset.kind) {
+      await assertEquipmentCanChangeKind(tx, workspaceId, id);
     }
     if (patch.code) await assertCodeFree(tx, workspaceId, patch.code, id);
     if (patch.parentAreaId) await assertParent(tx, workspaceId, patch.parentAreaId, id);

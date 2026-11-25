@@ -153,6 +153,39 @@ describe("assets module", () => {
     );
   });
 
+  it("keeps equipment with HACCP schedules or history in the register", async () => {
+    const instrument = await ok(
+      await as(ada).send("POST", "/assets", { kind: "equipment", name: "Probe" }),
+      201,
+    );
+    const path = `/assets/${instrument.id}`;
+    const schedule = `/haccp/assets/${instrument.id}`;
+    await ok(await as(ada).send("PATCH", schedule, { cleaningFrequency: { every: 1, unit: "day" } }));
+    expect(await error(await as(ada).send("PATCH", path, { kind: "tool" }), 409)).toBe("kind_fixed");
+    await ok(await as(ada).send("POST", "/haccp/cleaning", { assetId: instrument.id }), 201);
+    await ok(await as(ada).send("PATCH", schedule, { cleaningFrequency: null }));
+    expect(await error(await as(ada).send("PATCH", path, { kind: "tool" }), 409)).toBe("kind_fixed");
+  });
+
+  it("rejects reparenting below a descendant beyond fifty levels", async () => {
+    const root = await ok(await as(ada).send("POST", "/assets", { kind: "area", name: "Deep root" }), 201);
+    let parent = root.id as string;
+    for (let level = 0; level < 51; level++) {
+      const area = await ok(
+        await as(ada).send("POST", "/assets", {
+          kind: "area",
+          name: `Nested area ${level}`,
+          parentAreaId: parent,
+        }),
+        201,
+      );
+      parent = area.id;
+    }
+    expect(
+      await error(await as(ada).send("PATCH", `/assets/${root.id}`, { parentAreaId: parent }), 400),
+    ).toBe("invalid_input");
+  });
+
   it("lists by kind, area, status and text, a page at a time", async () => {
     await ok(
       await as(ada).send("POST", "/assets", { kind: "it", name: "Office laptop", serialNumber: "SN-777" }),

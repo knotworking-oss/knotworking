@@ -115,7 +115,13 @@ export function redactChanges(viewer: Viewer, changes: SyncChange[]): SyncChange
 export function filterChangesByModule(modules: ModuleAccessMap, changes: SyncChange[]): SyncChange[] {
   const can = (id: "tasks" | "docs" | "time" | "calendar") => hasModuleLevel(modules[id], "read");
   return changes.filter((change) => {
-    if (change.entity === "hse_permit" && !hasModuleLevel(modules.site, "read")) return false;
+    if (change.entity === "hse_permit" && !hasModuleLevel(modules.assets, "read")) return false;
+    if (change.entity === "quality_recall_test" && !hasModuleLevel(modules.stock, "read")) return false;
+    if (
+      (change.entity === "quality_sales_volume" || change.entity === "quality_authenticity") &&
+      !hasModuleLevel(modules.items, "read")
+    )
+      return false;
     if (change.entity === "site_asset" && !hasModuleLevel(modules.haccp, "read")) return false;
     if (change.entity.startsWith("site_checklist_") && !hasModuleLevel(modules.checklists, "read"))
       return false;

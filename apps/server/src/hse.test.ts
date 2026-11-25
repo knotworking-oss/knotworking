@@ -653,6 +653,36 @@ describe("HSE controlled records, safe permits and restricted investigations", (
     for (const c of sync.changes.filter((c: any) => c.entity.startsWith("hse_")))
       expect(Object.keys(c.data).every((k) => ["id", "revision"].includes(k))).toBe(true);
   });
+  it("uses Assets access for permit API and sync visibility", async () => {
+    const draft = await permit();
+    for (const withAssets of [true, false]) {
+      const modules = ["people", "training", "hse", ...(withAssets ? ["assets"] : [])];
+      const scoped = await ok(
+        await ctx.req("/v1/me/api-tokens", {
+          method: "POST",
+          cookie: ada,
+          json: { name: "Permit reader", scope: "read", modules },
+        }),
+        201,
+      );
+      const read = (path: string) =>
+        ctx.req(`${WS}${path}`, {
+          headers: { authorization: `Bearer ${scoped.token}` },
+        });
+      if (withAssets) {
+        await ok(await read(`/hse/permits/${draft.id}`));
+      } else {
+        await fail(await read(`/hse/permits/${draft.id}`), 403, "module_forbidden");
+      }
+      const sync = await ok(await read("/sync?after=0&limit=1000"));
+      expect(
+        sync.changes.some(
+          (change: { entity: string; entityId: string }) =>
+            change.entity === "hse_permit" && change.entityId === draft.id,
+        ),
+      ).toBe(withAssets);
+    }
+  });
   it("hides disabled HSE routes and enforces workspace isolation", async () => {
     const off = await makeApp({
       seed: true,

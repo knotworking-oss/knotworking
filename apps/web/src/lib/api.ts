@@ -1541,16 +1541,20 @@ export const getSiteAuditRecords = async (slug: string, range: { from: string; t
   });
 };
 
-/** Every internal audit and mock recall test (voided included), for the quality records print. */
-export const getQualityAuditRecords = (slug: string) =>
-  load(async (api) => {
+/** Internal audit records, and mock recall tests when Stock is readable. */
+export async function getQualityAuditRecords(slug: string) {
+  const withStock = await canReadModule(slug, "stock");
+  return load(async (api) => {
     const q = ws(api).quality;
     const [audits, recalls] = await Promise.all([
       unwrap(q.audits.$get({ param: { slug }, query: { status: "all", limit: "200" } })),
-      unwrap(q["recall-tests"].$get({ param: { slug }, query: { includeVoided: "true", limit: "200" } })),
+      withStock
+        ? unwrap(q["recall-tests"].$get({ param: { slug }, query: { includeVoided: "true", limit: "200" } }))
+        : null,
     ]);
-    return { audits: audits.audits, recallTests: recalls.recallTests };
+    return { audits: audits.audits, recallTests: recalls?.recallTests ?? null };
   });
+}
 
 /** Current, permission-filtered food-safety readiness. Sign-off remains advisory. */
 export const getProductionReadiness = (slug: string, id: string) =>

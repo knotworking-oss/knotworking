@@ -1140,7 +1140,6 @@ async function replaceLines(
       changes.push(lineChange(row!));
       continue;
     }
-    const sameItem = (line.itemId ?? null) === prior.itemId;
     const below = (
       quantity: number,
       got: () => { display: number; displayUnit: string | null },
@@ -1157,7 +1156,10 @@ async function replaceLines(
     };
     if (line.kind === "non_stock") {
       // The item is a reference; the unit is what quantities, receipts and invoices are counted in.
-      const unitLabel = line.unit ?? null;
+      const itemId = line.itemId === undefined ? prior.itemId : line.itemId;
+      const sameItem = itemId === prior.itemId;
+      const unitLabel = line.unit === undefined ? prior.unitLabel : line.unit;
+      const nominalCode = line.nominalCode === undefined ? prior.nominalCode : line.nominalCode;
       if (unitLabel !== prior.unitLabel && t.receipts > 0) {
         throw new ApiError(
           409,
@@ -1172,8 +1174,8 @@ async function replaceLines(
           throw lineInvoiced(prior, "its price can't change");
       }
       if (!sameItem && blocked) throw refuseMore("other items");
-      const item = line.itemId && !sameItem ? await findReferencedItem(tx, workspaceId, line.itemId) : null;
-      const values = nonStockValues(line, item?.id ?? (sameItem ? prior.itemId : null));
+      if (itemId && !sameItem) await findReferencedItem(tx, workspaceId, itemId);
+      const values = nonStockValues({ ...line, unit: unitLabel, nominalCode }, itemId);
       if (blocked && values.quantity > roundQuantity(prior.quantity)) throw refuseMore("larger quantities");
       below(values.quantity, () => lineQuantity(t.received, prior, null), line.description);
       const [row] = await tx
@@ -1191,6 +1193,7 @@ async function replaceLines(
       changes.push(lineChange(row!));
       continue;
     }
+    const sameItem = line.itemId === prior.itemId;
     if (!sameItem && t.receipts > 0) {
       throw new ApiError(
         409,

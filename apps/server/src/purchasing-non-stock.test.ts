@@ -122,6 +122,47 @@ describe("non-stock purchasing with only items and purchasing", () => {
     expect((await send("DELETE", `/purchasing/orders/${referenced.id}`)).status).toBe(204);
   });
 
+  it("keeps omitted non-stock metadata on edits, including after receipt", async () => {
+    const item = await ok(
+      await send("POST", "/items", {
+        code: "NS-EDIT",
+        name: "Cleaning supplies",
+        type: "packaging",
+        unit: "each",
+      }),
+      201,
+    );
+    const other = await ok(await send("POST", "/suppliers", { name: "Service metadata supplier" }), 201);
+    const draft = await ok(
+      await send("POST", "/purchasing/orders", {
+        supplierId: other.id,
+        expectedOn: today,
+        lines: [{ ...cleaning, itemId: item.id }],
+      }),
+      201,
+    );
+    const path = `/purchasing/orders/${draft.id}`;
+    const id = draft.lines[0].id;
+    const edit = { id, kind: "non_stock", description: "Updated cleaning", quantity: 5 };
+    const revised = await ok(await send("PATCH", path, { lines: [edit] }));
+    expect(revised.lines[0]).toMatchObject({ itemId: item.id, unitLabel: "visit", nominalCode: "7500" });
+    await ok(await send("POST", `${path}/send`, {}));
+    await ok(
+      await send("POST", `${path}/receipts`, {
+        receivedOn: today,
+        lines: [{ lineId: id, quantity: 1, outcome: "accepted" }],
+      }),
+      201,
+    );
+    const revisedAgain = await ok(await send("PATCH", path, { lines: [{ ...edit, quantity: 6 }] }));
+    expect(revisedAgain.lines[0]).toMatchObject({ itemId: item.id, unitLabel: "visit", nominalCode: "7500" });
+    await refused(await send("PATCH", path, { lines: [{ ...edit, unit: null }] }), 409, "line_has_receipts");
+    const cleared = await ok(
+      await send("PATCH", path, { lines: [{ ...edit, itemId: null, nominalCode: null }] }),
+    );
+    expect(cleared.lines[0]).toMatchObject({ itemId: null, unitLabel: "visit", nominalCode: null });
+  });
+
   it("receives in part and in full without lots, refusing stock fields", async () => {
     await refused(
       await send("POST", `/purchasing/orders/${po}/receipts`, {

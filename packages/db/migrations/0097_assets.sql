@@ -60,7 +60,7 @@ ALTER TABLE "hse_permits" DROP CONSTRAINT "hse_permits_asset_id_site_assets_id_f
 DROP INDEX "haccp_assets_workspace_idx";--> statement-breakpoint
 DROP INDEX "haccp_assets_workspace_code_key";--> statement-breakpoint
 DROP INDEX "site_assets_workspace_idx";--> statement-breakpoint
-DROP INDEX "site_assets_workspace_code_key";
+CREATE UNIQUE INDEX "assets_workspace_code_key" ON "assets" USING btree ("workspace_id",lower("code")) WHERE "assets"."deleted_at" is null and "assets"."code" is not null;
 --> statement-breakpoint
 -- Data: one asset register. Every row of the HACCP register (areas and equipment) and of the
 -- maintained assets becomes an asset with the same id, so every reference to it still holds once
@@ -71,39 +71,91 @@ INSERT INTO "assets" ("id", "workspace_id", "kind", "code", "name", "location", 
 SELECT "id", "workspace_id", "kind", "code", "name", "location", "status", "created_at", "updated_at", "deleted_at"
 FROM "haccp_assets";
 --> statement-breakpoint
--- Maintained assets become equipment in the same area. Codes were unique per register, not across
--- both: a live maintained asset whose code a live HACCP asset already uses (case-insensitive) is
--- renamed to "<code>-M", or "<code>-M-<first 8 characters of its id>" when that is taken too. HACCP
--- codes never change (they are printed on probes and cleaning schedules).
+-- Reserve unchanged codes before allocating names for collisions. HACCP retains its ids and
+-- codes. Most Site assets can likewise be moved as-is.
 INSERT INTO "assets" ("id", "workspace_id", "kind", "code", "name", "parent_area_id", "location", "status", "created_at", "updated_at", "deleted_at")
-SELECT
-  s."id",
-  s."workspace_id",
-  'equipment',
-  CASE
-    WHEN s."code" IS NULL OR s."deleted_at" IS NOT NULL THEN s."code"
-    WHEN NOT EXISTS (
-      SELECT 1 FROM "haccp_assets" h
-      WHERE h."workspace_id" = s."workspace_id" AND h."deleted_at" IS NULL AND lower(h."code") = lower(s."code")
-    ) THEN s."code"
-    WHEN NOT EXISTS (
-      SELECT 1 FROM "haccp_assets" h
-      WHERE h."workspace_id" = s."workspace_id" AND h."deleted_at" IS NULL AND lower(h."code") = lower(s."code" || '-M')
-    ) AND NOT EXISTS (
-      SELECT 1 FROM "site_assets" o
-      WHERE o."workspace_id" = s."workspace_id" AND o."deleted_at" IS NULL AND o."id" <> s."id"
-        AND lower(o."code") = lower(s."code" || '-M')
-    ) THEN s."code" || '-M'
-    ELSE s."code" || '-M-' || left(s."id"::text, 8)
-  END,
-  s."name",
-  s."area_id",
-  s."location",
-  s."status",
-  s."created_at",
-  s."updated_at",
-  s."deleted_at"
-FROM "site_assets" s;
+SELECT s."id", s."workspace_id", 'equipment', s."code", s."name", s."area_id", s."location", s."status", s."created_at", s."updated_at", s."deleted_at"
+FROM "site_assets" s
+WHERE NOT EXISTS (SELECT 1 FROM "haccp_assets" h WHERE h."id" = s."id")
+  AND (s."deleted_at" IS NOT NULL OR s."code" IS NULL OR NOT EXISTS (
+    SELECT 1 FROM "assets" a
+    WHERE a."workspace_id" = s."workspace_id" AND a."deleted_at" IS NULL AND lower(a."code") = lower(s."code")
+  ));
+--> statement-breakpoint
+-- The old registers had independent ID and code constraints. Move each remaining Site asset
+-- after reserving a free ID and code, then re-point its Site references in the same migration.
+DO $$
+DECLARE
+  legacy record;
+  mapped_id uuid;
+  asset_code text;
+  suffix text;
+  ordinal integer;
+BEGIN
+  FOR legacy IN
+    SELECT s.* FROM "site_assets" s
+    WHERE EXISTS (SELECT 1 FROM "haccp_assets" h WHERE h."id" = s."id")
+       OR NOT EXISTS (SELECT 1 FROM "assets" a WHERE a."id" = s."id")
+    ORDER BY s."workspace_id", s."id"
+  LOOP
+    mapped_id := legacy."id";
+    IF EXISTS (SELECT 1 FROM "haccp_assets" h WHERE h."id" = mapped_id) THEN
+      LOOP
+        mapped_id := gen_random_uuid();
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM "assets" a WHERE a."id" = mapped_id)
+              AND NOT EXISTS (SELECT 1 FROM "site_assets" s WHERE s."id" = mapped_id);
+      END LOOP;
+      UPDATE "site_assets" SET "id" = mapped_id WHERE "id" = legacy."id";
+      UPDATE "site_maintenance_tasks" SET "asset_id" = mapped_id WHERE "asset_id" = legacy."id";
+      UPDATE "site_maintenance_records" SET "asset_id" = mapped_id WHERE "asset_id" = legacy."id";
+      UPDATE "site_work_orders" SET "asset_id" = mapped_id WHERE "asset_id" = legacy."id";
+      UPDATE "hse_permits" SET "asset_id" = mapped_id,
+        "body" = jsonb_set("body", '{assetId}', to_jsonb(mapped_id))
+        WHERE "asset_id" = legacy."id";
+      UPDATE "sync_changes"
+        SET "entity_id" = mapped_id, "data" = jsonb_set("data", '{id}', to_jsonb(mapped_id))
+        WHERE "workspace_id" = legacy."workspace_id" AND "entity" = 'site_asset' AND "entity_id" = legacy."id";
+      UPDATE "sync_changes"
+        SET "data" = jsonb_set("data", '{assetId}', to_jsonb(mapped_id))
+        WHERE "workspace_id" = legacy."workspace_id"
+          AND "entity" IN ('site_maintenance_task', 'site_maintenance_record', 'site_work_order')
+          AND "data"->>'assetId' = legacy."id"::text;
+    END IF;
+
+    asset_code := legacy."code";
+    IF legacy."deleted_at" IS NULL AND asset_code IS NOT NULL AND EXISTS (
+      SELECT 1 FROM "assets" a WHERE a."workspace_id" = legacy."workspace_id"
+        AND a."deleted_at" IS NULL AND lower(a."code") = lower(asset_code)
+    ) THEN
+      ordinal := 0;
+      LOOP
+        suffix := CASE WHEN ordinal = 0 THEN '-M'
+                       WHEN ordinal = 1 THEN '-M-' || left(legacy."id"::text, 8)
+                       ELSE '-M-' || left(legacy."id"::text, 8) || '-' || ordinal::text END;
+        -- The application counts UTF-16 code units, including two for supplementary characters.
+        SELECT coalesce(string_agg(character, '' ORDER BY position), '') || suffix INTO asset_code
+        FROM (
+          SELECT character, position,
+            sum(CASE WHEN ascii(character) > 65535 THEN 2 ELSE 1 END)
+              OVER (ORDER BY position) AS units
+          FROM regexp_split_to_table(legacy."code", '') WITH ORDINALITY AS original(character, position)
+        ) characters
+        WHERE units <= 40 - length(suffix);
+        EXIT WHEN NOT EXISTS (
+          SELECT 1 FROM "assets" a WHERE a."workspace_id" = legacy."workspace_id"
+            AND a."deleted_at" IS NULL AND lower(a."code") = lower(asset_code)
+        ) AND NOT EXISTS (
+          SELECT 1 FROM "site_assets" s WHERE s."workspace_id" = legacy."workspace_id"
+            AND s."deleted_at" IS NULL AND lower(s."code") = lower(asset_code)
+        );
+        ordinal := ordinal + 1;
+      END LOOP;
+    END IF;
+    INSERT INTO "assets" ("id", "workspace_id", "kind", "code", "name", "parent_area_id", "location", "status", "created_at", "updated_at", "deleted_at")
+    VALUES (mapped_id, legacy."workspace_id", 'equipment', asset_code, legacy."name", legacy."area_id", legacy."location",
+      legacy."status", legacy."created_at", legacy."updated_at", legacy."deleted_at");
+  END LOOP;
+END $$;
 --> statement-breakpoint
 -- HACCP and Site now need Assets. Keep everyone who could use either: a member's explicit grant
 -- in "haccp" or "site" gives the same level in "assets" (the higher of the two).
@@ -147,7 +199,6 @@ ALTER TABLE "assets" ADD CONSTRAINT "assets_custodian_id_users_id_fk" FOREIGN KE
 CREATE INDEX "assets_workspace_idx" ON "assets" USING btree ("workspace_id","name");--> statement-breakpoint
 CREATE INDEX "assets_workspace_kind_idx" ON "assets" USING btree ("workspace_id","kind","status");--> statement-breakpoint
 CREATE INDEX "assets_parent_area_idx" ON "assets" USING btree ("parent_area_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "assets_workspace_code_key" ON "assets" USING btree ("workspace_id",lower("code")) WHERE "assets"."deleted_at" is null and "assets"."code" is not null;--> statement-breakpoint
 ALTER TABLE "production_devices" ADD CONSTRAINT "production_devices_haccp_asset_id_assets_id_fk" FOREIGN KEY ("haccp_asset_id") REFERENCES "public"."assets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "haccp_assets" ADD CONSTRAINT "haccp_assets_id_assets_id_fk" FOREIGN KEY ("id") REFERENCES "public"."assets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "haccp_calibration_records" ADD CONSTRAINT "haccp_calibration_records_asset_id_assets_id_fk" FOREIGN KEY ("asset_id") REFERENCES "public"."assets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -173,6 +224,7 @@ ALTER TABLE "haccp_assets" DROP COLUMN "name";--> statement-breakpoint
 ALTER TABLE "haccp_assets" DROP COLUMN "location";--> statement-breakpoint
 ALTER TABLE "haccp_assets" DROP COLUMN "status";--> statement-breakpoint
 ALTER TABLE "haccp_assets" DROP COLUMN "deleted_at";--> statement-breakpoint
+DROP INDEX "site_assets_workspace_code_key";--> statement-breakpoint
 ALTER TABLE "site_assets" DROP COLUMN "code";--> statement-breakpoint
 ALTER TABLE "site_assets" DROP COLUMN "name";--> statement-breakpoint
 ALTER TABLE "site_assets" DROP COLUMN "location";--> statement-breakpoint

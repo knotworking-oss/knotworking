@@ -2,6 +2,7 @@ import type { AccountingCustomerPrepareInput, AccountingPosting } from "@knotwor
 import {
   accountingPostings as postings,
   customerDocuments as documents,
+  workspaces,
   type Database,
   type Executor,
 } from "@knotworking/db";
@@ -21,6 +22,14 @@ type Document = typeof documents.$inferSelect;
 const postingKind = (document: Document) =>
   document.kind === "invoice" ? "customer_invoice" : "customer_credit_note";
 const conflict = (message: string) => new ApiError(409, "accounting_conflict", message);
+
+async function destinationCurrency(db: Executor, ws: string) {
+  const [row] = await db
+    .select({ currency: workspaces.currency })
+    .from(workspaces)
+    .where(eq(workspaces.id, ws));
+  return row?.currency;
+}
 
 async function findPosting(
   db: Executor,
@@ -109,10 +118,11 @@ export async function getPreparableCustomerDocument(
   connectionId: string,
   id: string,
 ) {
-  const [connection, document, maps] = await Promise.all([
+  const [connection, document, maps, currency] = await Promise.all([
     findAccountingConnection(db, ws, connectionId),
     findCustomerDocument(db, ws, id),
     enabledAccountingMappings(db, ws, connectionId),
+    destinationCurrency(db, ws),
   ]);
   const [existing, original] = await Promise.all([
     findPosting(db, ws, connectionId, id, postingKind(document)),
@@ -123,6 +133,8 @@ export async function getPreparableCustomerDocument(
     blockers.push("Approve and issue this document before preparing it for Xero.");
   if (connection.provider !== "xero" || !connection.companyId || connection.disabled)
     blockers.push("Enable a configured Xero connection before preparing this document.");
+  if (currency !== document.currency)
+    blockers.push(`This Xero connection uses ${currency}, while the document is in ${document.currency}.`);
   if (!original && !maps.customer.has(document.customerId))
     blockers.push("Review this customer's Xero contact mapping.");
   if (!original && (!maps.account.size || !maps.tax.size))
@@ -188,6 +200,8 @@ export async function prepareCustomerPosting(
       const document = await findCustomerDocument(tx, ws, id);
       if (document.status !== "issued" || !document.number)
         throw conflict("Only issued customer documents can be prepared");
+      if (document.currency !== (await destinationCurrency(tx, ws)))
+        throw conflict("The issued document currency must match the Xero connection base currency");
       const common = {
         version: 1 as const,
         provider: connection.provider,

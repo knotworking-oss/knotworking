@@ -74,6 +74,9 @@ services:
       # UPLOAD_STORAGE=s3; back the volume up with the database (docs/self-hosting.md).
       # Modules switched on in this deployment (docs/modules.md). Unset = all except `calendar`, `accounting`, and `bi` (`all` includes them).
       KNOTWORKING_MODULES:
+      XERO_CLIENT_ID:
+      XERO_CLIENT_SECRET:
+      ACCOUNTING_DISPATCH_INTERVAL_SECONDS:
       UPLOAD_DIR: /app/data/uploads
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
       # No value: passed through only when set in deploy/.env (S3-compatible storage instead of the volume).

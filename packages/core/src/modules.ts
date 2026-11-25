@@ -144,7 +144,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Accounting integrations",
     description: "Optional accounting connections and reviewed financial mappings.",
     dependsOn: [],
-    enhancedBy: [],
+    enhancedBy: ["purchasing", "items", "customers"],
     defaultAccess: "none",
     defaultActive: false,
     syncEntities: [],

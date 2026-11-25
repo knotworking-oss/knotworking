@@ -235,7 +235,11 @@ describe("Section 3.5 acceptance exercise", () => {
     ]);
     // The allergen-free loaf starts the day, so the milk loaf follows without a clean-down.
     expect(day.proposal.order[0].reason).toBe("Starts the day: fewest allergens (Cereals containing gluten)");
-    expect(day.proposal).toMatchObject({ improves: true, current: { cleanDowns: 1 }, proposed: { cleanDowns: 0 } });
+    expect(day.proposal).toMatchObject({
+      improves: true,
+      current: { cleanDowns: 1 },
+      proposed: { cleanDowns: 0 },
+    });
     const applied = await ok(
       await call("PUT", "/production/schedule/sequence", {
         lineId: line,

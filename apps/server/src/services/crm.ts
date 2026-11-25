@@ -954,7 +954,9 @@ export async function handOffCrmOpportunity(
     const reason = `${opportunity.reference} won: ${input.reason}`;
     const sameCustomer = (customerId: string) => {
       if (customerId !== opportunity.customerId)
-        throw conflict("The linked quote is now for another customer. Link the right quote first");
+        throw conflict(
+          "The linked quote is now for another customer. Reopen the opportunity to link the right one",
+        );
     };
     if (input.kind === "sales_order") {
       if (!opportunity.salesQuoteId) throw conflict("Link a Sales quote before handing off to an order");

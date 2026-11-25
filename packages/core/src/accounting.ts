@@ -173,7 +173,7 @@ export const accountingRetrySchema = z
   .strict();
 /** Reconcile the current uncertain attempt from a transaction found in the accounting system. */
 export const accountingReadBackSchema = z
-  .object({ attemptId: z.uuid(), externalId: label, reason: z.string().trim().min(1).max(2000) })
+  .object({ attemptId: z.uuid(), externalId: label.optional(), reason: z.string().trim().min(1).max(2000) })
   .strict();
 /** Catalogue entries are candidates, not installed or authenticated connections. */
 export const accountingProviderCandidates = [

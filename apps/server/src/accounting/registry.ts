@@ -17,6 +17,11 @@ export interface AccountingBinding {
  * is how an uncertain posting is positively reconciled; a null result is never proof of no write.
  */
 export type InstalledAccountingAdapter = AccountingAdapter & {
+  /** Search for a committed write when the destination ID was lost with the response. */
+  findExisting?(input: {
+    postingKey: string;
+    document: AccountingPosting;
+  }): Promise<AccountingReceipt | null>;
   readBack?(input: {
     postingKey: string;
     document: AccountingPosting;

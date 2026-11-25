@@ -51,10 +51,20 @@ function fixture(currency: "GBP" | "EUR" | "USD" = "GBP") {
     const headers = new Headers(init?.headers);
     expect(headers.get("authorization")).toBe("Bearer test-token");
     expect(headers.get("xero-tenant-id")).toBe(companyId);
-    if (url.endsWith("/Organisations"))
+    if (url.endsWith("/Organisation"))
       return Response.json({
-        Organisations: [{ OrganisationID: state.organisationId, BaseCurrency: state.baseCurrency }],
+        Organisations: [
+          { OrganisationID: state.organisationId, Name: "Test Xero", BaseCurrency: state.baseCurrency },
+        ],
       });
+    if (url.includes("/Contacts/"))
+      return Response.json({
+        Contacts: [{ ContactID: document.supplierReference, ContactStatus: "ACTIVE" }],
+      });
+    if (url.endsWith("/Accounts"))
+      return Response.json({ Accounts: [{ Code: "5000", Class: "EXPENSE", Status: "ACTIVE" }] });
+    if (url.endsWith("/TaxRates"))
+      return Response.json({ TaxRates: [{ TaxType: "INPUT2", Status: "ACTIVE", CanApplyToExpenses: true }] });
     if (init?.method === "PUT") {
       state.sent = JSON.parse(String(init.body)).Invoices[0];
       if (state.loseWriteReply) throw new Error("secret-token must never escape");
@@ -107,7 +117,7 @@ describe("Xero purchase invoice HTTP adapter (fake transport)", () => {
         gross: "12.00",
       },
     });
-    expect(f.fetch).toHaveBeenCalledTimes(3);
+    expect(f.fetch).toHaveBeenCalledTimes(6);
     expect(f.state.sent).toMatchObject({
       Type: "ACCPAY",
       Status: "AUTHORISED",

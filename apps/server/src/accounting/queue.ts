@@ -88,13 +88,14 @@ export async function listAccountingQueue(
     .orderBy(query.state === "queued" ? asc(postings.createdAt) : desc(postings.updatedAt), asc(postings.id))
     .limit(51)
     .offset(query.offset);
-  const adapter = connection.disabled ? null : await registry.resolve(value).catch(() => null);
+  const adapter = await registry.resolve(value).catch(() => null);
   return {
     postings: rows.slice(0, 50).map(summary),
     hasMore: rows.length > 50,
     counts,
-    adapterInstalled: !!adapter,
+    adapterInstalled: !connection.disabled && !!adapter,
     canReadBack: !!adapter?.readBack,
+    canFindExisting: !!adapter?.findExisting,
   };
 }
 
@@ -188,7 +189,7 @@ export async function readBackAccountingQueueItem(
   id: string,
   actorId: string,
   registry: AccountingAdapterRegistry,
-  input: { attemptId: string; externalId: string; reason: string },
+  input: { attemptId: string; externalId?: string; reason: string },
 ) {
   const { value } = await binding(db, ws, connectionId);
   const row = await findPosting(db, ws.id, connectionId, id);
@@ -196,11 +197,20 @@ export async function readBackAccountingQueueItem(
     throw new ApiError(409, "accounting_conflict", "Only the current uncertain attempt can be reconciled");
   const adapter = await registry.resolve(value);
   if (!adapter) throw notInstalled();
-  if (!adapter.readBack)
-    throw new ApiError(409, "read_back_unsupported", "This accounting adapter can't read transactions back");
-  const receipt = await adapter
-    .readBack({ postingKey: row.id, document: row.payload, externalId: input.externalId })
-    .catch(() => null);
+  const externalId = input.externalId;
+  const prepared = { postingKey: row.id, document: row.payload };
+  const request = externalId
+    ? adapter.readBack?.({ ...prepared, externalId })
+    : adapter.findExisting?.(prepared);
+  if (!request)
+    throw new ApiError(
+      409,
+      "read_back_unsupported",
+      externalId
+        ? "This accounting adapter can't read transactions back"
+        : "Enter the transaction ID to read it back",
+    );
+  const receipt = await request.catch(() => null);
   if (!receipt)
     throw new ApiError(
       409,
@@ -214,7 +224,7 @@ export async function readBackAccountingQueueItem(
     input.attemptId,
     `user:${actorId}`,
     receipt,
-    `Read back transaction ${input.externalId}: ${input.reason}`.slice(0, 4000),
+    `Read back transaction ${receipt.externalId}: ${input.reason}`.slice(0, 4000),
   );
   return getAccountingQueueItem(db, ws.id, connectionId, id);
 }

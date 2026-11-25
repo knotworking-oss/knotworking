@@ -5,11 +5,59 @@ import {
   type AccountingReceipt,
 } from "@knotworking/core";
 import { z } from "zod";
-import type { AccountingAdapter } from "../adapter";
+import type { InstalledAccountingAdapter } from "../registry";
 
-const API = "https://api.xero.com/api.xro/2.0";
-const baseCurrency = z.enum(["GBP", "EUR", "USD"]);
-const bindingSchema = z.object({ connectionId: z.uuid(), companyId: z.uuid(), baseCurrency });
+import { ApiError } from "../../errors";
+import { XeroHttpError, readXeroOrganisation, xeroAccountingRequest, xeroCurrency } from "../xero-http";
+
+type PurchaseBill = Extract<AccountingPosting, { kind: "purchase_invoice" }>;
+
+const bindingSchema = z.object({
+  connectionId: z.uuid(),
+  companyId: z.uuid(),
+  organisationId: z.uuid(),
+  baseCurrency: xeroCurrency,
+});
+const activeContact = z.object({
+  Contacts: z
+    .array(
+      z.object({
+        ContactID: z.uuid(),
+        ContactStatus: z.string(),
+      }),
+    )
+    .length(1),
+});
+const chart = z.object({
+  Accounts: z.array(
+    z.object({
+      Code: z.string().optional(),
+      Status: z.string(),
+      Class: z.string().optional(),
+    }),
+  ),
+});
+const taxRates = z.object({
+  TaxRates: z.array(
+    z.object({
+      TaxType: z.string(),
+      Status: z.string(),
+      CanApplyToAssets: z.boolean().optional(),
+      CanApplyToEquity: z.boolean().optional(),
+      CanApplyToExpenses: z.boolean().optional(),
+      CanApplyToLiabilities: z.boolean().optional(),
+      CanApplyToRevenue: z.boolean().optional(),
+    }),
+  ),
+});
+const taxByClass = {
+  ASSET: "CanApplyToAssets",
+  EQUITY: "CanApplyToEquity",
+  EXPENSE: "CanApplyToExpenses",
+  LIABILITY: "CanApplyToLiabilities",
+  REVENUE: "CanApplyToRevenue",
+} as const;
+const reject = (evidence: string) => ({ outcome: "rejected" as const, evidence });
 const money = z.number().finite().nonnegative();
 const invoiceSchema = z.object({
   InvoiceID: z.uuid(),
@@ -43,7 +91,7 @@ function exactMoney(value: number): string {
   if (Number(canonical) !== value) throw new Error("Unsupported amount precision");
   return canonical;
 }
-function businessDate(value: string | undefined): string | null {
+function businessDate(value: string | null | undefined): string | null {
   if (!value) return null;
   if (/^\d{4}-\d{2}-\d{2}(T|$)/.test(value)) return value.slice(0, 10);
   const match = /^\/Date\((-?\d+)(?:[+-]\d{4})?\)\/$/.exec(value);
@@ -63,23 +111,22 @@ const unavailable = (written: boolean) => ({
  */
 export function createXeroAdapter(options: {
   connectionId: string;
-  /** OAuth tenant ID; verified against Organisations before each operation. */
+  /** OAuth tenant ID; every ledger operation uses this header. */
   companyId: string;
-  baseCurrency: "GBP" | "EUR" | "USD";
+  organisationId?: string;
+  baseCurrency: string;
   /** The existing web app origin and workspace slug, for the source invoice link. */
   appUrl: string;
   workspaceSlug: string;
   getAccessToken: () => Promise<string>;
+  onUnauthorized?: (token: string) => Promise<void>;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
-}): AccountingAdapter & {
-  readBack(input: {
-    postingKey: string;
-    document: AccountingPosting;
-    externalId: string;
-  }): Promise<AccountingReceipt | null>;
-} {
-  const binding = bindingSchema.parse(options);
+}): InstalledAccountingAdapter & Required<Pick<InstalledAccountingAdapter, "readBack" | "findExisting">> {
+  const binding = bindingSchema.parse({
+    ...options,
+    organisationId: options.organisationId ?? options.companyId,
+  });
   const appUrl = new URL(options.appUrl);
   if (
     !["http:", "https:"].includes(appUrl.protocol) ||
@@ -101,62 +148,74 @@ export function createXeroAdapter(options: {
     .max(60000)
     .parse(options.timeoutMs ?? 10000);
   const transport = options.fetch ?? globalThis.fetch;
-  const urlFor = (postingKey: string, document: AccountingPosting) =>
+  const urlFor = (postingKey: string, document: PurchaseBill) =>
     `${appUrl.origin}/${workspaceSlug}/purchasing/invoices/${document.sourceId}?accountingPosting=${postingKey}`;
   function prepare(postingKey: string, input: unknown) {
     z.uuid().parse(postingKey);
     const document = accountingPostingSchema.parse(input);
     if (
+      document.kind !== "purchase_invoice" ||
       document.provider !== "xero" ||
       document.connectionId !== binding.connectionId ||
       document.companyId !== binding.companyId ||
       document.currency !== binding.baseCurrency ||
       !document.dueDate ||
+      document.dueDate < document.date ||
+      !/^[ -~]+$/.test(document.reference) ||
       !z.uuid().safeParse(document.supplierReference).success
     )
       throw new Error("Unsupported Xero purchase invoice or destination");
     return document;
   }
   async function request(path: string, token: string, init: RequestInit = {}) {
-    const response = await transport(API + path, {
-      ...init,
-      redirect: "error",
-      signal: AbortSignal.timeout(timeout),
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json",
-        authorization: `Bearer ${token}`,
-        "xero-tenant-id": binding.companyId,
-        ...init.headers,
-      },
-    });
-    if (!response.ok) throw new Error("Xero request did not succeed");
-    return response.json() as Promise<unknown>;
+    try {
+      return await xeroAccountingRequest(transport, binding.companyId, token, path, init, timeout);
+    } catch (error) {
+      if (error instanceof XeroHttpError && error.status === 401) await options.onUnauthorized?.(token);
+      throw error;
+    }
   }
   async function verifyOrganisation(token: string) {
-    const data = z
-      .object({
-        Organisations: z.array(z.object({ OrganisationID: z.uuid(), BaseCurrency: z.string() })).length(1),
-      })
-      .parse(await request("/Organisations", token));
-    const organisation = data.Organisations[0]!;
+    const organisation = await readXeroOrganisation((path) => request(path, token));
     if (
-      organisation.OrganisationID.toLowerCase() !== binding.companyId.toLowerCase() ||
+      organisation.OrganisationID.toLowerCase() !== binding.organisationId.toLowerCase() ||
       organisation.BaseCurrency !== binding.baseCurrency
     )
-      throw new Error("Xero organisation or base currency differs from configuration");
+      return null;
+    return organisation;
   }
-  async function readInvoice(
-    token: string,
-    postingKey: string,
-    document: AccountingPosting,
-    externalId: string,
-  ): Promise<AccountingReceipt> {
+  async function mappingIssue(token: string, document: PurchaseBill) {
+    const id = document.supplierReference.toLowerCase();
+    const contact = activeContact.parse(await request(`/Contacts/${id}`, token)).Contacts[0]!;
+    if (contact.ContactID.toLowerCase() !== id || contact.ContactStatus !== "ACTIVE")
+      return "The reviewed supplier contact is not active in Xero";
+    const accounts = chart.parse(await request("/Accounts", token)).Accounts;
+    const rates = taxRates.parse(await request("/TaxRates", token)).TaxRates;
+    for (const [index, line] of document.lines.entries()) {
+      const account = accounts.find((a) => a.Code === line.accountReference && a.Status === "ACTIVE");
+      if (!account) return `Line ${index + 1} needs an active Xero account code`;
+      const tax = rates.find((rate) => rate.TaxType === line.taxReference && rate.Status === "ACTIVE");
+      const applies = account.Class && taxByClass[account.Class as keyof typeof taxByClass];
+      if (!tax || (applies && tax[applies] === false))
+        return `Line ${index + 1} needs an active Xero tax type applicable to its account`;
+      if (line.taxReference === "NONE" && line.tax !== "0.00")
+        return `Line ${index + 1} has a tax amount against Xero's no-tax code`;
+    }
+    return null;
+  }
+  function invoiceResponse(token: string, externalId: string) {
     z.uuid().parse(externalId);
-    const data = z
-      .object({ Invoices: z.array(invoiceSchema).length(1) })
-      .parse(await request(`/Invoices/${encodeURIComponent(externalId)}`, token));
-    const invoice = data.Invoices[0]!;
+    return request(`/Invoices/${encodeURIComponent(externalId)}`, token);
+  }
+  function verifyInvoice(
+    data: unknown,
+    postingKey: string,
+    document: PurchaseBill,
+    externalId: string,
+  ): AccountingReceipt {
+    const {
+      Invoices: [invoice],
+    } = z.object({ Invoices: z.tuple([invoiceSchema]) }).parse(data);
     if (
       invoice.HasErrors ||
       invoice.InvoiceID.toLowerCase() !== externalId.toLowerCase() ||
@@ -196,20 +255,74 @@ export function createXeroAdapter(options: {
       connectionId: binding.connectionId,
       companyId: binding.companyId,
       postingKey,
-      externalId,
+      externalId: invoice.InvoiceID.toLowerCase(),
       currency: document.currency,
       net: document.net,
       tax: document.tax,
       gross: document.gross,
     });
   }
-  // Keep configuration-only fields out of the strict shared receipt schema.
-  async function readBack(input: { postingKey: string; document: AccountingPosting; externalId: string }) {
+  async function findInvoice(token: string, postingKey: string, document: PurchaseBill) {
+    // Purchase bill numbers are not unique. Look for the source URL under the original contact
+    // and date, then verify the whole invoice by ID. Ambiguity and incomplete searches stay unknown.
+    const candidates = z.object({
+      Invoices: z.array(
+        z.object({
+          InvoiceID: z.uuid(),
+          InvoiceNumber: z.string().optional(),
+          Url: z.string().nullish(),
+        }),
+      ),
+    });
+    const date = document.date.split("-").map(Number).join(",");
+    const query = new URLSearchParams({
+      ContactIDs: document.supplierReference,
+      where: `Type=="ACCPAY"&&Date==DateTime(${date})`,
+      createdByMyApp: "true",
+      pageSize: "100",
+    });
+    const source = urlFor(postingKey, document);
+    const matches = new Set<string>();
+    for (let page = 1; page <= 5; page++) {
+      query.set("page", String(page));
+      const { Invoices } = candidates.parse(await request(`/Invoices?${query}`, token));
+      for (const invoice of Invoices) {
+        if (invoice.InvoiceNumber === document.reference && (invoice.Url === source || !invoice.Url))
+          matches.add(invoice.InvoiceID.toLowerCase());
+      }
+      if (matches.size > 5) return null;
+      if (Invoices.length < 100) {
+        let receipt: AccountingReceipt | null = null;
+        for (const id of matches) {
+          const data = await invoiceResponse(token, id);
+          const {
+            Invoices: [invoice],
+          } = z
+            .object({
+              Invoices: z.tuple([z.object({ Url: z.string().nullish() })]),
+            })
+            .parse(data);
+          if (invoice.Url !== source) continue;
+          if (receipt) return null;
+          receipt = verifyInvoice(data, postingKey, document, id);
+        }
+        return receipt;
+      }
+    }
+    return null;
+  }
+  async function readBack(input: { postingKey: string; document: AccountingPosting; externalId?: string }) {
     try {
       const document = prepare(input.postingKey, input.document);
       const token = await options.getAccessToken();
-      await verifyOrganisation(token);
-      return await readInvoice(token, input.postingKey, document, input.externalId);
+      if (!(await verifyOrganisation(token))) return null;
+      if (!input.externalId) return await findInvoice(token, input.postingKey, document);
+      return verifyInvoice(
+        await invoiceResponse(token, input.externalId),
+        input.postingKey,
+        document,
+        input.externalId,
+      );
     } catch {
       return null;
     }
@@ -220,13 +333,20 @@ export function createXeroAdapter(options: {
     companyId: binding.companyId,
     capabilities: { postingKinds: ["purchase_invoice"], currencies: [binding.baseCurrency] },
     readBack,
+    findExisting: readBack,
     async post(input) {
       let written = false;
       try {
         const document = prepare(input.postingKey, input.document);
         z.uuid().parse(input.attemptId);
         const token = await options.getAccessToken();
-        await verifyOrganisation(token);
+        const organisation = await verifyOrganisation(token);
+        if (!organisation) return reject("The Xero organisation or base currency differs from this setup");
+        const lockDates = [organisation.PeriodLockDate, organisation.EndOfYearLockDate].map(businessDate);
+        if (lockDates.some((date) => date && document.date <= date))
+          return reject("The invoice date falls in a locked Xero accounting period");
+        const issue = await mappingIssue(token, document);
+        if (issue) return reject(issue);
         const invoice = {
           Type: "ACCPAY",
           Status: "AUTHORISED",
@@ -251,7 +371,16 @@ export function createXeroAdapter(options: {
         written = true;
         const created = z
           .object({
-            Invoices: z.array(z.object({ InvoiceID: z.uuid(), HasErrors: z.boolean().optional() })).length(1),
+            Invoices: z
+              .array(
+                z.object({
+                  InvoiceID: z.uuid().optional(),
+                  HasErrors: z.boolean().optional(),
+                  StatusAttributeString: z.string().optional(),
+                  ValidationErrors: z.array(z.object({ Message: z.string() })).optional(),
+                }),
+              )
+              .length(1),
           })
           .parse(
             await request("/Invoices?summarizeErrors=false", token, {
@@ -260,12 +389,29 @@ export function createXeroAdapter(options: {
               body: JSON.stringify({ Invoices: [invoice] }),
             }),
           );
-        if (created.Invoices[0]!.HasErrors) return unavailable(true);
+        const result = created.Invoices[0]!;
+        const hasId = result.InvoiceID && result.InvoiceID !== "00000000-0000-0000-0000-000000000000";
+        if (!hasId && result.StatusAttributeString === "ERROR" && result.ValidationErrors?.length)
+          return reject("Xero rejected the bill during validation and did not create it");
+        if (!hasId || result.HasErrors || result.StatusAttributeString === "ERROR") return unavailable(true);
         return {
           outcome: "posted" as const,
-          receipt: await readInvoice(token, input.postingKey, document, created.Invoices[0]!.InvoiceID),
+          receipt: verifyInvoice(
+            await invoiceResponse(token, result.InvoiceID!),
+            input.postingKey,
+            document,
+            result.InvoiceID!,
+          ),
         };
-      } catch {
+      } catch (error) {
+        if (!written && error instanceof ApiError && error.code === "xero_reconnect_required")
+          return reject("Reconnect Xero before retrying this bill");
+        if (!written && error instanceof XeroHttpError && error.status === 401)
+          return reject(
+            "Xero denied access during preflight. Check the connection and consent before retrying.",
+          );
+        if (error instanceof XeroHttpError && error.validationRejected)
+          return reject("Xero rejected the bill during validation and did not create it");
         return unavailable(written);
       }
     },

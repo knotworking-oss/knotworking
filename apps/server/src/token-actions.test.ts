@@ -122,7 +122,7 @@ describe("API access toggles (token actions)", () => {
     const member = await ok(await as(marcus.cookie).get("/token-actions"));
     expect(member.canManage).toBe(false);
     expect(member.actions.map((a: { id: string }) => a.id)).toEqual(["bi.publish", "bi.board_packs"]);
-    expect(member.personOnly.every((a: { module: string }) => ["items"].includes(a.module))).toBe(true);
+    expect(member.personOnly.every((a: { module: string }) => ["items", "purchase_requests"].includes(a.module))).toBe(true);
   });
 
   it("refuses a token by default, naming the action and where to allow it", async () => {

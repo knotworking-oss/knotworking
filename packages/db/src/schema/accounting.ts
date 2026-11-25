@@ -14,7 +14,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { users } from "../schema";
+import { sessions, users } from "../schema";
 import { pk, ts, workspaceRef } from "./helpers";
 
 /** Private connector records: never publish payloads or receipts to workspace sync. */
@@ -131,5 +131,55 @@ export const accountingConfigurationEvents = pgTable(
       foreignColumns: [accountingConnections.workspaceId, accountingConnections.id],
     }),
     index("accounting_configuration_events_history_idx").on(t.workspaceId, t.connectionId, t.revision),
+  ],
+);
+
+/** A confirmed Xero destination and its encrypted rotating grant. Retain the destination
+ * after disconnect so reconnect never changes the ledger behind a reviewed posting. */
+export const accountingXeroCredentials = pgTable(
+  "accounting_xero_credentials",
+  {
+    workspaceId: workspaceRef(),
+    connectionId: uuid("connection_id").notNull(),
+    tenantId: uuid("tenant_id").notNull(),
+    organisationId: uuid("organisation_id").notNull(),
+    organisationName: text("organisation_name").notNull(),
+    baseCurrency: text("base_currency").notNull(),
+    remoteConnectionId: uuid("remote_connection_id"),
+    ciphertext: text("ciphertext"),
+    verifiedAt: ts("verified_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.connectionId] }),
+    foreignKey({
+      columns: [t.workspaceId, t.connectionId],
+      foreignColumns: [accountingConnections.workspaceId, accountingConnections.id],
+    }).onDelete("cascade"),
+    uniqueIndex("accounting_xero_remote_connection_key").on(t.remoteConnectionId),
+  ],
+);
+
+/** A short-lived, one-use OAuth attempt. Both state and unconfirmed credentials stay private. */
+export const accountingXeroFlows = pgTable(
+  "accounting_xero_flows",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    connectionId: uuid("connection_id").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    stateHash: text("state_hash"),
+    ciphertext: text("ciphertext"),
+    expiresAt: ts("expires_at").notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.workspaceId, t.connectionId],
+      foreignColumns: [accountingConnections.workspaceId, accountingConnections.id],
+    }).onDelete("cascade"),
+    uniqueIndex("accounting_xero_flow_connection_key").on(t.workspaceId, t.connectionId),
+    uniqueIndex("accounting_xero_flow_state_key").on(t.stateHash),
+    index("accounting_xero_flow_expiry_idx").on(t.expiresAt),
   ],
 );

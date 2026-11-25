@@ -52,7 +52,7 @@ function mockXero() {
     grantedRefresh = `fixture-refresh-${state.codeExchanges}-${state.refreshes}`;
     return Response.json({ access_token: grantedAccess, refresh_token: grantedRefresh, expires_in });
   };
-  const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetch = vi.fn(async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
     const url = new URL(String(input));
     const headers = new Headers(init?.headers);
     expect(init?.redirect).toBe("error");

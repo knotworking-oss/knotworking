@@ -20,6 +20,7 @@ import { ApiError, notFound } from "../errors";
 import { assertAccountingConnection, findAccountingConnection } from "../services/accounting";
 import { executeLedgerCommand } from "../services/ledger-command";
 import { enqueueAccountingPostingTx } from "./outbox";
+import { providerDocumentIssues } from "./provider-rules";
 
 /**
  * The approved-invoice producer: turns an approved purchase invoice plus a finance reviewer's line
@@ -258,6 +259,16 @@ export async function getPreparableInvoice(
   if (vat === null) blockers.push(`The invoice VAT has more decimal places than ${currency} allows.`);
   if (lines.some((l) => l.suggestedNet.startsWith("-")))
     blockers.push("Invoices with negative lines can't be posted yet.");
+  blockers.push(
+    ...providerDocumentIssues(connection.provider, {
+      kind: "purchase_invoice",
+      date: source.invoice.invoiceDate,
+      dueDate: source.invoice.dueDate,
+      reference: source.invoice.invoiceNumber,
+      currency,
+      supplierReference: mapped.supplier.get(source.invoice.supplierId) ?? null,
+    }).map((issue) => `${issue}.`),
+  );
   if (others.length)
     blockers.push(
       `Version ${others[0]!.version} of this invoice was already sent to accounting. Record the correction in the accounting system; Knotworking can't post credit notes or adjustments yet.`,
@@ -433,6 +444,9 @@ export async function prepareInvoicePosting(
         tax: format(tax, digits),
         gross: format(net + tax, digits),
       };
+      const issues = providerDocumentIssues(connection.provider, posting);
+      if (issues.length)
+        throw conflict("provider_document_invalid", `${issues.join(". ")}.`, { issues });
       const row = await enqueueAccountingPostingTx(
         tx,
         ws,

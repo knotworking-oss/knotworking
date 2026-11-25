@@ -58,6 +58,44 @@ const taxByClass = {
   REVENUE: "CanApplyToRevenue",
 } as const;
 const reject = (evidence: string) => ({ outcome: "rejected" as const, evidence });
+/** A definitive reason the adapter refuses a document before any write. */
+class PreflightIssue extends Error {}
+
+/**
+ * Each Knotworking document kind maps to one Xero document. Customer invoices (`ACCREC`) and
+ * credit notes (the `/CreditNotes` endpoint) are added here as the shared posting schema grows.
+ */
+const xeroDocuments = {
+  purchase_invoice: { type: "ACCPAY", sourcePath: "purchasing/invoices", contact: "supplier" },
+} as const satisfies Record<
+  AccountingPosting["kind"],
+  { type: string; sourcePath: string; contact: "supplier" | "customer" }
+>;
+
+/**
+ * What a document needs before Xero can receive it, checked when an invoice is prepared for a
+ * Xero connection and again before sending. The connected organisation's currency, lock dates,
+ * contact, account codes and tax types are checked against Xero itself just before the write.
+ */
+export function xeroDocumentIssues(
+  document: Pick<PurchaseBill, "kind" | "date" | "reference" | "currency"> & {
+    dueDate?: string | null;
+    supplierReference: string | null;
+  },
+): string[] {
+  const issues: string[] = [];
+  if (!Object.hasOwn(xeroDocuments, document.kind)) issues.push("Xero can't receive this document type yet");
+  if (!document.dueDate) issues.push("Add the supplier's due date to the invoice. Xero needs one for a bill.");
+  else if (document.dueDate < document.date) issues.push("The due date is before the invoice date");
+  // Xero allows 255 characters; control characters would not survive its matching and search.
+  if (document.reference.length > 255 || /\p{Cc}/u.test(document.reference))
+    issues.push("The supplier invoice number can't be sent to Xero as written");
+  if (document.supplierReference !== null && !z.uuid().safeParse(document.supplierReference).success)
+    issues.push("Map the supplier to its Xero ContactID, a UUID from the contact's Xero record");
+  if (!xeroCurrency.safeParse(document.currency).success)
+    issues.push(`Xero bills need a two-decimal currency, not ${document.currency}`);
+  return issues;
+}
 const money = z.number().finite().nonnegative();
 const invoiceSchema = z.object({
   InvoiceID: z.uuid(),
@@ -149,23 +187,23 @@ export function createXeroAdapter(options: {
     .parse(options.timeoutMs ?? 10000);
   const transport = options.fetch ?? globalThis.fetch;
   const urlFor = (postingKey: string, document: PurchaseBill) =>
-    `${appUrl.origin}/${workspaceSlug}/purchasing/invoices/${document.sourceId}?accountingPosting=${postingKey}`;
+    `${appUrl.origin}/${workspaceSlug}/${xeroDocuments[document.kind].sourcePath}/${document.sourceId}?accountingPosting=${postingKey}`;
   function prepare(postingKey: string, input: unknown) {
     z.uuid().parse(postingKey);
     const document = accountingPostingSchema.parse(input);
     if (
-      document.kind !== "purchase_invoice" ||
       document.provider !== "xero" ||
       document.connectionId !== binding.connectionId ||
-      document.companyId !== binding.companyId ||
-      document.currency !== binding.baseCurrency ||
-      !document.dueDate ||
-      document.dueDate < document.date ||
-      !/^[ -~]+$/.test(document.reference) ||
-      !z.uuid().safeParse(document.supplierReference).success
+      document.companyId !== binding.companyId
     )
-      throw new Error("Unsupported Xero purchase invoice or destination");
-    return document;
+      throw new PreflightIssue("This posting was prepared for a different accounting destination");
+    if (document.currency !== binding.baseCurrency)
+      throw new PreflightIssue(
+        `The bill is in ${document.currency} but the Xero organisation uses ${binding.baseCurrency}`,
+      );
+    const issue = xeroDocumentIssues(document)[0];
+    if (issue) throw new PreflightIssue(issue);
+    return document as PurchaseBill & { dueDate: string };
   }
   async function request(path: string, token: string, init: RequestInit = {}) {
     try {
@@ -277,7 +315,7 @@ export function createXeroAdapter(options: {
     const date = document.date.split("-").map(Number).join(",");
     const query = new URLSearchParams({
       ContactIDs: document.supplierReference,
-      where: `Type=="ACCPAY"&&Date==DateTime(${date})`,
+      where: `Type=="${xeroDocuments[document.kind].type}"&&Date==DateTime(${date})`,
       createdByMyApp: "true",
       pageSize: "100",
     });
@@ -348,7 +386,7 @@ export function createXeroAdapter(options: {
         const issue = await mappingIssue(token, document);
         if (issue) return reject(issue);
         const invoice = {
-          Type: "ACCPAY",
+          Type: xeroDocuments[document.kind].type,
           Status: "AUTHORISED",
           Contact: { ContactID: document.supplierReference },
           InvoiceNumber: document.reference,
@@ -404,6 +442,7 @@ export function createXeroAdapter(options: {
           ),
         };
       } catch (error) {
+        if (!written && error instanceof PreflightIssue) return reject(error.message);
         if (!written && error instanceof ApiError && error.code === "xero_reconnect_required")
           return reject("Reconnect Xero before retrying this bill");
         if (!written && error instanceof XeroHttpError && error.status === 401)

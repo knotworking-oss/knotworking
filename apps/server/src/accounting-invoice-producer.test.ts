@@ -6,6 +6,7 @@ import { makeApp, signIn, type Res, type TestCtx } from "./test-utils";
 
 const WS = "/v1/workspaces/acme";
 const today = todayInZone(DEFAULT_TIME_ZONE);
+const haulierContact = newId();
 
 describe("preparing approved purchase invoices for accounting", () => {
   let ctx: TestCtx, ada: string, marcus: string, token: string;
@@ -38,13 +39,13 @@ describe("preparing approved purchase invoices for accounting", () => {
     await refresh();
   };
   /** An approved invoice of charges: carriage 1 × 10.005 and pallets 3 × 0.333, VAT 2.20. */
-  const approvedInvoice = async (invoiceNumber: string, vat = 2.2) => {
+  const approvedInvoice = async (invoiceNumber: string, vat = 2.2, dueDate: string | null = today) => {
     const draft = await ok(
       send("POST", "/purchasing/invoices", {
         supplierId: supplier,
         invoiceNumber,
         invoiceDate: today,
-        dueDate: today,
+        ...(dueDate ? { dueDate } : {}),
         vat,
         lines: [
           { kind: "charge", description: "Carriage", quantity: 1, unitPrice: 10.005 },
@@ -99,7 +100,7 @@ describe("preparing approved purchase invoices for accounting", () => {
       }),
       201,
     );
-    await map("supplier", supplier, "contact-haulier");
+    await map("supplier", supplier, haulierContact);
     await map("account", "carriage", "5100");
     await map("account", "packaging", "5200");
     await map("tax", "standard", "INPUT2");
@@ -117,7 +118,7 @@ describe("preparing approved purchase invoices for accounting", () => {
       ["0.999", "1.00"],
     ]);
     expect(detail).toMatchObject({
-      supplierReference: "contact-haulier",
+      supplierReference: haulierContact,
       accountKeys: ["carriage", "packaging"],
       taxKeys: ["standard"],
       posting: null,
@@ -161,7 +162,7 @@ describe("preparing approved purchase invoices for accounting", () => {
       companyId: connection.companyId,
       sourceId: invoice.id,
       sourceRevision: 1,
-      supplierReference: "contact-haulier",
+      supplierReference: haulierContact,
       reference: "H-1",
       date: today,
       dueDate: today,
@@ -192,6 +193,18 @@ describe("preparing approved purchase invoices for accounting", () => {
       .where(eq(accountingPostingEvents.postingId, first.id));
     expect(event!.actor).toMatch(/^user:/);
     expect(event!.evidence).toContain("Month-end review");
+  });
+
+  it("blocks a Xero bill without a due date before it reaches the queue", async () => {
+    const undated = await approvedInvoice("H-NO-DUE", 2.2, null);
+    const detail = await ok(send("GET", `${base()}/${undated.id}`));
+    expect(detail.blockers.join(" ")).toContain("due date");
+    const refused = await fail(prepare(undated), 409);
+    expect(refused).toMatchObject({ code: "provider_document_invalid" });
+    expect(refused.message).toContain("due date");
+    expect(
+      await ctx.handle.db.select().from(accountingPostings).where(eq(accountingPostings.sourceId, undated.id)),
+    ).toHaveLength(0);
   });
 
   it("refuses a corrected version once an earlier version was sent", async () => {

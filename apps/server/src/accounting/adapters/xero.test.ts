@@ -187,6 +187,36 @@ describe("Xero purchase invoice HTTP adapter (fake transport)", () => {
       expect(f.fetch).not.toHaveBeenCalled();
     },
   );
+  it("explains each definitive pre-send refusal without contacting Xero", async () => {
+    const cases: [Partial<AccountingPosting>, string][] = [
+      [{ dueDate: undefined }, "due date"],
+      [{ dueDate: "2026-11-14" }, "before the invoice date"],
+      [{ supplierReference: "NOT-A-CONTACT-ID" }, "ContactID"],
+      [{ currency: "USD" }, "uses GBP"],
+      [{ connectionId: newId() }, "different accounting destination"],
+      [{ reference: "SUP\u0007INV" }, "invoice number"],
+    ];
+    for (const [change, reason] of cases) {
+      const f = fixture();
+      const result = await f.adapter.post({
+        postingKey: f.postingKey,
+        attemptId: newId(),
+        document: { ...f.document, ...change } as AccountingPosting,
+      });
+      expect(result).toMatchObject({ outcome: "rejected" });
+      expect((result as { evidence: string }).evidence).toContain(reason);
+      expect(f.fetch).not.toHaveBeenCalled();
+    }
+  });
+  it("sends a supplier invoice number outside ASCII unchanged", async () => {
+    const f = fixture();
+    f.document.reference = "Nº 123/ÅB";
+    f.state.readOverride = { InvoiceNumber: "Nº 123/ÅB" };
+    expect(
+      (await f.adapter.post({ postingKey: f.postingKey, attemptId: newId(), document: f.document })).outcome,
+    ).toBe("posted");
+    expect(f.state.sent!.InvoiceNumber).toBe("Nº 123/ÅB");
+  });
   it.each(["tenant", "currency"])("refuses a mismatched organisation %s before a write", async (field) => {
     const f = fixture();
     if (field === "tenant") f.state.organisationId = newId();

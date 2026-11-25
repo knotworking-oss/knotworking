@@ -180,6 +180,7 @@ export const personOnlyActions: readonly PersonOnlyAction[] = [
   // Sign-offs and approvals.
   personOnly("purchase_requests", "Decide or withdraw purchase requests", "sign_off"),
   personOnly("client_services", "Sign client service quote and delivery decisions", "sign_off"),
+  personOnly("crm", "Hand off won opportunities to an order or delivery project", "sign_off"),
   personOnly("items", "Approve or suspend suppliers", "sign_off"),
   personOnly("items", "Assess supplier risk", "sign_off"),
   personOnly("items", "Accept or reject supplier questionnaires", "sign_off"),

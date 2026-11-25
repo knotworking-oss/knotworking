@@ -146,6 +146,142 @@ describe("catalogue and bills of materials", () => {
     });
   });
 
+  it("keeps length and area quantities consistent across BOMs, purchasing, stock and costing", async () => {
+    await ok("PATCH", "/module-settings", { modules: genericModules });
+    const supplier = await ok("POST", "/suppliers", { name: "Synthetic sheet goods" }, 201);
+    await ok("POST", `/suppliers/${supplier.id}/approval`, { status: "approved" });
+    const store = await ok("POST", "/stock/locations", { name: "Panel store" }, 201);
+    const sheet = await item("SHEET", "raw_material", "m2", { standardCost: 30 });
+    const trim = await item("TRIM", "raw_material", "m", { standardCost: 2 });
+    const panel = await item("PANEL", "component", "each");
+
+    // Units that cannot be converted are refused rather than guessed.
+    const badLine = await request("POST", "/boms", {
+      code: "PANEL-BAD",
+      name: "Unconvertible panel",
+      outputItemId: panel.id,
+      draft: { yieldQuantity: 4, yieldUnit: "each", lines: [{ itemId: sheet.id, quantity: 1, unit: "m" }] },
+    });
+    expect(badLine.status).toBe(400);
+    const badOrder = await request("POST", "/purchasing/orders", {
+      supplierId: supplier.id,
+      expectedOn: today,
+      lines: [{ itemId: trim.id, quantity: 1, unit: "m2", unitPrice: 1 }],
+    });
+    expect(badOrder.status).toBe(400);
+
+    // Bought in a unit other than the item's own, priced per that unit.
+    const order = await ok(
+      "POST",
+      "/purchasing/orders",
+      {
+        supplierId: supplier.id,
+        expectedOn: today,
+        lines: [
+          { itemId: sheet.id, quantity: 1, unit: "m2", unitPrice: 36 },
+          { itemId: trim.id, quantity: 200, unit: "cm", unitPrice: 0.03 },
+        ],
+      },
+      201,
+    );
+    expect(order.lines.map((line: { lineValue: number }) => line.lineValue)).toEqual([36, 6]);
+    expect(order.lines[1].ordered).toMatchObject({ inLineUnit: 200 });
+    await ok("POST", `/purchasing/orders/${order.id}/send`, {});
+    const received = await ok(
+      "POST",
+      `/purchasing/orders/${order.id}/receipts`,
+      {
+        receivedOn: today,
+        lines: [
+          {
+            lineId: order.lines[0].id,
+            outcome: "accepted",
+            quantity: 10_000,
+            unit: "cm2",
+            locationId: store.id,
+          },
+          { lineId: order.lines[1].id, outcome: "accepted", quantity: 2, unit: "m", locationId: store.id },
+        ],
+      },
+      201,
+    );
+    const lotOf = (line: { id: string }) =>
+      received.receipts.find((r: { lineId: string }) => r.lineId === line.id).lotId;
+    const sheetLot = lotOf(order.lines[0]);
+    const trimLot = lotOf(order.lines[1]);
+    expect(await ok("GET", `/stock/lots/${sheetLot}`)).toMatchObject({
+      onHand: { base: 1_000_000, display: 1, displayUnit: "m2" },
+    });
+    expect(await ok("GET", `/stock/lots/${trimLot}`)).toMatchObject({
+      onHand: { base: 2000, display: 2, displayUnit: "m" },
+    });
+
+    // Four panels take half a square metre of sheet and 1.2 m of trim.
+    const recipe = await ok(
+      "POST",
+      "/boms",
+      {
+        code: "PANEL-BOM",
+        name: "Synthetic panel",
+        outputItemId: panel.id,
+        draft: {
+          yieldQuantity: 4,
+          yieldUnit: "each",
+          lines: [
+            { itemId: sheet.id, quantity: 5000, unit: "cm2" },
+            { itemId: trim.id, quantity: 1200, unit: "mm" },
+          ],
+        },
+      },
+      201,
+    );
+    const version = await ok("POST", `/boms/${recipe.id}/draft/approve`);
+    expect(version.rollup.cost.batchCost).toBeCloseTo(17.4);
+    expect(version.rollup.cost.costPerOutputUnit).toBeCloseTo(4.35);
+    const scaled = await ok(
+      "GET",
+      `/boms/${recipe.id}/versions/${version.id}?outputQuantity=8&outputUnit=each`,
+    );
+    expect(scaled.scale).toMatchObject({ factor: 2 });
+
+    const batch = await ok(
+      "POST",
+      "/production/batches",
+      { recipeId: recipe.id, plannedOn: today, batches: 2, outputLocationId: store.id },
+      201,
+    );
+    const needs = await ok("GET", `/production/requirements?from=${today}&to=${today}`);
+    const need = (itemId: string) =>
+      needs.requirements.find((r: { item: { id: string } }) => r.item.id === itemId);
+    expect(need(sheet.id)).toMatchObject({
+      required: { base: 1_000_000, display: 1, displayUnit: "m2" },
+      shortfall: { base: 0 },
+    });
+    expect(need(trim.id)).toMatchObject({
+      required: { base: 2400, display: 2.4, displayUnit: "m" },
+      shortfall: { base: 400, display: 0.4, displayUnit: "m" },
+    });
+
+    const path = `/production/batches/${batch.id}`;
+    await ok("POST", `${path}/start`);
+    await ok(
+      "POST",
+      `${path}/consumption`,
+      {
+        lines: [
+          { lotId: sheetLot, locationId: store.id, quantity: 1, unit: "m2" },
+          { lotId: trimLot, locationId: store.id, quantity: 200, unit: "cm" },
+        ],
+      },
+      201,
+    );
+    await ok("POST", `${path}/output`, { quantity: 8, unit: "each" }, 201);
+    await ok("POST", `${path}/complete`, {});
+    const costed = await ok("GET", `/costing/batches/${batch.id}`);
+    expect(costed.actualCost).toBeCloseTo(42);
+    expect(costed.costPerUnit).toBeCloseTo(5.25);
+  });
+
   it("buys merchandise into stock and despatches it with Food items disabled", async () => {
     await ok("PATCH", "/module-settings", { modules: [...genericModules, "customers", "despatch"] });
     const store = await ok("POST", "/stock/locations", { name: "Shop store" }, 201);

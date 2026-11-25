@@ -570,3 +570,5 @@ export * from "./schema/accounting";
 export * from "./schema/workforce";
 export * from "./schema/purchase-requests";
 export * from "./schema/client-services";
+
+export * from "./schema/invoicing";

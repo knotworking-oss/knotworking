@@ -708,6 +708,13 @@
       "when": 1795631354913,
       "tag": "0100_xero_oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1795649916217,
+      "tag": "0120_invoicing",
+      "breakpoints": true
     }
   ]
 }

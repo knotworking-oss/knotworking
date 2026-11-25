@@ -16,7 +16,12 @@ import { z } from "zod";
 import { ToolError, type Api } from "../api";
 import { CREATE, READ, type ToolContext } from "./shared";
 
-const SAVE = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+const SAVE = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
 
 function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
   const parsed = schema.safeParse(value);
@@ -54,7 +59,8 @@ export function registerCrmTools({ define, slugOf, workspaceParam }: ToolContext
       module: "crm",
       resource: { name: "crm_leads", op: "get" },
       title: "Read a CRM lead",
-      description: "A lead with its contact details, the customer it converted to, its opportunities and activities.",
+      description:
+        "A lead with its contact details, the customer it converted to, its opportunities and activities.",
       annotations: READ,
       input: { workspace: workspaceParam, lead_id: z.uuid() },
     },

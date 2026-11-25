@@ -13,7 +13,12 @@ import {
 import type { Context, Hono } from "hono";
 import type { z } from "zod";
 
-type Lead = Record<string, unknown> & { id: string; revision: number; status: string; customerId: string | null };
+type Lead = Record<string, unknown> & {
+  id: string;
+  revision: number;
+  status: string;
+  customerId: string | null;
+};
 type Opportunity = Record<string, unknown> & {
   id: string;
   revision: number;
@@ -70,7 +75,14 @@ export function mountFakeCrm(app: Hono, ws: string) {
     const input = await body(c, crmLeadCreateSchema);
     if (!input) return invalid(c);
     const { commandId: _command, ...fields } = input;
-    const lead: Lead = { ...fields, id: newId(), reference: "LD-0001", status: "new", revision: 1, customerId: null };
+    const lead: Lead = {
+      ...fields,
+      id: newId(),
+      reference: "LD-0001",
+      status: "new",
+      revision: 1,
+      customerId: null,
+    };
     leads.push(lead);
     return c.json(lead, 201);
   });

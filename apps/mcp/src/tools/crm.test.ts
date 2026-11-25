@@ -6,13 +6,17 @@ describe("CRM tools", () => {
     const { client, call, close } = await connect({ modules: ["customers", "crm"] });
     try {
       const names = (await client.listTools()).tools.map((tool) => tool.name);
-      expect(names).toEqual(expect.arrayContaining(["save_crm_lead", "record_crm_outcome", "get_crm_pipeline"]));
+      expect(names).toEqual(
+        expect.arrayContaining(["save_crm_lead", "record_crm_outcome", "get_crm_pipeline"]),
+      );
       expect(names.filter((name) => /handoff|hand_off/.test(name))).toEqual([]);
       // Without Sales or Client services there are no quote tools to link from.
       expect(names).not.toContain("draft_sales_document");
       expect(names).not.toContain("list_service_quotes");
 
-      const { data: lead } = await call("save_crm_lead", { lead: { name: "Jo Rivers", company: "Rivers Studio" } });
+      const { data: lead } = await call("save_crm_lead", {
+        lead: { name: "Jo Rivers", company: "Rivers Studio" },
+      });
       expect(lead).toMatchObject({ status: "new", revision: 1 });
       const { data: qualified } = await call("save_crm_lead", {
         lead_id: lead.id,
@@ -29,7 +33,12 @@ describe("CRM tools", () => {
       });
       expect(converted.status).toBe("converted");
       const { data: followUp } = await call("save_crm_follow_up", {
-        activity: { opportunityId: opportunity.id, kind: "call", subject: "Check the proposal", dueOn: "2026-11-30" },
+        activity: {
+          opportunityId: opportunity.id,
+          kind: "call",
+          subject: "Check the proposal",
+          dueOn: "2026-11-30",
+        },
       });
       expect((await call("list_crm_follow_ups", {})).data.activities).toEqual([
         expect.objectContaining({ id: followUp.id }),
@@ -42,7 +51,9 @@ describe("CRM tools", () => {
       });
       expect(won).toMatchObject({ status: "won", closedReason: "Accepted" });
       expect((await call("get_crm_pipeline", {})).data.won.count).toBe(1);
-      expect((await call("get_crm_opportunity", { opportunity_id: opportunity.id })).data.id).toBe(opportunity.id);
+      expect((await call("get_crm_opportunity", { opportunity_id: opportunity.id })).data.id).toBe(
+        opportunity.id,
+      );
       expect((await call("list_crm_leads", { status: "converted" })).data.leads).toHaveLength(1);
       // Invalid input is refused before the API is called.
       const bad = await call("save_crm_opportunity", { opportunity: { title: "No party", currency: "GBP" } });

@@ -9,21 +9,33 @@ import { useEffect, useState, type FormEvent } from "react";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 import type { getAccountingConnections } from "@/lib/api";
 import { InvoicePreparation } from "./invoice-preparation";
+import { XeroConnection } from "./xero-connection";
 import { AccountingQueue } from "./accounting-queue";
 type Setup = Awaited<ReturnType<typeof getAccountingConnections>>;
 type Connection = Setup["connections"][number];
 const client = () => browserApi().v1.workspaces[":slug"].accounting;
 const selectClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm";
-export function AccountingSettings({ slug, initial }: { slug: string; initial: Setup }) {
+export function AccountingSettings({
+  slug,
+  initial,
+  callbackConnection,
+  callbackFailed,
+}: {
+  slug: string;
+  initial: Setup;
+  callbackConnection?: Connection;
+  callbackFailed: boolean;
+}) {
   const [setup, setSetup] = useState(initial);
   const [offset, setOffset] = useState(0);
-  const [selected, setSelected] = useState<Connection | null>(null);
+  const [selected, setSelected] = useState<Connection | null>(callbackConnection ?? null);
   const [name, setName] = useState("");
   const [provider, setProvider] = useState("");
   const [customProvider, setCustomProvider] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const providerId = provider === "custom" ? customProvider : provider;
   async function load(next = offset) {
     const result = await unwrap(
       client().connections.$get({ param: { slug }, query: { offset: String(next) } }),
@@ -42,8 +54,8 @@ export function AccountingSettings({ slug, initial }: { slug: string; initial: S
           json: {
             commandId: newId(),
             name,
-            provider: provider === "custom" ? customProvider : provider,
-            companyId,
+            provider: providerId,
+            companyId: providerId === "xero" ? "" : companyId,
           },
         }),
       );
@@ -112,27 +124,28 @@ export function AccountingSettings({ slug, initial }: { slug: string; initial: S
               <FieldDescription>Use the identifier supplied by the adapter maintainer.</FieldDescription>
             </Field>
           )}
-          <Field>
-            <FieldLabel htmlFor="accounting-company">Company identifier (optional)</FieldLabel>
-            <Input
-              id="accounting-company"
-              maxLength={200}
-              value={companyId}
-              onChange={(e) => setCompanyId(e.target.value)}
-            />
-            <FieldDescription>
-              Add the company or organisation identifier from your accounting system when known. Credentials
-              are not needed here.
-            </FieldDescription>
-          </Field>
+          {providerId !== "xero" && (
+            <Field>
+              <FieldLabel htmlFor="accounting-company">Company identifier (optional)</FieldLabel>
+              <Input
+                id="accounting-company"
+                maxLength={200}
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+              />
+              <FieldDescription>
+                Add the company or organisation identifier from your accounting system when known. Credentials
+                are not needed here.
+              </FieldDescription>
+            </Field>
+          )}
           <div className="sm:col-span-2">
             <Button disabled={pending} type="submit">
               {pending ? "Saving…" : "Save setup"}
             </Button>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Saving setup does not connect to or send anything. Prepared invoices wait in a private queue
-              until this server has an adapter installed for the provider.
-            </p>
+            {providerId === "xero" && (
+              <p className="mt-2 text-sm text-muted-foreground">Connect Xero after saving this setup.</p>
+            )}
           </div>
         </form>
       </Card>
@@ -151,7 +164,6 @@ export function AccountingSettings({ slug, initial }: { slug: string; initial: S
                 {setup.providers.find((p) => p.id === c.provider)?.name ?? c.provider} ·{" "}
                 {c.companyId || "Company not set"}
               </p>
-              <p className="text-xs text-muted-foreground">Live adapter not connected</p>
             </div>
             <Button variant="outline" onClick={() => setSelected(c)}>
               Manage
@@ -181,6 +193,7 @@ export function AccountingSettings({ slug, initial }: { slug: string; initial: S
           slug={slug}
           connection={selected}
           setup={setup}
+          callbackFailed={callbackFailed && selected.id === callbackConnection?.id}
           onSaved={async (c) => {
             setSelected(c);
             await load();
@@ -194,11 +207,13 @@ function ConnectionEditor({
   slug,
   connection,
   setup,
+  callbackFailed,
   onSaved,
 }: {
   slug: string;
   connection: Connection;
   setup: Setup;
+  callbackFailed: boolean;
   onSaved: (c: Connection) => Promise<void>;
 }) {
   const [current, setCurrent] = useState(connection);
@@ -230,6 +245,7 @@ function ConnectionEditor({
   const [historyMore, setHistoryMore] = useState(false);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState("");
+  const [xeroRefresh, setXeroRefresh] = useState(0);
   const params = { slug, id: current.id };
   useEffect(() => {
     let active = true;
@@ -357,20 +373,22 @@ function ConnectionEditor({
               onChange={(e) => setName(e.target.value)}
             />
           </Field>
-          <Field>
-            <FieldLabel htmlFor="saved-company">Company identifier</FieldLabel>
-            <Input
-              id="saved-company"
-              maxLength={200}
-              readOnly={!!current.companyId}
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
-            />
-            <FieldDescription>
-              Once set, the provider and company stay fixed to protect posting history. Use a separate
-              connection for another company.
-            </FieldDescription>
-          </Field>
+          {current.provider !== "xero" && (
+            <Field>
+              <FieldLabel htmlFor="saved-company">Company identifier</FieldLabel>
+              <Input
+                id="saved-company"
+                maxLength={200}
+                readOnly={!!current.companyId}
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+              />
+              <FieldDescription>
+                Once set, the provider and company stay fixed to protect posting history. Use a separate
+                connection for another company.
+              </FieldDescription>
+            </Field>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={disabled} onChange={(e) => setDisabled(e.target.checked)} />
             Disable invoice preparation and sending
@@ -391,6 +409,17 @@ function ConnectionEditor({
             </Button>
           </div>
         </form>
+        {current.provider === "xero" && (
+          <XeroConnection
+            slug={slug}
+            id={current.id}
+            revision={current.revision}
+            configured={setup.xeroConfigured}
+            callbackFailed={callbackFailed}
+            refreshKey={xeroRefresh}
+            onChanged={refresh}
+          />
+        )}
         <div className="border-t pt-4">
           <h4 className="font-medium">Reviewed mappings</h4>
           <form onSubmit={saveMapping} className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -458,7 +487,15 @@ function ConnectionEditor({
               )}
             </Field>
             <Field>
-              <FieldLabel htmlFor="external-reference">Reference in accounting software</FieldLabel>
+              <FieldLabel htmlFor="external-reference">
+                {current.provider === "xero"
+                  ? kind === "account"
+                    ? "Xero account code"
+                    : kind === "tax"
+                      ? "Xero tax type"
+                      : "Xero ContactID"
+                  : "Reference in accounting software"}
+              </FieldLabel>
               <Input
                 id="external-reference"
                 required
@@ -539,7 +576,13 @@ function ConnectionEditor({
         {setup.canPrepareInvoices && (
           <InvoicePreparation key={current.revision} slug={slug} connectionId={current.id} />
         )}
-        <AccountingQueue key={`queue-${current.revision}`} slug={slug} connectionId={current.id} />
+        <AccountingQueue
+          key={`queue-${current.revision}`}
+          slug={slug}
+          connectionId={current.id}
+          canReadPurchasing={setup.canPrepareInvoices}
+          onChecked={() => setXeroRefresh((n) => n + 1)}
+        />
         <div className="border-t pt-4">
           <Button variant="outline" disabled={pending} onClick={() => void showHistory()}>
             View change history

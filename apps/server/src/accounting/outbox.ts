@@ -224,7 +224,7 @@ export async function recordAccountingOutcome(
   id: string,
   attemptId: string,
   actor: string,
-  outcome: "rejected" | "unknown",
+  outcome: "rejected" | "unknown" | "deferred",
   evidence: string,
 ) {
   return db.transaction(async (tx) => {
@@ -234,7 +234,10 @@ export async function recordAccountingOutcome(
       throw conflict("Stale or already resolved accounting attempt");
     const [updated] = await tx
       .update(postings)
-      .set({ state: outcome === "rejected" ? "failed" : "unknown", updatedAt: new Date() })
+      .set({
+        state: outcome === "rejected" ? "failed" : outcome === "deferred" ? "queued" : "unknown",
+        updatedAt: new Date(),
+      })
       .where(eq(postings.id, id))
       .returning();
     await event(tx, ws, id, attemptId, actor, outcome, evidence);

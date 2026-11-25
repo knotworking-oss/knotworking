@@ -42,6 +42,7 @@ export const requireSession = createMiddleware<AppEnv>(async (c, next) => {
   if (!result) throw new ApiError(401, "unauthenticated", "Sign in to continue");
   c.set("user", { id: result.user.id, email: result.user.email, name: result.user.name });
   c.set("credential", { kind: "session" });
+  c.set("sessionId", result.session.id);
   await next();
 });
 

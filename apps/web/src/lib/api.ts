@@ -1659,6 +1659,9 @@ export type HseEntryRow = Awaited<ReturnType<typeof getHseEntries>>["entries"][n
 export const getAccountingConnections = (slug: string, offset = "0") =>
   load((api) => unwrap(ws(api).accounting.connections.$get({ param: { slug }, query: { offset } })));
 
+export const getAccountingConnection = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).accounting.connections[":id"].$get({ param: { slug, id } })));
+
 export const getMyAbsences = (slug: string, offset = "0") =>
   load((api) => unwrap(ws(api).workforce.me.$get({ param: { slug }, query: { offset } })));
 export const getHrAbsences = (slug: string, offset = "0") =>

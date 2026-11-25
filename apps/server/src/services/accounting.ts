@@ -42,7 +42,7 @@ export async function assertAccountingConnection(
 function reviewed(row: { revision: number }, expected: number) {
   if (row.revision !== expected) throw conflict("This setup changed. Reload and review its latest revision.");
 }
-async function audit(
+export async function auditAccountingConfiguration(
   tx: Transaction,
   ws: string,
   connectionId: string,
@@ -145,12 +145,21 @@ export async function createAccountingConnection(
         createdBy: actorId,
       })
       .returning();
-    await audit(tx, ws, row!.id, actorId, 1, "created", "Optional accounting setup saved", {
-      name: input.name,
-      provider: input.provider,
-      companyId: input.companyId,
-      disabled: false,
-    });
+    await auditAccountingConfiguration(
+      tx,
+      ws,
+      row!.id,
+      actorId,
+      1,
+      "created",
+      "Optional accounting setup saved",
+      {
+        name: input.name,
+        provider: input.provider,
+        companyId: input.companyId,
+        disabled: false,
+      },
+    );
     return row!;
   });
 }
@@ -198,7 +207,7 @@ export async function updateAccountingConnection(
         })
         .where(and(eq(connections.workspaceId, ws), eq(connections.id, id)))
         .returning();
-      await audit(tx, ws, id, actorId, row.revision + 1, "updated", input.reason, {
+      await auditAccountingConfiguration(tx, ws, id, actorId, row.revision + 1, "updated", input.reason, {
         name: input.name,
         provider: row.provider,
         companyId: input.companyId,
@@ -277,13 +286,22 @@ export async function saveAccountingMapping(
         .update(connections)
         .set({ revision: connection.revision + 1, updatedAt: new Date() })
         .where(and(eq(connections.workspaceId, ws), eq(connections.id, id)));
-      await audit(tx, ws, id, actorId, connection.revision + 1, "mapping_reviewed", input.reason, {
-        kind: input.kind,
-        localReference: input.localReference,
-        before: before ? { externalReference: before.externalReference, enabled: before.enabled } : null,
-        externalReference: input.externalReference,
-        enabled: input.enabled,
-      });
+      await auditAccountingConfiguration(
+        tx,
+        ws,
+        id,
+        actorId,
+        connection.revision + 1,
+        "mapping_reviewed",
+        input.reason,
+        {
+          kind: input.kind,
+          localReference: input.localReference,
+          before: before ? { externalReference: before.externalReference, enabled: before.enabled } : null,
+          externalReference: input.externalReference,
+          enabled: input.enabled,
+        },
+      );
       return saved!;
     },
   );

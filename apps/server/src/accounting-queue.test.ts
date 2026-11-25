@@ -71,7 +71,7 @@ describe("accounting dispatch and the finance review queue", () => {
       201,
     );
     for (const [kind, local, external] of [
-      ["supplier", supplier, "contact-1"],
+      ["supplier", supplier, newId()], // a Xero ContactID is a UUID
       ["account", "carriage", "5100"],
       ["tax", "standard", "INPUT2"],
     ]) {
@@ -97,6 +97,7 @@ describe("accounting dispatch and the finance review queue", () => {
         supplierId: supplier,
         invoiceNumber,
         invoiceDate: today,
+        dueDate: today,
         vat: 2,
         lines: [{ kind: "charge", description: "Carriage", quantity: 1, unitPrice: 10 }],
       }),
@@ -175,6 +176,7 @@ describe("accounting dispatch and the finance review queue", () => {
       failed: 0,
       unknown: 0,
       skipped: 0,
+      deferred: 0,
     });
     const detail = await item(xero, id);
     expect(detail.posting).toMatchObject({ state: "posted", externalId: "TX-1" });

@@ -6,6 +6,7 @@ import type {
   WorkspaceRole,
 } from "@knotworking/core";
 import type { Database } from "@knotworking/db";
+import type { XeroConnectionService } from "./accounting/xero-connection";
 import type { AccountingAdapterRegistry } from "./accounting/registry";
 import type { AssistantHub } from "./assistant-hub";
 import type { AssistantProviderRegistry } from "./services/assistant-providers";
@@ -86,6 +87,7 @@ export interface Services {
   assistantKeyKey: Buffer;
   /** Accounting adapters installed in this process; empty unless configured (docs/accounting.md). */
   accountingAdapters: AccountingAdapterRegistry;
+  xero: XeroConnectionService | undefined;
   /**
    * Runs a request through this app (no network), for reading an analysis's sources again with
    * the caller's own credential (services/bi/analysis.ts).
@@ -97,6 +99,7 @@ export interface AppEnv {
   Variables: Services & {
     user: AuthUser;
     credential: Credential;
+    sessionId?: string;
   };
 }
 

@@ -34,6 +34,7 @@ export async function makeApp(options: {
   activeModules?: readonly ModuleId[];
   /** Installed accounting adapters (default: none). */
   accountingAdapters?: AccountingAdapterRegistry;
+  xero?: (db: DbHandle["db"]) => NonNullable<AppOptions["xero"]>;
   /** Fake models and MCP tools for the assistant (default: the real ones, which tests never call). */
   assistantDeps?: AppOptions["assistantDeps"];
 }) {
@@ -71,6 +72,7 @@ export async function makeApp(options: {
     assistantHub: new AssistantHub(handle.db, { sweepMs: 0 }),
     assistantDeps: options.assistantDeps,
     accountingAdapters: options.accountingAdapters,
+    xero: options.xero?.(handle.db),
   });
   const req = (path: string, init: RequestInit & { json?: unknown; cookie?: string } = {}): Promise<Res> =>
     app.request(path, {

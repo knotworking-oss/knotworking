@@ -159,7 +159,7 @@ export function registerRecipeTools({ define, slugOf, workspaceParam }: ToolCont
       resource: { name: "recipes", op: "list" },
       title: "List recipes",
       description:
-        "List bills of materials (recipes in food workspaces) with their output item, current approved version number, whether a draft is in progress, and rolled-up allergens when Food Items is readable. Filter by `query` (name or code), `output_item`, `ingredient` (recipes whose approved or draft version uses that item), `allergen_drift` (true: only recipes whose approved version's ingredients now declare different allergens than when it was approved) or `status` (default: active). Paged: use `offset` while `hasMore` is true.",
+        "List bills of materials (recipes in food workspaces) with their output item, current approved version number, whether a draft is in progress, and rolled-up allergens when Food items is readable. Filter by `query` (name or code), `output_item`, `ingredient` (recipes whose approved or draft version uses that item), `allergen_drift` (true: only recipes whose approved version's ingredients now declare different allergens than when it was approved) or `status` (default: active). Paged: use `offset` while `hasMore` is true.",
       annotations: READ,
       input: {
         workspace: workspaceParam,

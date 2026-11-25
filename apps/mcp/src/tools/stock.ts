@@ -41,7 +41,8 @@ async function mapLimit<T, R>(
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const UNIT_HELP = "mg, g, kg (weight); ml, l (volume); each (count).";
+const UNIT_HELP =
+  "mg, g, kg (weight); ml, l (volume); each (count); mm, cm, m (length); mm2, cm2, m2 (area); s, min, h (time).";
 const PERSON_ONLY =
   "Lot status (quarantine, release, reject) and reversals are done by a person in the app; there are no tools for them. Waste, adjustments and stocktakes are too, unless an owner or admin allows them under Settings → API access (record_stock_waste, adjust_stock and post_stocktake then appear).";
 

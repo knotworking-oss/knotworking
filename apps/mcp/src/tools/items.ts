@@ -154,7 +154,7 @@ export function registerItemTools({ define, slugOf, workspaceParam }: ToolContex
       resource: { name: "items", op: "list" },
       title: "List items",
       description:
-        "List catalogue items with their code and unit. Allergen and storage fields require Food Items access. Filter by `type`, `query` (matches name or code), `allergen` (contains or may contain), `supplier` or `status` (default: active only). Paged: use `offset` while `hasMore` is true.",
+        "List catalogue items with their code and unit. Allergen and storage fields require Food items access. Filter by `type`, `query` (matches name or code), `allergen` (contains or may contain), `supplier` or `status` (default: active only). Paged: use `offset` while `hasMore` is true.",
       annotations: READ,
       input: {
         workspace: workspaceParam,
@@ -224,7 +224,7 @@ export function registerItemTools({ define, slugOf, workspaceParam }: ToolContex
       module: "items",
       title: "Create item",
       description:
-        "Create a catalogue item for a material, product or service. `code` must be unique in the workspace (search with list_items first). `unit` is how quantities of the item are entered and its dimension can't change later. Allergens and other food fields require Food Items write access.",
+        "Create a catalogue item for a material, product or service. `code` must be unique in the workspace (search with list_items first). `unit` is how quantities of the item are entered and its dimension can't change later. Allergens and other food fields require Food items write access.",
       annotations: CREATE,
       input: {
         workspace: workspaceParam,

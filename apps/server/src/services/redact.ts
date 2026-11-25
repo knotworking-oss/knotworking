@@ -83,7 +83,7 @@ export function redactChanges(viewer: Viewer, changes: SyncChange[]): SyncChange
         : [change];
     }
     if (change.action !== "upsert" || !change.data) return [change];
-    // Legacy item events and approval snapshots may carry Food Items data.
+    // Legacy item events and approval snapshots may carry Food items data.
     if (!hasModuleLevel(viewer.modules?.food_items, "read")) {
       if (change.entity === "item" || change.entity === "recipe_version") {
         const data = { ...change.data };

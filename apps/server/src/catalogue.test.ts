@@ -63,7 +63,7 @@ describe("catalogue and bills of materials", () => {
   }, 60_000);
   afterAll(async () => ctx?.handle.close());
 
-  it("purchases, receives and assembles stock in different units with Food Items disabled", async () => {
+  it("purchases, receives and assembles stock in different units with Food items disabled", async () => {
     await ok("PATCH", "/module-settings", { modules: genericModules });
     const supplier = await ok("POST", "/suppliers", { name: "Synthetic metals" }, 201);
     await ok("POST", `/suppliers/${supplier.id}/approval`, { status: "approved" });

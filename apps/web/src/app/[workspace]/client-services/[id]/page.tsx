@@ -1,3 +1,4 @@
+import { hasModuleLevel } from "@knotworking/core";
 import { formatMinutes, formatMoney, serviceQuoteStatusLabels } from "@knotworking/core";
 import { Badge } from "@knotworking/ui/components/badge";
 import { Button } from "@knotworking/ui/components/button";
@@ -93,6 +94,18 @@ export default async function ServiceQuotePage({
                     {quote.approvedMinutes !== null &&
                       ` for ${formatMinutes(quote.approvedMinutes)} approved`}
                   </p>
+                  {quote.status === "delivered" &&
+                    hasModuleLevel(
+                      boot.modules.find((module) => module.id === "invoicing")?.access,
+                      "write",
+                    ) && (
+                      <Link
+                        className="text-sm underline print:hidden"
+                        href={`/${slug}/invoicing/new?source=service&id=${id}`}
+                      >
+                        Draft customer invoice
+                      </Link>
+                    )}
                   <div>
                     <Button asChild size="sm" variant="outline">
                       <a href={`/api/v1/workspaces/${slug}/client-services/${id}/billing-draft.csv`}>

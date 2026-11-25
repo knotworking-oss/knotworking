@@ -87,7 +87,13 @@ export async function getCustomerDocument(db: Executor, ws: string, id: string) 
           .from(documents)
           .where(and(eq(documents.workspaceId, ws), eq(documents.creditOf, id)))
       : [];
-  return { ...document, history, credits };
+  const creditedLineIds = await activeClaims(
+    db,
+    ws,
+    "credit_line",
+    document.lines.map((line) => line.id),
+  );
+  return { ...document, history, credits, creditedLineIds: [...creditedLineIds] };
 }
 
 async function record(

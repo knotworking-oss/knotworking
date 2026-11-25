@@ -9,7 +9,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
 import { forbidTokens } from "../middleware/auth";
-import { assertModule, hideUnreadableLinks, requireModuleLevel } from "../middleware/modules";
+import { assertModule, requireModuleLevel } from "../middleware/modules";
 import { customerDocumentPdf } from "../services/invoice-pdf";
 import {
   decideCustomerDocument,
@@ -40,10 +40,7 @@ export const invoicingRoutes = new Hono<WorkspaceEnv>()
     );
   })
   .get("/invoicing/:id", validate("param", idParam), async (c) => {
-    const doc = await getCustomerDocument(c.var.db, c.var.workspace.id, c.req.valid("param").id);
-    const sourceModule =
-      doc.source === "manual" || doc.source === "credit" ? "invoicing" : invoiceSourceModules[doc.source];
-    return c.json(hideUnreadableLinks(c, doc, { sourceReference: sourceModule }));
+    return c.json(await getCustomerDocument(c.var.db, c.var.workspace.id, c.req.valid("param").id));
   })
   .patch("/invoicing/:id", validate("param", idParam), validate("json", invoiceEditSchema), async (c) =>
     c.json(

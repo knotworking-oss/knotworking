@@ -50,11 +50,13 @@ export function AccountingQueue({
   slug,
   connectionId,
   canReadPurchasing,
+  canReadInvoicing,
   onChecked,
 }: {
   slug: string;
   connectionId: string;
   canReadPurchasing: boolean;
+  canReadInvoicing: boolean;
   onChecked: () => void;
 }) {
   const [state, setState] = useState<State>("queued");
@@ -185,7 +187,7 @@ export function AccountingQueue({
           <table className="w-full text-left text-sm">
             <thead>
               <tr>
-                <th className="p-2">Invoice</th>
+                <th className="p-2">Document</th>
                 <th className="p-2">Date</th>
                 <th className="p-2 text-right">Gross</th>
                 <th className="p-2">Attempts</th>
@@ -259,6 +261,17 @@ export function AccountingQueue({
             <Link className="underline" href={`/${slug}/purchasing/invoices/${p.payload.sourceId}`}>
               Open source purchase invoice
             </Link>
+          )}
+          {canReadInvoicing && p.payload.kind !== "purchase_invoice" && (
+            <Link className="underline" href={`/${slug}/invoicing/${p.payload.sourceId}`}>
+              Open source {p.payload.kind === "customer_invoice" ? "invoice" : "credit note"}
+            </Link>
+          )}
+          {p.payload.kind === "customer_credit_note" && (
+            <p className="mt-1 text-muted-foreground">
+              Original Xero invoice {p.payload.originalInvoice.reference} ·{" "}
+              {p.payload.originalInvoice.externalId}
+            </p>
           )}
           {p.externalId && (
             <p className="mt-1 text-muted-foreground">Accounting transaction {p.externalId}</p>

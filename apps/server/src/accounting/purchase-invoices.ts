@@ -445,8 +445,7 @@ export async function prepareInvoicePosting(
         gross: format(net + tax, digits),
       };
       const issues = providerDocumentIssues(connection.provider, posting);
-      if (issues.length)
-        throw conflict("provider_document_invalid", `${issues.join(". ")}.`, { issues });
+      if (issues.length) throw conflict("provider_document_invalid", `${issues.join(". ")}.`, { issues });
       const row = await enqueueAccountingPostingTx(
         tx,
         ws,

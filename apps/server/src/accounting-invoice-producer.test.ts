@@ -203,7 +203,10 @@ describe("preparing approved purchase invoices for accounting", () => {
     expect(refused).toMatchObject({ code: "provider_document_invalid" });
     expect(refused.message).toContain("due date");
     expect(
-      await ctx.handle.db.select().from(accountingPostings).where(eq(accountingPostings.sourceId, undated.id)),
+      await ctx.handle.db
+        .select()
+        .from(accountingPostings)
+        .where(eq(accountingPostings.sourceId, undated.id)),
     ).toHaveLength(0);
   });
 

@@ -29,7 +29,7 @@ import {
   SiteDialog,
   TextAreaField,
   TextField,
-  siteApi,
+  maintenanceApi,
   text,
   useDateTime,
 } from "@/components/site-forms";
@@ -62,7 +62,7 @@ export function WorkOrdersCard({
 }) {
   const dateTime = useDateTime();
   const { can } = useWorkspace();
-  const canWrite = can("site", "write");
+  const canWrite = can("maintenance", "write");
   const [dialog, setDialog] = useState<Dialog | null>(null);
   return (
     <Card className="py-0">
@@ -106,7 +106,7 @@ export function WorkOrdersCard({
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {workOrderKindLabels[o.kind]}
-                      {o.stopsProduction ? " · stops production" : ""}
+                      {o.stopsProduction ? " · blocks operations" : ""}
                       {o.assignedToName ? ` · ${o.assignedToName}` : ""}
                     </div>
                     {o.description && <div className="text-sm text-muted-foreground">{o.description}</div>}
@@ -195,7 +195,7 @@ function RaiseDialog({
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance["work-orders"].$post({
+          maintenanceApi()["work-orders"].$post({
             param: { slug },
             json: {
               assetId: asset,
@@ -259,7 +259,7 @@ function EditDialog({ slug, order, onClose }: { slug: string; order: WorkOrder; 
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance["work-orders"][":id"].$patch({
+          maintenanceApi()["work-orders"][":id"].$patch({
             param: { slug, id: order.id },
             json: {
               priority,
@@ -333,7 +333,7 @@ function CompleteDialog({ slug, order, onClose }: { slug: string; order: WorkOrd
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance["work-orders"][":id"].complete.$post({
+          maintenanceApi()["work-orders"][":id"].complete.$post({
             param: { slug, id: order.id },
             json: {
               workDone: workDone.trim(),
@@ -397,7 +397,7 @@ function CancelDialog({ slug, order, onClose }: { slug: string; order: WorkOrder
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance["work-orders"][":id"].cancel.$post({
+          maintenanceApi()["work-orders"][":id"].cancel.$post({
             param: { slug, id: order.id },
             json: { reason: reason.trim() },
           }),

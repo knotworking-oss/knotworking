@@ -41,6 +41,7 @@ a workspace switches on only the modules it needs, and no module drags in anothe
    `haccp`. Data migrated from `haccp_assets`.
 4. **Maintenance module.** Planned maintenance tasks, records and work orders move out of `site` into
    `maintenance` (depends on `assets`). `site` keeps the food prerequisite programmes.
+   Existing Maintenance API paths remain aliases and check access to Maintenance.
 5. **Checklists module.** The checklist builder (`site_checklist_*`) becomes `checklists`: templates,
    scheduled/recurring checks, results, failures raising actions. `site` pre-start/changeover checks
    use it.

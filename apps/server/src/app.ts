@@ -57,6 +57,7 @@ import { purchaseCreditNoteRoutes } from "./routes/purchase-credit-notes";
 import { purchaseInvoiceRoutes } from "./routes/purchase-invoices";
 import { purchasingRoutes } from "./routes/purchasing";
 import { costingRoutes } from "./routes/costing";
+import { maintenanceRoutes } from "./routes/maintenance";
 import { siteRoutes } from "./routes/site";
 import { labelRoutes } from "./routes/labels";
 import { specificationRoutes } from "./routes/specifications";
@@ -344,6 +345,8 @@ export function createApp({
     .route("/v1/workspaces/:slug", purchaseInvoiceRoutes)
     .route("/v1/workspaces/:slug", purchaseCreditNoteRoutes)
     .route("/v1/workspaces/:slug", costingRoutes)
+    .route("/v1/workspaces/:slug/maintenance", maintenanceRoutes)
+    .route("/v1/workspaces/:slug/site/maintenance", maintenanceRoutes)
     .route("/v1/workspaces/:slug", siteRoutes)
     .route("/v1/workspaces/:slug", labelRoutes)
     .route("/v1/workspaces/:slug", specificationRoutes)

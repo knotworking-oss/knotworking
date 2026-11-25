@@ -950,6 +950,9 @@ export const getSiteDue = cache((slug: string, include: "due" | "all" = "all") =
 export const getSiteAreas = (slug: string) =>
   load((api) => unwrap(ws(api).site.areas.$get({ param: { slug } })));
 
+export const getMaintenanceAreas = (slug: string) =>
+  load((api) => unwrap(ws(api).maintenance.areas.$get({ param: { slug } })));
+
 export const getPestDevices = (slug: string) =>
   load((api) => unwrap(ws(api).site.pest.devices.$get({ param: { slug }, query: { status: "all" } })));
 
@@ -966,13 +969,13 @@ export const getPestTrends = (slug: string, groupBy: "device" | "area" | "pest" 
 
 /** Equipment of the HACCP calibration register a maintained asset can be linked to. */
 export const getCalibrationInstruments = (slug: string) =>
-  load((api) => unwrap(ws(api).site["calibration-instruments"].$get({ param: { slug } })));
+  load((api) => unwrap(ws(api).maintenance["calibration-instruments"].$get({ param: { slug } })));
 
 /** Open breakdowns and work requests first, then the newest closed ones. */
 export const getWorkOrders = (slug: string) =>
   load((api) =>
     unwrap(
-      ws(api).site.maintenance["work-orders"].$get({
+      ws(api).maintenance["work-orders"].$get({
         param: { slug },
         query: { status: "all", limit: "100" },
       }),
@@ -994,10 +997,10 @@ export const getGlassChecks = (slug: string) =>
   );
 
 export const getMaintenanceAssets = (slug: string) =>
-  load((api) => unwrap(ws(api).site.maintenance.assets.$get({ param: { slug }, query: { status: "all" } })));
+  load((api) => unwrap(ws(api).maintenance.assets.$get({ param: { slug }, query: { status: "all" } })));
 
 export const getMaintenanceTasks = (slug: string) =>
-  load((api) => unwrap(ws(api).site.maintenance.tasks.$get({ param: { slug }, query: { status: "all" } })));
+  load((api) => unwrap(ws(api).maintenance.tasks.$get({ param: { slug }, query: { status: "all" } })));
 
 /**
  * The newest records plus every one still in a person's queue (older ones too, up to 200), so each
@@ -1010,7 +1013,7 @@ const withQueue = <T extends { id: string }>(recent: T[], queue: T[]) => {
 
 export const getMaintenanceRecords = (slug: string) =>
   load(async (api) => {
-    const records = ws(api).site.maintenance.records;
+    const records = ws(api).maintenance.records;
     const [recent, queue] = await Promise.all([
       unwrap(records.$get({ param: { slug }, query: { limit: "50", includeCorrected: "false" } })),
       unwrap(
@@ -1451,8 +1454,9 @@ export const getAllCorrectiveActions = (slug: string) =>
   });
 
 /** The site programmes' records between two days: readings, checks, maintenance and pest visits. */
-export const getSiteAuditRecords = (slug: string, range: { from: string; to: string }) =>
-  load(async (api) => {
+export const getSiteAuditRecords = async (slug: string, range: { from: string; to: string }) => {
+  const withMaintenance = await canReadModule(slug, "maintenance");
+  return load(async (api) => {
     const site = ws(api).site;
     const query = (offset: number, size: number) => ({
       ...range,
@@ -1469,10 +1473,12 @@ export const getSiteAuditRecords = (slug: string, range: { from: string; to: str
         const r = await unwrap(site.checklists.checks.$get({ param: { slug }, query: query(o, s) }));
         return { rows: r.checks, total: r.total };
       }),
-      allPages(async (o, s) => {
-        const r = await unwrap(site.maintenance.records.$get({ param: { slug }, query: query(o, s) }));
-        return { rows: r.records, total: r.total };
-      }),
+      withMaintenance
+        ? allPages(async (o, s) => {
+            const r = await unwrap(ws(api).maintenance.records.$get({ param: { slug }, query: query(o, s) }));
+            return { rows: r.records, total: r.total };
+          })
+        : { rows: [], total: 0 },
       allPages(async (o, s) => {
         const r = await unwrap(site.pest.visits.$get({ param: { slug }, query: query(o, s) }));
         return { rows: r.visits, total: r.total };
@@ -1494,7 +1500,7 @@ export const getSiteAuditRecords = (slug: string, range: { from: string; to: str
     return {
       readings: readings.rows.reverse(),
       checks: checks.rows.reverse(),
-      maintenance: maintenance.rows.reverse(),
+      maintenance: withMaintenance ? maintenance.rows.reverse() : null,
       visits: visits.rows.reverse(),
       glassChecks: glassChecks.rows.reverse(),
       breakages: breakages.rows.reverse(),
@@ -1503,6 +1509,7 @@ export const getSiteAuditRecords = (slug: string, range: { from: string; to: str
       ),
     };
   });
+};
 
 /** Every internal audit and mock recall test (voided included), for the quality records print. */
 export const getQualityAuditRecords = (slug: string) =>

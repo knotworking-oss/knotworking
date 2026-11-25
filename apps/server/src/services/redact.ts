@@ -116,6 +116,7 @@ export function filterChangesByModule(modules: ModuleAccessMap, changes: SyncCha
   const can = (id: "tasks" | "docs" | "time" | "calendar") => hasModuleLevel(modules[id], "read");
   return changes.filter((change) => {
     if (change.entity === "hse_permit" && !hasModuleLevel(modules.site, "read")) return false;
+    if (change.entity === "site_asset" && !hasModuleLevel(modules.haccp, "read")) return false;
     const owner = moduleOfEntity(change.entity);
     if (owner) return hasModuleLevel(modules[owner], "read");
     // An API access toggle belongs to the module its action is in.

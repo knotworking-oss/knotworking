@@ -449,6 +449,15 @@ export const navAreas: readonly NavArea[] = [
     ],
   },
   {
+    id: "maintenance",
+    label: "Maintenance",
+    description: "Recurring work, maintenance records and work orders",
+    icon: ClipboardList,
+    group: "Operations",
+    visible: needs("maintenance"),
+    sections: [{ items: [{ label: "Maintenance", path: "maintenance", icon: ClipboardList }] }],
+  },
+  {
     id: "site",
     label: "Site programmes",
     description: "Pest, glass, maintenance and storage checks",
@@ -462,7 +471,6 @@ export const navAreas: readonly NavArea[] = [
           { label: "What's due", path: "site", icon: Bug, exact: true },
           { label: "Pest control", path: "site/pest", icon: Bug },
           { label: "Glass", path: "site/glass", icon: ShieldCheck },
-          { label: "Maintenance", path: "site/maintenance", icon: ClipboardList },
           { label: "Storage temperatures", path: "site/storage", icon: Warehouse },
           { label: "Pre-start checks", path: "site/checks", icon: ClipboardCheck },
           { label: "Audit records", path: "site/records", icon: FileText },

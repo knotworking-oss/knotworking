@@ -47,6 +47,7 @@ import {
 import { generateProgrammeAudits } from "./quality-extras";
 import { reservationChange, releaseExpiredReservations } from "./reservations-core";
 import { findReservedLotProblems, reservedLotDrafts } from "./reservation-alerts";
+import { maintenanceDueItems } from "./maintenance";
 import { getSiteDue } from "./site";
 import { workspaceTimeZone } from "./time-zone";
 import { getActiveWorkspaceModules } from "./workspace-modules";
@@ -101,6 +102,7 @@ const dueStateOf = (state: DueState): NotificationDueState => (state === "overdu
 const SWEPT_MODULES = [
   "training",
   "haccp",
+  "maintenance",
   "site",
   "recipes",
   "quality",
@@ -180,15 +182,26 @@ async function sweepWorkspace(
     );
     const now = options.now ?? new Date();
     // Due dates are decided on the workspace's calendar.
-    const today = todayInZone(await workspaceTimeZone(tx, workspaceId), now);
+    const timeZone = await workspaceTimeZone(tx, workspaceId);
+    const today = todayInZone(timeZone, now);
     const access = await memberAccess(tx, workspaceId, activeModules);
     const drafts: NotificationDraft[] = [];
     const cutoff = addDaysToIsoDate(today, -NOTIFY_LOOKBACK_DAYS);
     // The modules' due logic takes a database handle: the transaction is one.
-    const ctx: Ctx = { db: tx as unknown as Database, workspaceId, now, today, cutoff, access, drafts };
+    const ctx: Ctx = {
+      db: tx as unknown as Database,
+      workspaceId,
+      now,
+      timeZone,
+      today,
+      cutoff,
+      access,
+      drafts,
+    };
 
     if (active.has("training")) await sweepTraining(ctx);
     if (active.has("haccp")) await sweepHaccp(ctx, active.has("production"));
+    if (active.has("maintenance")) await sweepMaintenance(ctx);
     if (active.has("site")) await sweepSite(ctx);
     if (active.has("recipes")) await sweepRecipes(ctx);
     if (active.has("quality")) await sweepQuality(ctx);
@@ -232,6 +245,7 @@ async function newDrafts(tx: Executor, workspaceId: string, drafts: Notification
 }
 
 interface Ctx {
+  timeZone: string;
   db: Database;
   workspaceId: string;
   now: Date;
@@ -406,15 +420,35 @@ const openSince = (now: Date) => new Date(now.getTime() - CORRECTIVE_ACTION_OPEN
 const openSinceFloor = (now: Date) =>
   new Date(now.getTime() - (CORRECTIVE_ACTION_OPEN_DAYS + NOTIFY_LOOKBACK_DAYS) * DAY_MS);
 
+async function sweepMaintenance(ctx: Ctx) {
+  const managers = audience(ctx.access, "maintenance", "manage");
+  if (managers.length === 0) return;
+  const items = await maintenanceDueItems(ctx.db, ctx.workspaceId, ctx.today, ctx.timeZone);
+  for (const item of items) {
+    if (!DUE_STATES.includes(item.state) || tooOld(ctx, item)) continue;
+    push(ctx, managers, {
+      type: "maintenance_due",
+      module: "maintenance",
+      data: {
+        title: item.title,
+        subjectId: item.subjectId,
+        dueOn: item.dueOn,
+        dueState: dueStateOf(item.state),
+      },
+      // Existing reminders share this key so an upgrade does not send them again.
+      dedupeKey: `site:maintenance:${item.subjectId}:${occurrence(item)}`,
+    });
+  }
+}
+
 const siteTypes = {
-  maintenance: "maintenance_due",
   checklist: "site_check_due",
   glass: "site_check_due",
   pest: "pest_visit_due",
 } as const;
 
 /**
- * Maintenance, pre-start and changeover checks, glass checks and pest control visits falling due or
+ * Pre-start and changeover checks, glass checks and pest control visits falling due or
  * overdue, and corrective actions left open: to site managers. Storage readings are left out: they
  * come round every few hours, and an out-of-limit reading notifies as it is recorded.
  */
@@ -429,7 +463,8 @@ async function sweepSite(ctx: Ctx) {
     { now: ctx.now, glassLatestDueOn },
   );
   for (const item of due.items) {
-    if (item.programme === "storage" || !DUE_STATES.includes(item.state)) continue;
+    if (item.programme === "storage" || item.programme === "maintenance" || !DUE_STATES.includes(item.state))
+      continue;
     // A glass area's line shows its earliest item due date, which moves when that item is checked
     // while others are still overdue. Key (and age) it on the latest instead: that only moves when
     // another item falls due.

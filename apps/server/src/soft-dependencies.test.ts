@@ -226,7 +226,7 @@ describe("soft dependencies: site with the asset register but without HACCP", ()
     ctx.req(`${WS}${path}`, { method, cookie, json });
 
   beforeAll(async () => {
-    ctx = await makeApp({ seed: true, activeModules: ["tasks", "docs", "assets", "site"] });
+    ctx = await makeApp({ seed: true, activeModules: ["tasks", "docs", "assets", "maintenance", "site"] });
     cookie = (await signIn(ctx, "ada@knotworking.dev")).cookie;
   }, 60_000);
   afterAll(() => ctx?.handle.close());
@@ -235,7 +235,7 @@ describe("soft dependencies: site with the asset register but without HACCP", ()
     const { modules: listed } = await ok(await get("/modules"));
     expect(listed.find((m: { id: string }) => m.id === "site")).toMatchObject({
       dependsOn: ["assets"],
-      enhancedBy: expect.arrayContaining(["haccp"]),
+      enhancedBy: expect.arrayContaining(["maintenance"]),
     });
     const area = await ok(await send("POST", "/assets", { kind: "area", code: "KIT", name: "Kitchen" }), 201);
     const oven = await ok(
@@ -275,6 +275,23 @@ describe("soft dependencies: site with the asset register but without HACCP", ()
     );
     await refused(await get("/haccp/assets"), 404, "module_inactive");
     await ok(await get("/site/due"));
+  });
+
+  it("keeps Maintenance records out of Site's due overview and audit API for Site-only members", async () => {
+    const marcus = (await signIn(ctx, "marcus@knotworking.dev")).cookie;
+    const { user } = await ok(await ctx.req("/v1/me", { cookie: marcus }));
+    for (const module of ["assets", "site"]) {
+      await ok(await send("PUT", `/members/${user.id}/module-access/${module}`, { level: "read" }));
+    }
+    const site = await ok(
+      await ctx.req(`${WS}/site/due?programme=maintenance&include=all`, { cookie: marcus }),
+    );
+    expect(site.items).toEqual([]);
+    expect(site.counts).toMatchObject({ awaitingClearance: 0, openWorkOrders: 0 });
+    for (const path of ["/maintenance/records", "/site/maintenance/records"]) {
+      await refused(await ctx.req(`${WS}${path}`, { cookie: marcus }), 403, "module_forbidden");
+    }
+    expect((await ok(await get("/site/due?programme=maintenance&include=all"))).items).not.toHaveLength(0);
   });
 });
 
@@ -366,5 +383,47 @@ describe("soft dependencies: active but not readable", () => {
     );
     const due = await ok(await as(marcus).get("/haccp/due?include=all"));
     expect(due.batchesInProgress).toEqual([]);
+  });
+});
+
+describe("maintenance without Site or HACCP", () => {
+  let ctx: TestCtx;
+  let cookie: string;
+  const get = (path: string) => ctx.req(`${WS}${path}`, { cookie });
+  const send = (method: string, path: string, json?: unknown) =>
+    ctx.req(`${WS}${path}`, { method, cookie, json });
+
+  beforeAll(async () => {
+    ctx = await makeApp({ seed: true, activeModules: ["assets", "maintenance"] });
+    cookie = (await signIn(ctx, "ada@knotworking.dev")).cookie;
+  }, 60_000);
+  afterAll(() => ctx?.handle.close());
+
+  it("runs the maintenance workflow with Assets alone and keeps legacy paths working", async () => {
+    const van = await ok(await send("POST", "/assets", { kind: "vehicle", name: "Delivery van" }), 201);
+    const task = await ok(
+      await send("POST", "/maintenance/tasks", {
+        assetId: van.id,
+        title: "Check tyres",
+        frequency: { every: 1, unit: "month" },
+      }),
+      201,
+    );
+    const record = await ok(await send("POST", "/maintenance/records", { taskId: task.id }), 201);
+    expect(record).toMatchObject({ taskId: task.id, assetId: van.id, awaitingClearance: false });
+    expect((await ok(await get("/site/maintenance/tasks"))).tasks).toHaveLength(1);
+    const order = await ok(
+      await send("POST", "/maintenance/work-orders", { assetId: van.id, title: "Replace headlight" }),
+      201,
+    );
+    expect(
+      await ok(
+        await send("POST", `/maintenance/work-orders/${order.id}/complete`, {
+          workDone: "Fitted a replacement bulb",
+        }),
+      ),
+    ).toMatchObject({ status: "completed" });
+    await refused(await get("/site/due"), 404, "module_inactive");
+    await refused(await get("/maintenance/calibration-instruments"), 404, "module_inactive");
   });
 });

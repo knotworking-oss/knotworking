@@ -54,10 +54,10 @@ export function DueBoard({ slug, due }: { slug: string; due: SiteDue }) {
       manage: true,
     },
     {
-      n: counts.awaitingClearance,
+      n: can("maintenance", "manage") ? counts.awaitingClearance : 0,
       text: "hygiene clearances to give after maintenance",
-      href: `${base}/maintenance`,
-      manage: true,
+      href: `/${slug}/maintenance`,
+      manage: false,
     },
     {
       n: counts.openBreakages,
@@ -132,7 +132,13 @@ export function DueBoard({ slug, due }: { slug: string; due: SiteDue }) {
                 {items.map((item) => (
                   <TableRow key={`${item.programme}:${item.subjectId}`}>
                     <TableCell className="pl-4">
-                      <Link href={`${base}/${pages[item.programme]}`}>
+                      <Link
+                        href={
+                          item.programme === "maintenance"
+                            ? `/${slug}/maintenance`
+                            : `${base}/${pages[item.programme]}`
+                        }
+                      >
                         <ProgrammeBadge programme={item.programme} />
                       </Link>
                     </TableCell>

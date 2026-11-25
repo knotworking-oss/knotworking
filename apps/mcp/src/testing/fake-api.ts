@@ -54,6 +54,7 @@ import { mountFakeQuality } from "./fake-quality";
 import { mountFakePurchaseInvoices } from "./fake-purchase-invoices";
 import { mountFakePurchasing } from "./fake-purchasing";
 import { mountFakeCosting } from "./fake-costing";
+import { mountFakeMaintenance } from "./fake-maintenance";
 import { mountFakeSite } from "./fake-site";
 import { mountFakeAssets } from "./fake-assets";
 import { mountFakeLabels } from "./fake-labels";
@@ -1071,7 +1072,8 @@ export function createFakeApi() {
   const purchasingModule = mountFakePurchasing(app, ws, { items: itemsModule, stock: stockModule });
   const purchaseInvoicesModule = mountFakePurchaseInvoices(app, ws, purchasingModule);
   const costingModule = mountFakeCosting(app, ws);
-  const siteModule = mountFakeSite(app, ws, assetsModule);
+  const maintenanceModule = mountFakeMaintenance(app, ws, assetsModule);
+  const siteModule = mountFakeSite(app, ws, assetsModule, maintenanceModule);
   const labelsModule = mountFakeLabels(app, ws, { items: itemsModule.items, recipes: recipesModule.recipes });
   const specificationsModule = mountFakeSpecifications(app, ws, {
     items: itemsModule.items,

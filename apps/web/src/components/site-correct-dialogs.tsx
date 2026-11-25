@@ -21,6 +21,7 @@ import {
   TextAreaField,
   TextField,
   siteApi,
+  maintenanceApi,
   text,
 } from "@/components/site-forms";
 import type {
@@ -164,12 +165,12 @@ export function CorrectMaintenanceDialog({
   return (
     <SiteDialog
       title="Correct maintenance record"
-      description={`${record.asset?.name}: ${record.task?.title}. What isn't changed is kept from the original${record.clearanceRequired ? "; the correction needs its own hygiene clearance" : ""}.`}
+      description={`${record.asset?.name}: ${record.task?.title}. What isn't changed is kept from the original${record.clearanceRequired ? "; the correction needs its own return-to-service clearance" : ""}.`}
       submitLabel="Correct record"
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance.records[":id"].correct.$post({
+          maintenanceApi().records[":id"].correct.$post({
             param: { slug, id: record.id },
             json: {
               reason: reason.trim(),

@@ -193,7 +193,7 @@ describe("due-date and exception notifications", () => {
   afterAll(() => ctx.handle.close());
 
   it("creates nothing for inactive modules", async () => {
-    const off: ModuleId[] = ["haccp", "site", "training", "quality", "labels"];
+    const off: ModuleId[] = ["haccp", "site", "maintenance", "training", "quality", "labels"];
     const none = await sweepDueNotifications(ctx.handle.db, {
       activeModules: moduleIds.filter((m) => !off.includes(m) && !["costing"].includes(m)),
       workspaceId,
@@ -245,7 +245,7 @@ describe("due-date and exception notifications", () => {
     expect(adas.filter((n) => n.type === "cleaning_due")).toHaveLength(1);
     expect(adas.filter((n) => n.type === "maintenance_due")).toHaveLength(1);
     expect(adas.find((n) => n.type === "maintenance_due")).toMatchObject({
-      module: "site",
+      module: "maintenance",
       actorId: null,
       data: { title: "Mixer: Strip and grease", subjectId: task, dueState: "due" },
     });
@@ -568,7 +568,9 @@ describe("due-date and exception notifications", () => {
   it("seeds the first sweep of a module without emailing, then emails as usual", async () => {
     await ctx.handle.db
       .delete(notificationSweeps)
-      .where(and(eq(notificationSweeps.workspaceId, workspaceId), eq(notificationSweeps.module, "site")));
+      .where(
+        and(eq(notificationSweeps.workspaceId, workspaceId), eq(notificationSweeps.module, "maintenance")),
+      );
     const newTask = async (title: string) => {
       const asset = (
         await ok(

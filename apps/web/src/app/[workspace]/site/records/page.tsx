@@ -68,11 +68,13 @@ export default async function SiteRecordsPage({
               rows={glassBreakagesCsv(records.breakages)}
               label="Breakages CSV"
             />
-            <ExportCsvButton
-              name="Maintenance records"
-              rows={maintenanceRecordsCsv(records.maintenance)}
-              label="Maintenance CSV"
-            />
+            {records.maintenance && (
+              <ExportCsvButton
+                name="Maintenance records"
+                rows={maintenanceRecordsCsv(records.maintenance)}
+                label="Maintenance CSV"
+              />
+            )}
             <ExportCsvButton
               name="Pest visits"
               rows={pestVisitsCsv(records.visits)}
@@ -86,7 +88,7 @@ export default async function SiteRecordsPage({
         timeZone={timeZone}
         workspace={boot.workspace.name}
         title="Site records"
-        subtitle={`Storage, checks, glass, maintenance and pest control · ${describeRange(range)}`}
+        subtitle={`Storage, checks, glass, pest control${records.maintenance ? ", maintenance" : ""} · ${describeRange(range)}`}
       />
       {records.truncated && (
         <div className="mb-2">
@@ -106,7 +108,9 @@ export default async function SiteRecordsPage({
         entries={glassCheckEntries(records.glassChecks, timeZone)}
       />
       <AuditRecordList title="Glass breakages" entries={glassBreakageEntries(records.breakages, timeZone)} />
-      <AuditRecordList title="Maintenance" entries={maintenanceEntries(records.maintenance, timeZone)} />
+      {records.maintenance && (
+        <AuditRecordList title="Maintenance" entries={maintenanceEntries(records.maintenance, timeZone)} />
+      )}
       <AuditRecordList title="Pest control visits" entries={pestVisitEntries(records.visits, timeZone)} />
     </PrintPage>
   );

@@ -62,7 +62,9 @@ describe("module manifest", () => {
 
 describe("parseActiveModules", () => {
   it("defaults to every module that is on by default, and `all` adds the flagged ones", () => {
-    const standard = moduleIds.filter((id) => id !== "calendar" && id !== "accounting" && id !== "bi");
+    const standard = moduleIds.filter(
+      (id) => id !== "calendar" && id !== "accounting" && id !== "bi" && id !== "invoicing",
+    );
     expect(parseActiveModules(undefined)).toEqual(standard);
     expect(parseActiveModules("  ")).toEqual(standard);
     expect(parseActiveModules("all")).toEqual([...moduleIds]);

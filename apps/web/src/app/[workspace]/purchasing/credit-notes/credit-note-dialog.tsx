@@ -352,7 +352,8 @@ export function CreditNoteDialog({
                         <SelectGroup>
                           {orderLines.map((o) => (
                             <SelectItem key={o.id} value={o.id}>
-                              {o.item ? `${o.item.code} ${o.item.name}` : "Item"} (line {o.lineNo})
+                              {o.item ? `${o.item.code} ${o.item.name}` : (o.description ?? "Item")} (line{" "}
+                              {o.lineNo})
                             </SelectItem>
                           ))}
                           <SelectItem value={CHARGE}>A charge (carriage)</SelectItem>

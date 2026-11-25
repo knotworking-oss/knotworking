@@ -1,5 +1,6 @@
 import { ApiError, createApiClient, unwrap } from "@knotworking/api-client";
 import {
+  type AssetKind,
   hasModuleLevel,
   type AllergenCode,
   type ClauseAssessmentStatus,
@@ -252,6 +253,13 @@ export const getAllItems = (
     }
     return { ...first, items: all, limit: all.length };
   });
+
+/**
+ * Every item for a picker on another module's page, or none when the viewer can't read Items
+ * (a soft dependency there: the picker is then hidden).
+ */
+export const getItemOptions = async (slug: string, query: Parameters<typeof getAllItems>[1]) =>
+  (await canReadModule(slug, "items")) ? (await getAllItems(slug, query)).items : [];
 
 /** Recipes module: one page of recipes (see `recipeListQuerySchema`). */
 export const getRecipes = (
@@ -902,7 +910,24 @@ export const getCorrectiveActions = (slug: string, status: "open" | "closed" | "
     unwrap(ws(api).haccp["corrective-actions"].$get({ param: { slug }, query: { status, limit: "100" } })),
   );
 
-/** Areas and equipment on the cleaning and calibration schedule. */
+/** Assets module: one page of the asset register (see `assetListQuerySchema`). */
+export const getAssets = (
+  slug: string,
+  query: {
+    q?: string;
+    kind?: AssetKind;
+    areaId?: string;
+    status?: "active" | "archived" | "all";
+    limit?: string;
+    offset?: string;
+  } = {},
+) => load((api) => unwrap(ws(api).assets.$get({ param: { slug }, query })));
+
+/** One asset of the register, with its area and how many assets are in it. */
+export const getAsset = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).assets[":id"].$get({ param: { slug, id } })));
+
+/** Areas and equipment of the asset register with their cleaning and calibration schedules. */
 export const getHaccpAssets = (slug: string) =>
   load((api) => unwrap(ws(api).haccp.assets.$get({ param: { slug }, query: { status: "all" } })));
 
@@ -921,9 +946,12 @@ export const getSiteDue = cache((slug: string, include: "due" | "all" = "all") =
   load((api) => unwrap(ws(api).site.due.$get({ param: { slug }, query: { include } }))),
 );
 
-/** Areas of the food safety register (where devices, items, assets, units and checklists are). */
+/** Areas of the asset register (where devices, items, assets, units and checklists are). */
 export const getSiteAreas = (slug: string) =>
   load((api) => unwrap(ws(api).site.areas.$get({ param: { slug } })));
+
+export const getMaintenanceAreas = (slug: string) =>
+  load((api) => unwrap(ws(api).maintenance.areas.$get({ param: { slug } })));
 
 export const getPestDevices = (slug: string) =>
   load((api) => unwrap(ws(api).site.pest.devices.$get({ param: { slug }, query: { status: "all" } })));
@@ -941,13 +969,13 @@ export const getPestTrends = (slug: string, groupBy: "device" | "area" | "pest" 
 
 /** Equipment of the HACCP calibration register a maintained asset can be linked to. */
 export const getCalibrationInstruments = (slug: string) =>
-  load((api) => unwrap(ws(api).site["calibration-instruments"].$get({ param: { slug } })));
+  load((api) => unwrap(ws(api).maintenance["calibration-instruments"].$get({ param: { slug } })));
 
 /** Open breakdowns and work requests first, then the newest closed ones. */
 export const getWorkOrders = (slug: string) =>
   load((api) =>
     unwrap(
-      ws(api).site.maintenance["work-orders"].$get({
+      ws(api).maintenance["work-orders"].$get({
         param: { slug },
         query: { status: "all", limit: "100" },
       }),
@@ -969,10 +997,10 @@ export const getGlassChecks = (slug: string) =>
   );
 
 export const getMaintenanceAssets = (slug: string) =>
-  load((api) => unwrap(ws(api).site.maintenance.assets.$get({ param: { slug }, query: { status: "all" } })));
+  load((api) => unwrap(ws(api).maintenance.assets.$get({ param: { slug }, query: { status: "all" } })));
 
 export const getMaintenanceTasks = (slug: string) =>
-  load((api) => unwrap(ws(api).site.maintenance.tasks.$get({ param: { slug }, query: { status: "all" } })));
+  load((api) => unwrap(ws(api).maintenance.tasks.$get({ param: { slug }, query: { status: "all" } })));
 
 /**
  * The newest records plus every one still in a person's queue (older ones too, up to 200), so each
@@ -985,7 +1013,7 @@ const withQueue = <T extends { id: string }>(recent: T[], queue: T[]) => {
 
 export const getMaintenanceRecords = (slug: string) =>
   load(async (api) => {
-    const records = ws(api).site.maintenance.records;
+    const records = ws(api).maintenance.records;
     const [recent, queue] = await Promise.all([
       unwrap(records.$get({ param: { slug }, query: { limit: "50", includeCorrected: "false" } })),
       unwrap(
@@ -1038,6 +1066,31 @@ export const getChecklistChecks = (slug: string) =>
     ]);
     return { ...recent, checks: withQueue(recent.checks, queue.checks) };
   });
+
+export const getGeneralChecklistTemplates = (slug: string) =>
+  load((api) => unwrap(ws(api).checklists.templates.$get({ param: { slug }, query: { status: "all" } })));
+
+export const getGeneralChecklistChecks = (slug: string, offset: number) =>
+  load((api) =>
+    unwrap(
+      ws(api).checklists.checks.$get({
+        param: { slug },
+        query: { limit: "50", offset: String(offset), includeCorrected: "false" },
+      }),
+    ),
+  );
+
+export const getChecklistActions = (slug: string, offset: number, status: "open" | "all") =>
+  load((api) =>
+    unwrap(
+      ws(api).checklists.actions.$get({
+        param: { slug },
+        query: { limit: "25", offset: String(offset), status },
+      }),
+    ),
+  );
+
+export type ChecklistAction = Awaited<ReturnType<typeof getChecklistActions>>["actions"][number];
 
 /** SOPs module: one page of SOPs (see `sopListQuerySchema`). */
 export const getSops = (
@@ -1297,6 +1350,8 @@ export type HaccpDue = Awaited<ReturnType<typeof getHaccpDue>>;
 export type HaccpDueCheck = HaccpDue["checks"][number];
 export type HaccpLog = Awaited<ReturnType<typeof getHaccpLogs>>["logs"][number];
 export type CorrectiveAction = Awaited<ReturnType<typeof getCorrectiveActions>>["correctiveActions"][number];
+export type Asset = Awaited<ReturnType<typeof getAssets>>["assets"][number];
+export type AssetDetail = Awaited<ReturnType<typeof getAsset>>;
 export type HaccpAsset = Awaited<ReturnType<typeof getHaccpAssets>>["assets"][number];
 export type CleaningRecord = Awaited<ReturnType<typeof getCleaningRecords>>["records"][number];
 export type CalibrationRecord = Awaited<ReturnType<typeof getCalibrationRecords>>["records"][number];
@@ -1424,8 +1479,12 @@ export const getAllCorrectiveActions = (slug: string) =>
   });
 
 /** The site programmes' records between two days: readings, checks, maintenance and pest visits. */
-export const getSiteAuditRecords = (slug: string, range: { from: string; to: string }) =>
-  load(async (api) => {
+export const getSiteAuditRecords = async (slug: string, range: { from: string; to: string }) => {
+  const [withMaintenance, withChecklists] = await Promise.all([
+    canReadModule(slug, "maintenance"),
+    canReadModule(slug, "checklists"),
+  ]);
+  return load(async (api) => {
     const site = ws(api).site;
     const query = (offset: number, size: number) => ({
       ...range,
@@ -1438,14 +1497,18 @@ export const getSiteAuditRecords = (slug: string, range: { from: string; to: str
         const r = await unwrap(site.storage.readings.$get({ param: { slug }, query: query(o, s) }));
         return { rows: r.readings, total: r.total };
       }),
-      allPages(async (o, s) => {
-        const r = await unwrap(site.checklists.checks.$get({ param: { slug }, query: query(o, s) }));
-        return { rows: r.checks, total: r.total };
-      }),
-      allPages(async (o, s) => {
-        const r = await unwrap(site.maintenance.records.$get({ param: { slug }, query: query(o, s) }));
-        return { rows: r.records, total: r.total };
-      }),
+      withChecklists
+        ? allPages(async (o, s) => {
+            const r = await unwrap(site.checklists.checks.$get({ param: { slug }, query: query(o, s) }));
+            return { rows: r.checks, total: r.total };
+          })
+        : { rows: [], total: 0 },
+      withMaintenance
+        ? allPages(async (o, s) => {
+            const r = await unwrap(ws(api).maintenance.records.$get({ param: { slug }, query: query(o, s) }));
+            return { rows: r.records, total: r.total };
+          })
+        : { rows: [], total: 0 },
       allPages(async (o, s) => {
         const r = await unwrap(site.pest.visits.$get({ param: { slug }, query: query(o, s) }));
         return { rows: r.visits, total: r.total };
@@ -1466,8 +1529,8 @@ export const getSiteAuditRecords = (slug: string, range: { from: string; to: str
     ]);
     return {
       readings: readings.rows.reverse(),
-      checks: checks.rows.reverse(),
-      maintenance: maintenance.rows.reverse(),
+      checks: withChecklists ? checks.rows.reverse() : null,
+      maintenance: withMaintenance ? maintenance.rows.reverse() : null,
       visits: visits.rows.reverse(),
       glassChecks: glassChecks.rows.reverse(),
       breakages: breakages.rows.reverse(),
@@ -1476,17 +1539,22 @@ export const getSiteAuditRecords = (slug: string, range: { from: string; to: str
       ),
     };
   });
+};
 
-/** Every internal audit and mock recall test (voided included), for the quality records print. */
-export const getQualityAuditRecords = (slug: string) =>
-  load(async (api) => {
+/** Internal audit records, and mock recall tests when Stock is readable. */
+export async function getQualityAuditRecords(slug: string) {
+  const withStock = await canReadModule(slug, "stock");
+  return load(async (api) => {
     const q = ws(api).quality;
     const [audits, recalls] = await Promise.all([
       unwrap(q.audits.$get({ param: { slug }, query: { status: "all", limit: "200" } })),
-      unwrap(q["recall-tests"].$get({ param: { slug }, query: { includeVoided: "true", limit: "200" } })),
+      withStock
+        ? unwrap(q["recall-tests"].$get({ param: { slug }, query: { includeVoided: "true", limit: "200" } }))
+        : null,
     ]);
-    return { audits: audits.audits, recallTests: recalls.recallTests };
+    return { audits: audits.audits, recallTests: recalls?.recallTests ?? null };
   });
+}
 
 /** Current, permission-filtered food-safety readiness. Sign-off remains advisory. */
 export const getProductionReadiness = (slug: string, id: string) =>

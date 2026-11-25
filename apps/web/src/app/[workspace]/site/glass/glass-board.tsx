@@ -188,8 +188,8 @@ export function GlassBoard({
 
       {byArea.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No items in the register yet. Areas are kept in the food safety register
-          {areas.length === 0 ? ": add one under Cleaning & calibration first." : "."}
+          No items in the register yet. Areas are kept in the asset register
+          {areas.length === 0 ? ": add one under Assets first." : "."}
         </p>
       ) : (
         byArea.map(({ area, items: rows }) => (
@@ -397,7 +397,7 @@ function ItemDialog({ slug, areas, onClose }: { slug: string; areas: SiteArea[];
         value={area}
         onChange={setArea}
         options={areas.map((a) => [a.id, a.name] as const)}
-        description="Areas are kept in the food safety register."
+        description="Areas are kept in the asset register."
       />
       <SelectField
         id="gi-kind"

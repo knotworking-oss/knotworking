@@ -35,6 +35,8 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   // Calendar and meetings.
   [/^\/calendar$/, "calendar"],
   [/^\/meetings(\/|$)/, "calendar"],
+  // Assets: the shared register of areas, equipment, vehicles, IT and tools.
+  [/^\/assets(\/|$)/, "assets"],
   // Items and suppliers.
   [/^\/items(\/|$)/, "items"],
   [/^\/suppliers(\/|$)/, "items"],
@@ -69,7 +71,10 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   [/^\/purchase-requests(\/|$)/, "purchase_requests"],
   // Costing: batch costs, lot costs and standard against actual (all reads).
   [/^\/costing(\/|$)/, "costing"],
-  // Site programmes: pest control, glass register, planned maintenance, storage temperatures, checklists.
+  [/^\/(?:site\/)?maintenance(\/|$)/, "maintenance"],
+  [/^\/site\/calibration-instruments$/, "maintenance"],
+  [/^\/checklists(\/|$)/, "checklists"],
+  // Site programmes: pest control, glass register, storage temperatures, checklists.
   [/^\/site(\/|$)/, "site"],
   // Labels and nutrition: items' labelling data, computed declarations and product labels. Under
   // `/labelling` because `/labels` are task labels.

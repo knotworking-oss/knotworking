@@ -15,12 +15,13 @@ export function QualityNav({ slug }: { slug: string }) {
     { href: `${base}/complaints`, label: "Complaints" },
     { href: `${base}/nonconformances`, label: "Non-conformances" },
     { href: `${base}/audits`, label: "Audits" },
-    { href: `${base}/authenticity`, label: "Authenticity" },
-    { href: `${base}/recall-tests`, label: "Recall tests" },
+    // Item- and stock-centric parts need those modules (soft dependencies of Quality).
+    ...(store?.can("items") ? [{ href: `${base}/authenticity`, label: "Authenticity" }] : []),
+    ...(store?.can("stock") ? [{ href: `${base}/recall-tests`, label: "Recall tests" }] : []),
     ...(store?.can("despatch") && store?.can("production")
       ? [{ href: `${base}/incidents`, label: "Live cases" }]
       : []),
-    { href: `${base}/trends`, label: "Trends" },
+    ...(store?.can("items") ? [{ href: `${base}/trends`, label: "Trends" }] : []),
     { href: `${base}/records`, label: "Audit records" },
   ];
   const active = [...tabs]

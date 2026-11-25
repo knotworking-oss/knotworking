@@ -154,7 +154,7 @@ describe("production module", () => {
   afterAll(() => ctx.handle.close());
 
   describe("access", () => {
-    it("is opt-in, and needs recipes, stock and demand too", async () => {
+    it("is opt-in, and needs recipes and stock too (demand only enhances it)", async () => {
       expect((await as(marcus.cookie).get("/production/batches")).status).toBe(403);
       await grant("production", "write");
       expect((await as(marcus.cookie).get("/production/batches")).status).toBe(403);
@@ -162,12 +162,14 @@ describe("production module", () => {
       await grant("recipes", "read");
       expect((await as(marcus.cookie).get("/production/batches")).status).toBe(403);
       await grant("stock", "read");
-      expect((await as(marcus.cookie).get("/production/batches")).status).toBe(403);
+      expect((await as(marcus.cookie).get("/production/batches")).status).toBe(200);
+      // Planning from demand needs demand too.
+      expect((await as(marcus.cookie).get("/production/plan-from-demand")).status).toBe(403);
       await grant("demand", "read");
       expect((await as(marcus.cookie).get("/production/batches")).status).toBe(200);
     });
 
-    it("is switched off with the module, and can't be on without recipes, stock and demand", async () => {
+    it("is switched off with the module, and can't be on without recipes and stock", async () => {
       const off = await makeApp({
         seed: true,
         activeModules: ["tasks", "docs", "items", "recipes", "stock"],
@@ -178,7 +180,13 @@ describe("production module", () => {
       expect((await res.json()).error.code).toBe("module_inactive");
       await off.handle.close();
       expect(() => parseActiveModules("items,stock,demand,production")).toThrow(/needs "recipes"/);
-      expect(() => parseActiveModules("items,recipes,stock,production")).toThrow(/needs "demand"/);
+      // Demand only enhances production (`enhancedBy`).
+      expect(parseActiveModules("items,recipes,stock,production")).toEqual([
+        "items",
+        "recipes",
+        "stock",
+        "production",
+      ]);
     }, 60_000);
   });
 

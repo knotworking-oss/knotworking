@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AllergenCode } from "./items";
-import { parseActiveModules, resolveModuleAccess } from "./modules";
+import { modules, parseActiveModules, resolveModuleAccess } from "./modules";
 import {
   canSignOffSiteRecord,
   changeoverAllergenRisk,
@@ -316,39 +316,23 @@ describe("checklists", () => {
 });
 
 describe("the site module's place in the manifest", () => {
-  it("needs haccp, and so items and production", () => {
-    expect(() => parseActiveModules("site")).toThrow(/haccp/);
-    expect(parseActiveModules("items,recipes,stock,demand,production,haccp,site")).toContain("site");
+  it("needs the asset register and integrates with Maintenance", () => {
+    expect(() => parseActiveModules("site")).toThrow(/assets/);
+    expect(parseActiveModules("assets,site")).toEqual(["assets", "site"]);
+    expect(modules.site.dependsOn).toEqual(["assets"]);
+    expect(modules.site.enhancedBy).toContain("maintenance");
   });
-  it("is none unless the member can read haccp", () => {
+  it("is none unless the member can read the asset register, whatever HACCP is", () => {
     const active = parseActiveModules(null);
-    const access = resolveModuleAccess({
-      role: "member",
-      active,
-      grants: {
-        site: "write",
-        items: "read",
-        recipes: "read",
-        stock: "read",
-        demand: "read",
-        production: "read",
-      },
-    });
+    const access = resolveModuleAccess({ role: "member", active, grants: { site: "write", haccp: "write" } });
     expect(access.site).toBe("none");
-    const withHaccp = resolveModuleAccess({
+    const withAssets = resolveModuleAccess({
       role: "member",
       active,
-      grants: {
-        site: "write",
-        haccp: "read",
-        items: "read",
-        recipes: "read",
-        stock: "read",
-        demand: "read",
-        production: "read",
-      },
+      grants: { site: "write", assets: "read" },
     });
-    expect(withHaccp.site).toBe("write");
+    expect(withAssets.site).toBe("write");
+    expect(withAssets.haccp).toBe("none");
   });
 });
 

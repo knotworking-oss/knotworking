@@ -22,6 +22,9 @@ export const moduleIds = [
   "docs",
   "time",
   "calendar",
+  "assets",
+  "maintenance",
+  "checklists",
   "items",
   "recipes",
   "sops",
@@ -69,8 +72,18 @@ export interface ModuleDefinition {
   id: ModuleId;
   name: string;
   description: string;
-  /** Modules that must be active (and readable by the member) for this one to work. */
+  /**
+   * Hard dependencies: modules that must be active (and readable by the member) for this one to
+   * work. They must come earlier in `moduleIds`.
+   */
   dependsOn: readonly ModuleId[];
+  /**
+   * Soft dependencies: modules this one integrates with but works without. When they are active
+   * and the caller can read them, extra features appear (links, figures, pages); otherwise the
+   * code checks at runtime and leaves them out. Never affects activation or access, and has no
+   * ordering requirement.
+   */
+  enhancedBy: readonly ModuleId[];
   /**
    * Access without an explicit grant. `role`: members get `write`, guests `read` (how the
    * workspace behaved before modules). `none`: opt-in, an admin must grant it.
@@ -91,6 +104,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Client services",
     description: "Fixed-fee and hourly quotes, project delivery, and draft billing exports.",
     dependsOn: ["customers", "time"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["service_quote"],
@@ -100,6 +114,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Purchase requests",
     description: "Submit spending requests and record a designated approver's decision.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "role",
     defaultActive: true,
     syncEntities: [],
@@ -109,6 +124,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Workforce planning",
     description: "Personal leave requests and availability for planning.",
     dependsOn: ["people"],
+    enhancedBy: ["attendance", "training", "production"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [],
@@ -118,6 +134,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Private HR records",
     description: "Restricted absence, sickness, reviews and employment notes.",
     dependsOn: ["workforce"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [],
@@ -127,6 +144,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Accounting integrations",
     description: "Optional accounting connections and reviewed financial mappings.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: false,
     syncEntities: [],
@@ -136,6 +154,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Tasks and projects",
     description: "Tasks, workflow states, labels, dependencies, comments and projects.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "role",
     defaultActive: true,
     syncEntities: [
@@ -154,6 +173,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Documents",
     description: "The team wiki: documents, version history and backlinks.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "role",
     defaultActive: true,
     syncEntities: ["document"],
@@ -163,6 +183,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Time tracking",
     description: "Logged time, timers and time reports on tasks and projects.",
     dependsOn: ["tasks"],
+    enhancedBy: [],
     defaultAccess: "role",
     defaultActive: true,
     syncEntities: ["time_entry"],
@@ -172,10 +193,51 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Calendar and meetings",
     description: "Workspace meetings and each member's connected calendars.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "role",
     // Off until someone switches it on: the Google and Microsoft sync has not run against real accounts.
     defaultActive: false,
     syncEntities: ["meeting", "meeting_attendee"],
+  },
+  assets: {
+    id: "assets",
+    name: "Assets",
+    description:
+      "One register of areas, equipment, vehicles, IT, tools and other assets: codes, where they are, make and serial, purchase and warranty, and who looks after them.",
+    dependsOn: [],
+    enhancedBy: [],
+    defaultAccess: "none",
+    defaultActive: true,
+    syncEntities: ["asset"],
+  },
+  maintenance: {
+    id: "maintenance",
+    name: "Maintenance",
+    description:
+      "Recurring asset maintenance, completed work records and work orders for breakdowns and requests.",
+    dependsOn: ["assets"],
+    enhancedBy: ["haccp"],
+    defaultActive: true,
+    defaultAccess: "none",
+    // Keep the existing entity IDs so earlier sync log entries retain their owner.
+    syncEntities: ["site_asset", "site_maintenance_task", "site_maintenance_record", "site_work_order"],
+  },
+  checklists: {
+    id: "checklists",
+    name: "Checklists",
+    description:
+      "Reusable checklists, recurring schedules, completed checks and follow-up actions for failures.",
+    dependsOn: [],
+    enhancedBy: [],
+    defaultActive: true,
+    defaultAccess: "none",
+    syncEntities: [
+      "checklist_template",
+      "checklist_item",
+      "checklist_check",
+      "checklist_check_item",
+      "checklist_action",
+    ],
   },
   items: {
     id: "items",
@@ -183,6 +245,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Master data for manufacturing: ingredients, packaging and products with units and allergens, and approved suppliers.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -200,6 +263,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Versioned recipes (bills of materials) with yields and scaling, allergen and cost roll-up, and approval before use.",
     dependsOn: ["items"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["recipe", "recipe_version", "recipe_line"],
@@ -210,6 +274,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Standard operating procedures under document control: drafts, review and approval, effective and review dates, read-and-acknowledge records.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["sop", "sop_version", "sop_acknowledgement", "sop_target", "sop_copy"],
@@ -220,6 +285,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Locations, lots with use-by and best-before dates, goods-in and an append-only movement ledger with traceability.",
     dependsOn: ["items"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["stock_location", "stock_lot", "stock_movement", "lot_release_rule"],
@@ -229,6 +295,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Customers",
     description: "Shared customer accounts, addresses and contacts for distribution traceability.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["customer"],
@@ -238,6 +305,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Sales",
     description: "Customer quotes, price agreements, sales orders and delivery commitments.",
     dependsOn: ["customers", "items"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["sales_order", "sales_price", "sales_external_reference"],
@@ -247,6 +315,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Despatch",
     description: "Customer-linked lot despatches, delivery notes and recipient tracing on the stock ledger.",
     dependsOn: ["customers", "stock"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["despatch"],
@@ -257,6 +326,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Demand per product per week, by customer: entered by hand, imported from CSV or posted by the sales system, with totals for production planning.",
     dependsOn: ["items"],
+    enhancedBy: ["stock", "production"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["demand_line", "demand_import", "demand_pack_unit"],
@@ -266,7 +336,8 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Production",
     description:
       "Batch schedule from approved recipe versions, material requirements against stock, and batch records that consume and produce lots.",
-    dependsOn: ["recipes", "stock", "demand"],
+    dependsOn: ["recipes", "stock"],
+    enhancedBy: ["demand", "sales", "haccp", "labels", "specifications", "costing"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -292,7 +363,9 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Food safety records",
     description:
       "HACCP plan under document control, CCP monitoring logs with automatic out-of-limit flagging, corrective actions, and cleaning and calibration records.",
-    dependsOn: ["items", "production"],
+    // Cleaning and calibration are scheduled against areas and equipment of the asset register.
+    dependsOn: ["assets"],
+    enhancedBy: ["items", "recipes", "stock", "production"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -316,6 +389,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "The staff register: everyone who works on site, with or without a login, their 6-digit staff numbers, kiosk PINs and job roles.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["staff", "job_role", "staff_job_role"],
@@ -326,6 +400,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Training courses (SOP-based or external), the training matrix by job role, and training records with competency sign-off, expiry and refresher dates.",
     dependsOn: ["people"],
+    enhancedBy: ["sops"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["training_course", "training_requirement", "training_record"],
@@ -336,6 +411,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Clocking in and out on a tablet kiosk, shifts and payroll exports, the on-site register and evacuation roll calls, and visitor sign-in.",
     dependsOn: ["people"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     // Clock times are personal data: like private calendar events, none of it is in the sync log.
@@ -346,7 +422,8 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Quality",
     description:
       "Complaints, CAPA, internal audits, mock recalls, live incidents and food authenticity vulnerability assessments with versioned reviews and verified controls.",
-    dependsOn: ["items", "stock"],
+    dependsOn: [],
+    enhancedBy: ["items", "stock", "production", "despatch", "testing"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -364,8 +441,9 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     id: "purchasing",
     name: "Purchasing",
     description:
-      "Purchase orders raised from the material shortfall, goods-in against an order with part, over and under deliveries, supplier invoices with a three-way match against order and delivery, and supplier performance: on time, in full and rejected deliveries.",
-    dependsOn: ["items", "stock"],
+      "Purchase orders for stock items, services, subscriptions and non-stock goods, raised by hand or from the material shortfall; goods-in against an order with part, over and under deliveries; supplier invoices with a three-way match against order and delivery; and supplier performance: on time, in full and rejected deliveries.",
+    dependsOn: ["items"],
+    enhancedBy: ["stock", "production", "quality"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -387,6 +465,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Actual cost per batch from the lots it consumed and their purchase prices, flowing through work in progress, yield variance, and standard against actual by product and period.",
     dependsOn: ["recipes", "production", "purchasing"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     // Costs are computed on read from the other modules' records. Only what people set is stored:
@@ -397,8 +476,9 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     id: "site",
     name: "Site programmes",
     description:
-      "Prerequisite programmes: pest control, the glass and brittle plastics register, planned maintenance, storage temperature logging, and pre-start and allergen changeover checks, with what is due across them.",
-    dependsOn: ["haccp"],
+      "Prerequisite programmes: pest control, the glass and brittle plastics register, storage temperature logging, and pre-start and allergen changeover checks, with what is due across them.",
+    dependsOn: ["assets"],
+    enhancedBy: ["maintenance", "checklists", "production"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -408,10 +488,6 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
       "site_glass_item",
       "site_glass_check",
       "site_glass_breakage",
-      "site_asset",
-      "site_maintenance_task",
-      "site_maintenance_record",
-      "site_work_order",
       "site_storage_unit",
       "site_storage_reading",
       "site_corrective_action",
@@ -427,6 +503,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Nutrition per 100 g on ingredients, rolled up through recipe versions; ingredient declarations in weight order with allergens emphasised (UK PPDS); and product labels approved per recipe version.",
     dependsOn: ["recipes"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["item_label_data", "product_label"],
@@ -437,6 +514,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Controlled, versioned specifications for ingredients, packaging and products: limits, allergens, storage, shelf life, provenance and claims, agreed with the supplier or customer, approved, reviewed, and checked against the item, recipes, labels and open production.",
     dependsOn: ["items"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     // Metadata only: a version's content (limits, provenance, agreement) is read through endpoints.
@@ -448,6 +526,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Laboratories, sampling points and risk-based sampling plans; samples from stock lots and environmental or water points with results judged against limits from the plan or the approved specification; failed results open an investigation and hold the lot; trends.",
     dependsOn: ["items", "stock"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     // Metadata only: results, limits and investigation findings are read through endpoints.
@@ -459,6 +538,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "New product development: the brief, kitchen and factory trials, shelf-life studies and sensory panels, HACCP, artwork and customer sign-offs, and a launch checklist read from the recipe, specification and label.",
     dependsOn: ["items", "recipes"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["npd_project", "npd_trial"],
@@ -469,6 +549,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Threat assessments of the site against deliberate contamination and malicious acts, reviewed and versioned; security controls with routine checks that show when they are overdue or failed; incident-scenario exercises; and visitors on site from the Attendance register.",
     dependsOn: [],
+    enhancedBy: ["attendance"],
     defaultAccess: "none",
     defaultActive: true,
     // Metadata only: threats, check notes and exercise findings describe the site's weak points and
@@ -487,6 +568,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Food safety and quality objectives with progress, the food safety culture plan, confidential concerns any member can raise, the legal and customer requirement register, and management reviews that gather evidence from the other modules, record decisions and create follow-up tasks when signed.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     // Confidential concerns are never synced; reviews sync as metadata only.
@@ -509,6 +591,8 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Health, safety and environment",
     description: "Assessments, COSHH, contractor permits, inspections, waste and utilities.",
     dependsOn: ["training"],
+    // Contractor permits are raised against an asset of the register.
+    enhancedBy: ["assets"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["hse_record", "hse_entry", "hse_permit"],
@@ -518,6 +602,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "HSE incidents (restricted)",
     description: "Restricted accident/near-miss health details and investigations; signed-in people only.",
     dependsOn: ["hse"],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [],
@@ -528,6 +613,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Dashboards and board reporting over the other modules' data. Every figure is computed from the catalogue with the viewer's own access: a dataset of a module they can't read shows nothing.",
     dependsOn: [],
+    enhancedBy: [],
     // Members read and build drafts; `manage` publishes and freezes board snapshots.
     defaultAccess: "role",
     // Disabled by default: name `bi` in KNOTWORKING_MODULES.
@@ -540,6 +626,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "A chat sidebar where each member talks to an AI model with their own API key (Claude, OpenAI, Gemini, Mistral, Grok, Groq or DeepSeek), working in the workspace through the MCP tools under their permissions.",
     dependsOn: [],
+    enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
     // Conversations are personal and never synced.
@@ -568,6 +655,7 @@ const generalBusinessModules: readonly ModuleId[] = [
   "docs",
   "calendar",
   "time",
+  "assets",
   "sops",
   "customers",
   "people",
@@ -702,6 +790,8 @@ export interface ModuleSummary {
   name: string;
   description: string;
   dependsOn: readonly ModuleId[];
+  /** Modules that add features to this one when active and readable (soft dependencies). */
+  enhancedBy: readonly ModuleId[];
   /** The caller's effective level. */
   access: ModuleAccessLevel;
 }
@@ -714,5 +804,6 @@ export const summarizeModules = (access: ModuleAccessMap): ModuleSummary[] =>
       name: modules[id].name,
       description: modules[id].description,
       dependsOn: modules[id].dependsOn,
+      enhancedBy: modules[id].enhancedBy,
       access: access[id] ?? "none",
     }));

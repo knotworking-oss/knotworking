@@ -27,7 +27,7 @@ import {
   describeLimit,
   describeReading,
   evaluateReading,
-  haccpAssetCreateSchema,
+  haccpAssetScheduleSchema,
   haccpBulkSignoffSchema,
   haccpPlanDraftSchema,
   haccpPlanTemplateCreateSchema,
@@ -73,15 +73,17 @@ const ccp = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("module", () => {
-  it("needs items and production, and is closed unless both are readable", () => {
-    expect(() => parseActiveModules("items,haccp")).toThrow(/needs "production"/);
-    expect(parseActiveModules("items,recipes,stock,demand,production,haccp")).toContain("haccp");
-    const grants = { items: "read", recipes: "read", stock: "read", demand: "read", haccp: "write" } as const;
+  it("needs only the asset register: items and production only enhance it", () => {
+    expect(() => parseActiveModules("haccp")).toThrow(/assets/);
+    expect(parseActiveModules("assets,haccp")).toEqual(["assets", "haccp"]);
+    expect(parseActiveModules("assets,items,recipes,stock,demand,production,haccp")).toContain("haccp");
     const active = parseActiveModules("all");
-    expect(resolveModuleAccess({ role: "member", active, grants }).haccp).toBe("none");
+    const grants = { haccp: "write", assets: "read" } as const;
+    expect(resolveModuleAccess({ role: "member", active, grants }).haccp).toBe("write");
     expect(
       resolveModuleAccess({ role: "member", active, grants: { ...grants, production: "read" } }).haccp,
     ).toBe("write");
+    expect(resolveModuleAccess({ role: "member", active, grants: { haccp: "write" } }).haccp).toBe("none");
     expect(resolveModuleAccess({ role: "member", active, grants: {} }).haccp).toBe("none");
   });
 });
@@ -365,14 +367,12 @@ describe("validation", () => {
     expect(ccpLogBulkReviewSchema.safeParse({ ids: [id, id], decision: "approve" }).success).toBe(false);
   });
 
-  it("only calibrates equipment", () => {
+  it("sets a schedule on an asset of the register (the server checks only equipment is calibrated)", () => {
     const calibration = { calibrationFrequency: { every: 1, unit: "month" } };
-    expect(
-      haccpAssetCreateSchema.safeParse({ kind: "equipment", name: "Probe", ...calibration }).success,
-    ).toBe(true);
-    expect(haccpAssetCreateSchema.safeParse({ kind: "area", name: "Line 1", ...calibration }).success).toBe(
-      false,
-    );
+    expect(haccpAssetScheduleSchema.safeParse(calibration).success).toBe(true);
+    expect(haccpAssetScheduleSchema.safeParse({ cleaningFrequency: null }).success).toBe(true);
+    // The asset itself is kept in the register, not here.
+    expect(haccpAssetScheduleSchema.safeParse({ name: "Probe" }).success).toBe(false);
     expect(
       calibrationRecordCreateSchema.safeParse({
         assetId: "00000000-0000-7000-8000-000000000001",

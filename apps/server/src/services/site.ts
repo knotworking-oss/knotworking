@@ -1,20 +1,9 @@
-import { assertNoHseIsolation } from "./ports/hse";
 import {
   activityNeedsAction,
   actionableDueStates,
-  addFrequencyToDate,
-  canSignOffSiteRecord,
-  changeoverAllergenRisk,
-  dateDueState,
   pestTrendSeries,
-  workOrderIsOpen,
-  workOrderTotalCost,
   compareDueStates,
-  checkOutcome,
-  checkSignOffLabels,
-  checkAwaitsSignOff,
   ccpLogReviewStatusLabels,
-  defaultNextMaintenanceOn,
   describeFrequency,
   describeStorageLimits,
   describeStorageReading,
@@ -22,12 +11,9 @@ import {
   glassConditionNeedsAction,
   highestActivity,
   initialReviewStatus,
-  dateInZone,
   endOfDayInZone,
   startOfDayInZone,
   todayInZone,
-  maintenanceDueOn,
-  maintenanceDueState,
   nextVisitState,
   reviewStatusFor,
   siteCheckDueState,
@@ -35,21 +21,7 @@ import {
   sortSiteDueItems,
   storageMeasureDefaultUnits,
   storageUnitOf,
-  type CheckSignOffInput,
-  type ChecklistCheckCorrectInput,
-  type ChecklistCheckCreateInput,
-  type ChecklistCheckListQuery,
-  type ChecklistTemplateCreateInput,
-  type ChecklistTemplateListQuery,
-  type ChecklistTemplateUpdateInput,
   type DueState,
-  type AllergenRollup,
-  type ChangeoverRiskQuery,
-  type WorkOrderCancelInput,
-  type WorkOrderCompleteInput,
-  type WorkOrderCreateInput,
-  type WorkOrderListQuery,
-  type WorkOrderUpdateInput,
   type ModuleId,
   type PestTrendFinding,
   type PestTrendQuery,
@@ -63,13 +35,6 @@ import {
   type GlassItemCreateInput,
   type GlassItemListQuery,
   type GlassItemUpdateInput,
-  type HygieneClearanceInput,
-  type MaintenanceRecordCorrectInput,
-  type MaintenanceRecordCreateInput,
-  type MaintenanceRecordListQuery,
-  type MaintenanceTaskCreateInput,
-  type MaintenanceTaskListQuery,
-  type MaintenanceTaskUpdateInput,
   type PestDeviceCreateInput,
   type PestDeviceListQuery,
   type PestDeviceUpdateInput,
@@ -81,9 +46,6 @@ import {
   type SiteActionCreateInput,
   type SiteActionListQuery,
   type SiteActionUpdateInput,
-  type SiteAssetCreateInput,
-  type SiteAssetListQuery,
-  type SiteAssetUpdateInput,
   type SiteDueItem,
   type SiteDueQuery,
   type SiteFrequency,
@@ -98,62 +60,59 @@ import {
   type StorageUnitUpdateInput,
 } from "@knotworking/core";
 import {
-  haccpAssets,
-  haccpCalibrationRecords,
   lockWorkspaceLog,
-  productionBatches,
-  recipeVersions,
   recordChanges,
-  siteAssets,
-  siteChecklistCheckItems,
-  siteChecklistChecks,
-  siteChecklistItems,
-  siteChecklistTemplates,
   siteCorrectiveActions,
   siteGlassBreakages,
   siteGlassChecks,
   siteGlassItems,
-  siteMaintenanceRecords,
-  siteMaintenanceTasks,
   sitePestDevices,
   sitePestFindings,
   sitePestVisits,
   siteStorageReadings,
   siteStorageUnits,
-  siteWorkOrders,
-  workspaceMembers,
   type ChangeInput,
   type Database,
   type Executor,
   type Transaction,
 } from "@knotworking/db";
 import { and, asc, count, desc, eq, gte, inArray, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
+import { assertArea, listAreas as listRegisterAreas } from "./ports/assets";
 import { ApiError, badRequest, notFound } from "../errors";
 import { workspaceTimeZone } from "./time-zone";
+import { deliverNotifications, notifyReadingOutOfLimit, type NotificationRow } from "./notifications";
+import { userNames } from "./ports/production";
+
 import {
-  audience,
-  deliverNotifications,
-  memberAccess,
-  notifyReadingOutOfLimit,
-  type NotificationRow,
-} from "./notifications";
-import { findBatch, userNames } from "./ports/production";
+  FUTURE_SKEW_MS,
+  strip,
+  stripSoft,
+  change,
+  nameOf,
+  momentOf,
+  page,
+  areasById,
+  areaOf,
+  assertFourEyes,
+} from "./operation-records";
+import { maintenanceCounts, maintenanceDueItems } from "./maintenance";
+
+import { checklistDueItems, pendingSiteChecks } from "./checklists";
 
 /**
- * Site programmes module (`site`): pest control, the glass and brittle plastics register, planned
- * maintenance, storage temperature logging, and pre-start and allergen changeover checks.
+ * Site programmes module (`site`): pest control, the glass and brittle plastics register,
+ * storage temperature logging, and pre-start and allergen changeover checks.
  *
- * - Records are **append-only**: visits, glass checks, maintenance records, storage readings and
- *   checks are never updated or deleted, except one-time stamps (a reading's review, a
- *   maintenance record's hygiene clearance, a check's sign-off). A correction is a new row that
+ * - Records are **append-only**: visits, glass checks, storage readings and
+ *   checks are never updated or deleted, except one-time stamps (a reading's review or a check's sign-off). A correction is a new row that
  *   points at the one it corrects; the corrected one no longer counts.
  * - **Sign-offs** (reviewing readings, signing off a check, releasing an area after a breakage,
- *   the hygiene clearance, closing a corrective action) are a person with `manage`; the routes
+ *   closing a corrective action) are a person with `manage`; the routes
  *   enforce that and refuse API tokens. The service only stamps.
  * - **API tokens** may enter data: pest visits, storage readings (held pending review), raising a
  *   breakage, corrective actions, and the registers. A storage reading outside its unit's limits
  *   opens a corrective action in the same transaction, whoever recorded it.
- * - Areas are rows of the HACCP register (`haccp_assets`, kind `area`).
+ * - Areas are rows of the Assets register. Maintenance contributes to the due overview when readable.
  * - **What's due** is computed on read from the frequencies and the last records.
  *
  * Nothing is in the bootstrap; every write goes to the sync log, filtered by module access.
@@ -165,73 +124,9 @@ type FindingRow = typeof sitePestFindings.$inferSelect;
 type GlassItemRow = typeof siteGlassItems.$inferSelect;
 type GlassCheckRow = typeof siteGlassChecks.$inferSelect;
 type BreakageRow = typeof siteGlassBreakages.$inferSelect;
-type AssetRow = typeof siteAssets.$inferSelect;
-type TaskRow = typeof siteMaintenanceTasks.$inferSelect;
-type MaintenanceRow = typeof siteMaintenanceRecords.$inferSelect;
 type UnitRow = typeof siteStorageUnits.$inferSelect;
 type ReadingRow = typeof siteStorageReadings.$inferSelect;
 type ActionRow = typeof siteCorrectiveActions.$inferSelect;
-type TemplateRow = typeof siteChecklistTemplates.$inferSelect;
-type TemplateItemRow = typeof siteChecklistItems.$inferSelect;
-type CheckRow = typeof siteChecklistChecks.$inferSelect;
-type CheckItemRow = typeof siteChecklistCheckItems.$inferSelect;
-
-/** How far ahead of the server's clock a record may be dated (clock skew on a tablet). */
-const FUTURE_SKEW_MS = 5 * 60_000;
-
-// ─── Shared helpers ──────────────────────────────────────────────────────────
-
-const strip = <T extends { workspaceId: string }>(row: T) => {
-  const { workspaceId: _ws, ...rest } = row;
-  return rest;
-};
-const stripSoft = <T extends { workspaceId: string; deletedAt: Date | null }>(row: T) => {
-  const { workspaceId: _ws, deletedAt: _deleted, ...rest } = row;
-  return rest;
-};
-const change = (
-  entity: ChangeInput["entity"],
-  row: { id: string; workspaceId: string; deletedAt?: Date | null },
-): ChangeInput => {
-  const { workspaceId: _ws, deletedAt: _deleted, ...data } = row;
-  return { entity, entityId: row.id, action: "upsert", data };
-};
-
-const nameOf = (names: Map<string, string>, id: string | null) => (id ? (names.get(id) ?? null) : null);
-const frequencyOf = (every: number | null, unit: SiteFrequency["unit"] | null): SiteFrequency | null =>
-  every !== null && unit !== null ? { every, unit } : null;
-
-/** The date of a check or record: now unless given, and not in the future (allowing for clock skew). */
-function momentOf(value: string | undefined, now: Date) {
-  if (!value) return now;
-  const at = new Date(value);
-  if (at.getTime() > now.getTime() + FUTURE_SKEW_MS)
-    throw badRequest("A record can't be dated in the future");
-  return at;
-}
-
-/** A page of records with the total, as every list returns it. */
-const page = <T>(rows: T[], total: number | undefined, query: { limit: number; offset: number }) => ({
-  rows,
-  total: total ?? 0,
-  limit: query.limit,
-  offset: query.offset,
-});
-
-async function assertMember(tx: Executor, workspaceId: string, userId: string) {
-  const [member] = await tx
-    .select({ id: workspaceMembers.id })
-    .from(workspaceMembers)
-    .where(
-      and(
-        eq(workspaceMembers.workspaceId, workspaceId),
-        eq(workspaceMembers.userId, userId),
-        isNull(workspaceMembers.deletedAt),
-      ),
-    );
-  if (!member) throw badRequest("doneBy must be a member of this workspace");
-}
-
 /** The review stamp a new reading starts with: a person's own entry is approved by them; a token's waits. */
 function reviewOnEntry(source: SiteSource, actorId: string, at: Date) {
   const reviewStatus = initialReviewStatus(source);
@@ -240,73 +135,17 @@ function reviewOnEntry(source: SiteSource, actorId: string, at: Date) {
     : { reviewStatus, reviewedBy: null, reviewedAt: null };
 }
 
-// ─── Areas (the HACCP register) ──────────────────────────────────────────────
+// ─── Areas (the asset register) ──────────────────────────────────────────────
 
-type AreaSummary = { id: string; code: string | null; name: string; status: string };
-
-/** Live areas of the HACCP register: where devices, items, assets, units and checklists are. */
+/** Live areas of the asset register: where devices, items, assets, units and checklists are. */
 export async function listAreas(db: Database, workspaceId: string) {
-  const rows = await db
-    .select()
-    .from(haccpAssets)
-    .where(
-      and(
-        eq(haccpAssets.workspaceId, workspaceId),
-        eq(haccpAssets.kind, "area"),
-        isNull(haccpAssets.deletedAt),
-      ),
-    )
-    .orderBy(asc(haccpAssets.name), asc(haccpAssets.id));
-  return {
-    areas: rows.map((a) => ({
-      id: a.id,
-      code: a.code,
-      name: a.name,
-      location: a.location,
-      status: a.status,
-    })),
-  };
+  return { areas: await listRegisterAreas(db, workspaceId) };
 }
-
-/** An area must exist in this workspace and be an area (not equipment). */
-async function assertArea(tx: Executor, workspaceId: string, areaId: string) {
-  const [row] = await tx
-    .select({ id: haccpAssets.id, status: haccpAssets.status })
-    .from(haccpAssets)
-    .where(
-      and(
-        eq(haccpAssets.id, areaId),
-        eq(haccpAssets.workspaceId, workspaceId),
-        eq(haccpAssets.kind, "area"),
-        isNull(haccpAssets.deletedAt),
-      ),
-    );
-  if (!row) throw notFound("Area");
-  if (row.status === "archived") {
-    throw new ApiError(409, "area_archived", "That area is archived in the food safety register");
-  }
-}
-
-async function areasById(db: Executor, ids: (string | null | undefined)[]) {
-  const wanted = [...new Set(ids.filter((id): id is string => !!id))];
-  if (wanted.length === 0) return new Map<string, AreaSummary>();
-  const rows = await db
-    .select({
-      id: haccpAssets.id,
-      code: haccpAssets.code,
-      name: haccpAssets.name,
-      status: haccpAssets.status,
-    })
-    .from(haccpAssets)
-    .where(inArray(haccpAssets.id, wanted));
-  return new Map(rows.map((r) => [r.id, r]));
-}
-const areaOf = (areas: Map<string, AreaSummary>, id: string | null) => (id ? (areas.get(id) ?? null) : null);
 
 /** `code` must be free among live rows of a table that has `workspaceId`, `code` and `deletedAt`. */
 async function assertCodeFree(
   tx: Executor,
-  table: typeof sitePestDevices | typeof siteAssets | typeof siteStorageUnits,
+  table: typeof sitePestDevices | typeof siteStorageUnits,
   workspaceId: string,
   code: string,
   what: string,
@@ -1145,30 +984,6 @@ export async function updateGlassBreakage(
 }
 
 /**
- * Four-eyes: the person who signs a release (an area after a breakage or after maintenance) is not
- * one of the people who reported or recorded it, unless they are the only member with `manage` on
- * the site module. `active` is the workspace's active modules (a module switched off grants nothing).
- */
-async function assertFourEyes(
-  tx: Transaction,
-  workspaceId: string,
-  active: readonly ModuleId[],
-  actorId: string,
-  recordedBy: readonly (string | null)[],
-  what: string,
-) {
-  if (!recordedBy.includes(actorId)) return;
-  const managers = audience(await memberAccess(tx, workspaceId, active), "site", "manage");
-  if (!canSignOffSiteRecord({ recordedBy, deciderId: actorId, managerIds: managers })) {
-    throw new ApiError(
-      403,
-      "four_eyes",
-      `You ${what}, so someone else with manage access must sign this off`,
-    );
-  }
-}
-
-/**
  * Releases the area after a breakage: the sign-off (`manage` and a signed-in person, checked by
  * the route). Needs the clean-down recorded, and a second person: not whoever reported the
  * breakage or recorded the clean-down (unless the only manager). Once; a released breakage never
@@ -1198,6 +1013,7 @@ export async function releaseGlassBreakage(
       actorId,
       [row.raisedBy, row.cleanDownBy],
       "reported this breakage or recorded its clean-down",
+      "site",
     );
     const [updated] = await tx
       .update(siteGlassBreakages)
@@ -1214,702 +1030,6 @@ export async function releaseGlassBreakage(
     await recordChanges(tx, workspaceId, actorId, [change("site_glass_breakage", updated)]);
   });
   return getGlassBreakage(db, workspaceId, id);
-}
-
-// ─── Planned maintenance ─────────────────────────────────────────────────────
-
-async function findSiteAsset(db: Executor, workspaceId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(siteAssets)
-    .where(and(eq(siteAssets.id, id), eq(siteAssets.workspaceId, workspaceId), isNull(siteAssets.deletedAt)));
-  if (!row) throw notFound("Asset");
-  return row;
-}
-
-/**
- * The HACCP calibration register's view of an instrument, read-only: where it stands now. The same
- * rule as HACCP's what's-due (the next due date the last calibration set, else its date plus the
- * frequency; a failed one stays overdue; none yet is due).
- */
-async function instrumentsById(db: Executor, workspaceId: string, ids: (string | null)[]) {
-  const wanted = [...new Set(ids.filter((i): i is string => !!i))];
-  const out = new Map<string, InstrumentView>();
-  if (wanted.length === 0) return out;
-  const timeZone = await workspaceTimeZone(db, workspaceId);
-  const today = todayInZone(timeZone);
-  const [assets, latest] = await Promise.all([
-    db.select().from(haccpAssets).where(inArray(haccpAssets.id, wanted)),
-    db
-      .selectDistinctOn([haccpCalibrationRecords.assetId])
-      .from(haccpCalibrationRecords)
-      .where(
-        and(
-          inArray(haccpCalibrationRecords.assetId, wanted),
-          sql`not exists (select 1 from ${haccpCalibrationRecords} c where c.corrects_record_id = ${haccpCalibrationRecords.id})`,
-        ),
-      )
-      .orderBy(haccpCalibrationRecords.assetId, desc(haccpCalibrationRecords.calibratedAt)),
-  ]);
-  const latestOf = new Map(latest.map((r) => [r.assetId, r]));
-  for (const asset of assets) {
-    const frequency = frequencyOf(asset.calibrationEvery, asset.calibrationUnit);
-    const record = latestOf.get(asset.id) ?? null;
-    const dueOn =
-      record && frequency
-        ? (record.nextDueOn ?? addFrequencyToDate(dateInZone(record.calibratedAt, timeZone), frequency))
-        : null;
-    out.set(asset.id, {
-      id: asset.id,
-      code: asset.code,
-      name: asset.name,
-      status: asset.status,
-      measurementUnit: asset.measurementUnit,
-      calibrationFrequencyText: frequency ? describeFrequency(frequency) : null,
-      lastCalibration: record
-        ? { id: record.id, calibratedAt: record.calibratedAt, passed: record.passed, nextDueOn: dueOn }
-        : null,
-      state:
-        asset.deletedAt || !frequency
-          ? "idle"
-          : !record
-            ? "due"
-            : !record.passed
-              ? "overdue"
-              : dateDueState(dueOn!, today),
-    });
-  }
-  return out;
-}
-
-interface InstrumentView {
-  id: string;
-  code: string | null;
-  name: string;
-  status: string;
-  measurementUnit: string | null;
-  calibrationFrequencyText: string | null;
-  lastCalibration: { id: string; calibratedAt: Date; passed: boolean; nextDueOn: string | null } | null;
-  state: DueState;
-}
-
-async function describeSiteAssets(db: Executor, rows: AssetRow[]) {
-  if (rows.length === 0) return [];
-  const [areas, instruments] = await Promise.all([
-    areasById(
-      db,
-      rows.map((r) => r.areaId),
-    ),
-    // One workspace per call: every row shares it.
-    instrumentsById(
-      db,
-      rows[0]!.workspaceId,
-      rows.map((r) => r.calibrationInstrumentId),
-    ),
-  ]);
-  return rows.map((row) => ({
-    ...stripSoft(row),
-    area: areaOf(areas, row.areaId),
-    /** The linked HACCP calibration instrument (read-only here), or `null`. */
-    calibrationInstrument: row.calibrationInstrumentId
-      ? (instruments.get(row.calibrationInstrumentId) ?? null)
-      : null,
-  }));
-}
-
-/**
- * Equipment of the HACCP calibration register that a site asset can be linked to: kept in
- * Cleaning & calibration, read here. `linkedAssetId` is the site asset that already points at it.
- */
-export async function listCalibrationInstruments(db: Database, workspaceId: string) {
-  const rows = await db
-    .select()
-    .from(haccpAssets)
-    .where(
-      and(
-        eq(haccpAssets.workspaceId, workspaceId),
-        eq(haccpAssets.kind, "equipment"),
-        isNull(haccpAssets.deletedAt),
-        eq(haccpAssets.status, "active"),
-        sql`${haccpAssets.calibrationEvery} is not null`,
-      ),
-    )
-    .orderBy(asc(haccpAssets.name), asc(haccpAssets.id));
-  const [linked, views] = await Promise.all([
-    db
-      .select({ id: siteAssets.id, instrumentId: siteAssets.calibrationInstrumentId })
-      .from(siteAssets)
-      .where(
-        and(
-          eq(siteAssets.workspaceId, workspaceId),
-          isNull(siteAssets.deletedAt),
-          sql`${siteAssets.calibrationInstrumentId} is not null`,
-        ),
-      ),
-    instrumentsById(
-      db,
-      workspaceId,
-      rows.map((r) => r.id),
-    ),
-  ]);
-  const assetOf = new Map(linked.map((l) => [l.instrumentId!, l.id]));
-  return {
-    instruments: rows.map((r) => ({ ...views.get(r.id)!, linkedAssetId: assetOf.get(r.id) ?? null })),
-  };
-}
-
-/**
- * A calibration instrument must be equipment of the HACCP register with a calibration frequency,
- * and one site asset at most points at it. HACCP's records are never written from here.
- */
-async function assertInstrument(
-  tx: Executor,
-  workspaceId: string,
-  instrumentId: string,
-  exceptAssetId?: string,
-) {
-  const [row] = await tx
-    .select()
-    .from(haccpAssets)
-    .where(
-      and(
-        eq(haccpAssets.id, instrumentId),
-        eq(haccpAssets.workspaceId, workspaceId),
-        eq(haccpAssets.kind, "equipment"),
-        isNull(haccpAssets.deletedAt),
-      ),
-    );
-  if (!row) throw notFound("Calibration instrument");
-  if (row.calibrationEvery === null) {
-    throw badRequest(
-      `${row.name} isn't in the calibration register: give it a calibration frequency under Cleaning & calibration first`,
-    );
-  }
-  const [taken] = await tx
-    .select({ id: siteAssets.id, name: siteAssets.name })
-    .from(siteAssets)
-    .where(
-      and(
-        eq(siteAssets.workspaceId, workspaceId),
-        eq(siteAssets.calibrationInstrumentId, instrumentId),
-        isNull(siteAssets.deletedAt),
-        exceptAssetId ? ne(siteAssets.id, exceptAssetId) : undefined,
-      ),
-    );
-  if (taken) {
-    throw new ApiError(409, "instrument_linked", `${row.name} is already linked to ${taken.name}`);
-  }
-}
-
-export async function listSiteAssets(db: Database, workspaceId: string, query: SiteAssetListQuery) {
-  const where: (SQL | undefined)[] = [eq(siteAssets.workspaceId, workspaceId), isNull(siteAssets.deletedAt)];
-  if (query.status !== "all") where.push(eq(siteAssets.status, query.status));
-  const rows = await db
-    .select()
-    .from(siteAssets)
-    .where(and(...where))
-    .orderBy(asc(siteAssets.name), asc(siteAssets.id));
-  return { assets: await describeSiteAssets(db, rows) };
-}
-
-export async function createSiteAsset(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  input: SiteAssetCreateInput,
-) {
-  const row = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    if (input.code) await assertCodeFree(tx, siteAssets, workspaceId, input.code, "asset");
-    if (input.areaId) await assertArea(tx, workspaceId, input.areaId);
-    if (input.calibrationInstrumentId) await assertInstrument(tx, workspaceId, input.calibrationInstrumentId);
-    const { id, ...fields } = input;
-    const [created] = await tx
-      .insert(siteAssets)
-      .values({ ...(id ? { id } : {}), ...fields, workspaceId })
-      .returning();
-    await recordChanges(tx, workspaceId, actorId, [change("site_asset", created!)]);
-    return created!;
-  });
-  return (await describeSiteAssets(db, [row]))[0]!;
-}
-
-export async function updateSiteAsset(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  id: string,
-  patch: SiteAssetUpdateInput,
-) {
-  const row = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    await findSiteAsset(tx, workspaceId, id);
-    if (patch.code) await assertCodeFree(tx, siteAssets, workspaceId, patch.code, "asset", id);
-    if (patch.areaId) await assertArea(tx, workspaceId, patch.areaId);
-    if (patch.calibrationInstrumentId) {
-      await assertInstrument(tx, workspaceId, patch.calibrationInstrumentId, id);
-    }
-    if (patch.areaId === null) {
-      const [needsArea] = await tx
-        .select({ id: siteMaintenanceTasks.id })
-        .from(siteMaintenanceTasks)
-        .where(
-          and(
-            eq(siteMaintenanceTasks.assetId, id),
-            eq(siteMaintenanceTasks.clearanceRequired, true),
-            eq(siteMaintenanceTasks.status, "active"),
-            isNull(siteMaintenanceTasks.deletedAt),
-          ),
-        );
-      if (needsArea) {
-        throw new ApiError(
-          409,
-          "area_required",
-          "A task on this asset needs a hygiene clearance, which needs the asset's area",
-        );
-      }
-    }
-    const [updated] = await tx.update(siteAssets).set(patch).where(eq(siteAssets.id, id)).returning();
-    await recordChanges(tx, workspaceId, actorId, [change("site_asset", updated!)]);
-    return updated!;
-  });
-  return (await describeSiteAssets(db, [row]))[0]!;
-}
-
-async function findTask(db: Executor, workspaceId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(siteMaintenanceTasks)
-    .where(
-      and(
-        eq(siteMaintenanceTasks.id, id),
-        eq(siteMaintenanceTasks.workspaceId, workspaceId),
-        isNull(siteMaintenanceTasks.deletedAt),
-      ),
-    );
-  if (!row) throw notFound("Maintenance task");
-  return row;
-}
-
-const notCorrectedMaintenance = sql`not exists (select 1 from ${siteMaintenanceRecords} c where c.corrects_record_id = ${siteMaintenanceRecords.id})`;
-
-/** The latest record of each task (not replaced by a correction). */
-async function lastMaintenance(db: Executor, workspaceId: string, taskIds: string[]) {
-  if (taskIds.length === 0) return new Map<string, MaintenanceRow>();
-  const rows = await db
-    .selectDistinctOn([siteMaintenanceRecords.taskId])
-    .from(siteMaintenanceRecords)
-    .where(
-      and(
-        eq(siteMaintenanceRecords.workspaceId, workspaceId),
-        inArray(siteMaintenanceRecords.taskId, taskIds),
-        notCorrectedMaintenance,
-      ),
-    )
-    .orderBy(
-      siteMaintenanceRecords.taskId,
-      desc(siteMaintenanceRecords.completedAt),
-      desc(siteMaintenanceRecords.createdAt),
-      desc(siteMaintenanceRecords.id),
-    );
-  return new Map(rows.map((r) => [r.taskId, r]));
-}
-
-const taskFrequency = (task: TaskRow): SiteFrequency => ({
-  every: task.frequencyEvery,
-  unit: task.frequencyUnit,
-});
-
-function taskDue(task: TaskRow, last: MaintenanceRow | null, today: string, timeZone: string) {
-  const dueOn = maintenanceDueOn({
-    lastNextDueOn: last?.nextDueOn ?? null,
-    lastCompletedOn: last ? dateInZone(last.completedAt, timeZone) : null,
-    frequency: taskFrequency(task),
-    startOn: task.startOn,
-  });
-  return maintenanceDueState({ dueOn, hasRecord: !!last, today });
-}
-
-async function describeTasks(db: Executor, workspaceId: string, rows: TaskRow[]) {
-  if (rows.length === 0) return [];
-  const timeZone = await workspaceTimeZone(db, workspaceId);
-  const today = todayInZone(timeZone);
-  const [assets, last] = await Promise.all([
-    db
-      .select()
-      .from(siteAssets)
-      .where(inArray(siteAssets.id, [...new Set(rows.map((r) => r.assetId))])),
-    lastMaintenance(
-      db,
-      workspaceId,
-      rows.map((r) => r.id),
-    ),
-  ]);
-  const areas = await areasById(
-    db,
-    assets.map((a) => a.areaId),
-  );
-  const assetById = new Map(assets.map((a) => [a.id, a]));
-  return rows.map((row) => {
-    const asset = assetById.get(row.assetId);
-    const lastRecord = last.get(row.id) ?? null;
-    return {
-      ...stripSoft(row),
-      frequency: taskFrequency(row),
-      frequencyText: describeFrequency(taskFrequency(row)),
-      asset: asset
-        ? {
-            id: asset.id,
-            code: asset.code,
-            name: asset.name,
-            location: asset.location,
-            status: asset.status,
-            area: areaOf(areas, asset.areaId),
-          }
-        : null,
-      lastRecord: lastRecord
-        ? { id: lastRecord.id, completedAt: lastRecord.completedAt, nextDueOn: lastRecord.nextDueOn }
-        : null,
-      due: row.status === "active" ? taskDue(row, lastRecord, today, timeZone) : null,
-    };
-  });
-}
-
-export async function listMaintenanceTasks(
-  db: Database,
-  workspaceId: string,
-  query: MaintenanceTaskListQuery,
-) {
-  const where: (SQL | undefined)[] = [
-    eq(siteMaintenanceTasks.workspaceId, workspaceId),
-    isNull(siteMaintenanceTasks.deletedAt),
-  ];
-  if (query.assetId) where.push(eq(siteMaintenanceTasks.assetId, query.assetId));
-  if (query.status !== "all") where.push(eq(siteMaintenanceTasks.status, query.status));
-  const rows = await db
-    .select()
-    .from(siteMaintenanceTasks)
-    .where(and(...where))
-    .orderBy(asc(siteMaintenanceTasks.title), asc(siteMaintenanceTasks.id));
-  return { tasks: await describeTasks(db, workspaceId, rows) };
-}
-
-const taskFrequencyColumns = (f: SiteFrequency | undefined) =>
-  f ? { frequencyEvery: f.every, frequencyUnit: f.unit } : {};
-
-export async function createMaintenanceTask(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  input: MaintenanceTaskCreateInput,
-) {
-  const row = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const asset = await findSiteAsset(tx, workspaceId, input.assetId);
-    if (asset.status === "archived") {
-      throw new ApiError(409, "asset_archived", `${asset.name} is archived`);
-    }
-    if (input.clearanceRequired && !asset.areaId) {
-      throw badRequest("A hygiene clearance needs the asset's area: give the asset an area first");
-    }
-    const { id, frequency, ...fields } = input;
-    const [created] = await tx
-      .insert(siteMaintenanceTasks)
-      .values({
-        ...(id ? { id } : {}),
-        ...fields,
-        ...taskFrequencyColumns(frequency),
-        workspaceId,
-      } as typeof siteMaintenanceTasks.$inferInsert)
-      .returning();
-    await recordChanges(tx, workspaceId, actorId, [change("site_maintenance_task", created!)]);
-    return created!;
-  });
-  return (await describeTasks(db, workspaceId, [row]))[0]!;
-}
-
-export async function updateMaintenanceTask(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  id: string,
-  patch: MaintenanceTaskUpdateInput,
-) {
-  const row = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const task = await findTask(tx, workspaceId, id);
-    if (patch.clearanceRequired) {
-      const asset = await findSiteAsset(tx, workspaceId, task.assetId);
-      if (!asset.areaId) {
-        throw badRequest("A hygiene clearance needs the asset's area: give the asset an area first");
-      }
-    }
-    const { frequency, ...fields } = patch;
-    const [updated] = await tx
-      .update(siteMaintenanceTasks)
-      .set({ ...fields, ...taskFrequencyColumns(frequency) })
-      .where(eq(siteMaintenanceTasks.id, id))
-      .returning();
-    await recordChanges(tx, workspaceId, actorId, [change("site_maintenance_task", updated!)]);
-    return updated!;
-  });
-  return (await describeTasks(db, workspaceId, [row]))[0]!;
-}
-
-async function describeMaintenance(db: Executor, rows: MaintenanceRow[]) {
-  if (rows.length === 0) return [];
-  const ids = rows.map((r) => r.id);
-  const [tasks, assets, corrections, names] = await Promise.all([
-    db
-      .select()
-      .from(siteMaintenanceTasks)
-      .where(inArray(siteMaintenanceTasks.id, [...new Set(rows.map((r) => r.taskId))])),
-    db
-      .select()
-      .from(siteAssets)
-      .where(inArray(siteAssets.id, [...new Set(rows.map((r) => r.assetId))])),
-    db
-      .select({ id: siteMaintenanceRecords.id, correctsRecordId: siteMaintenanceRecords.correctsRecordId })
-      .from(siteMaintenanceRecords)
-      .where(inArray(siteMaintenanceRecords.correctsRecordId, ids)),
-    userNames(
-      db,
-      rows.flatMap((r) => [r.doneBy, r.recordedBy, r.clearedBy]),
-    ),
-  ]);
-  const areas = await areasById(
-    db,
-    rows.map((r) => r.areaId),
-  );
-  const taskById = new Map(tasks.map((t) => [t.id, t]));
-  const assetById = new Map(assets.map((a) => [a.id, a]));
-  const correctedBy = new Map(corrections.map((c) => [c.correctsRecordId!, c.id]));
-  return rows.map((row) => {
-    const task = taskById.get(row.taskId);
-    const asset = assetById.get(row.assetId);
-    const correctedByRecordId = correctedBy.get(row.id) ?? null;
-    return {
-      ...strip(row),
-      task: task ? { id: task.id, title: task.title } : null,
-      asset: asset ? { id: asset.id, code: asset.code, name: asset.name } : null,
-      area: areaOf(areas, row.areaId),
-      doneByName: nameOf(names, row.doneBy),
-      recordedByName: nameOf(names, row.recordedBy),
-      clearedByName: nameOf(names, row.clearedBy),
-      correctedByRecordId,
-      /** Work in a production area that still needs a person's hygiene clearance. */
-      awaitingClearance: row.clearanceRequired && !row.clearedAt && !correctedByRecordId,
-    };
-  });
-}
-
-export async function getMaintenanceRecord(db: Executor, workspaceId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(siteMaintenanceRecords)
-    .where(and(eq(siteMaintenanceRecords.id, id), eq(siteMaintenanceRecords.workspaceId, workspaceId)));
-  if (!row) throw notFound("Maintenance record");
-  return (await describeMaintenance(db, [row]))[0]!;
-}
-
-export async function listMaintenanceRecords(
-  db: Database,
-  workspaceId: string,
-  query: MaintenanceRecordListQuery,
-) {
-  const where: (SQL | undefined)[] = [eq(siteMaintenanceRecords.workspaceId, workspaceId)];
-  if (query.taskId) where.push(eq(siteMaintenanceRecords.taskId, query.taskId));
-  if (query.assetId) where.push(eq(siteMaintenanceRecords.assetId, query.assetId));
-  // `from` and `to` are inclusive local dates in the workspace's time zone.
-  const zone = query.from || query.to ? await workspaceTimeZone(db, workspaceId) : null;
-  if (query.from) where.push(gte(siteMaintenanceRecords.completedAt, startOfDayInZone(query.from, zone!)));
-  if (query.to) where.push(lt(siteMaintenanceRecords.completedAt, endOfDayInZone(query.to, zone!)));
-  if (query.awaitingClearance) {
-    where.push(
-      eq(siteMaintenanceRecords.clearanceRequired, true),
-      isNull(siteMaintenanceRecords.clearedAt),
-      notCorrectedMaintenance,
-    );
-  }
-  if (!query.includeCorrected) where.push(notCorrectedMaintenance);
-  const [rows, [total]] = await Promise.all([
-    db
-      .select()
-      .from(siteMaintenanceRecords)
-      .where(and(...where))
-      .orderBy(
-        desc(siteMaintenanceRecords.completedAt),
-        desc(siteMaintenanceRecords.createdAt),
-        desc(siteMaintenanceRecords.id),
-      )
-      .limit(query.limit)
-      .offset(query.offset),
-    db
-      .select({ n: count() })
-      .from(siteMaintenanceRecords)
-      .where(and(...where)),
-  ]);
-  const p = page(await describeMaintenance(db, rows), total?.n, query);
-  return { records: p.rows, total: p.total, limit: p.limit, offset: p.offset };
-}
-
-type MaintenanceFields = Omit<MaintenanceRecordCreateInput, "id" | "taskId">;
-
-async function insertMaintenance(
-  tx: Transaction,
-  workspaceId: string,
-  actorId: string,
-  task: TaskRow,
-  input: MaintenanceFields & { id?: string | undefined },
-  correction?: { original: MaintenanceRow; reason: string },
-) {
-  const original = correction?.original;
-  const asset = await findSiteAsset(tx, workspaceId, task.assetId);
-  // A correction fixes a record of work already done, so retired equipment doesn't block it.
-  if (!original && asset.status === "archived") {
-    throw new ApiError(409, "asset_archived", `${asset.name} is archived`);
-  }
-  // A correction keeps the clearance its original needed: changing the task later can't drop it.
-  const clearanceRequired = task.clearanceRequired || (original?.clearanceRequired ?? false);
-  if (clearanceRequired && !asset.areaId) {
-    throw new ApiError(409, "area_required", "A hygiene clearance needs the asset's area");
-  }
-  // A correction is a patch: what it doesn't say is kept from the original (when and by whom the
-  // work was done, and so the next due date), not replaced by now and the person correcting.
-  const doneBy = input.doneBy ?? original?.doneBy ?? actorId;
-  if (doneBy !== actorId && doneBy !== original?.doneBy) await assertMember(tx, workspaceId, doneBy);
-  const completedAt = input.completedAt
-    ? momentOf(input.completedAt, new Date())
-    : (original?.completedAt ?? new Date());
-  const completedOn = dateInZone(completedAt, await workspaceTimeZone(tx, workspaceId));
-  const nextDueOn =
-    input.nextDueOn ??
-    (original && !input.completedAt
-      ? original.nextDueOn
-      : defaultNextMaintenanceOn(completedOn, taskFrequency(task)));
-  if (nextDueOn < completedOn) throw badRequest("The next due date is before the work was done");
-  const [row] = await tx
-    .insert(siteMaintenanceRecords)
-    .values({
-      ...(input.id ? { id: input.id } : {}),
-      workspaceId,
-      taskId: task.id,
-      assetId: asset.id,
-      areaId: asset.areaId,
-      completedAt,
-      doneBy,
-      contractor: input.contractor !== undefined ? input.contractor : (original?.contractor ?? null),
-      workDone: input.workDone !== undefined ? input.workDone : (original?.workDone ?? null),
-      nextDueOn,
-      note: input.note !== undefined ? input.note : (original?.note ?? null),
-      clearanceRequired,
-      recordedBy: actorId,
-      correctsRecordId: original?.id ?? null,
-      correctionReason: correction?.reason ?? null,
-    })
-    .returning();
-  await recordChanges(tx, workspaceId, actorId, [change("site_maintenance_record", row!)]);
-  return row!.id;
-}
-
-/** Records completed maintenance. A person's attestation (the route refuses tokens). */
-export async function recordMaintenance(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  input: MaintenanceRecordCreateInput,
-) {
-  const id = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const task = await findTask(tx, workspaceId, input.taskId);
-    if (task.status === "archived") throw new ApiError(409, "task_archived", `${task.title} is archived`);
-    const { taskId: _task, ...fields } = input;
-    return insertMaintenance(tx, workspaceId, actorId, task, fields);
-  });
-  return getMaintenanceRecord(db, workspaceId, id);
-}
-
-/** Corrects a record: a new row, pointing at the old one. A cleared record's correction needs its own clearance. */
-export async function correctMaintenance(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  id: string,
-  input: MaintenanceRecordCorrectInput,
-) {
-  const newId = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const [original] = await tx
-      .select()
-      .from(siteMaintenanceRecords)
-      .where(and(eq(siteMaintenanceRecords.id, id), eq(siteMaintenanceRecords.workspaceId, workspaceId)));
-    if (!original) throw notFound("Maintenance record");
-    const [already] = await tx
-      .select({ id: siteMaintenanceRecords.id })
-      .from(siteMaintenanceRecords)
-      .where(eq(siteMaintenanceRecords.correctsRecordId, id));
-    if (already) throw new ApiError(409, "already_corrected", "This record has already been corrected");
-    const task = await findTask(tx, workspaceId, original.taskId);
-    const { reason, ...fields } = input;
-    return insertMaintenance(tx, workspaceId, actorId, task, fields, { original, reason });
-  });
-  return getMaintenanceRecord(db, workspaceId, newId);
-}
-
-/**
- * The hygiene clearance after maintenance in a production area: a person with `manage` says the
- * area is safe to restart (the route checks; tokens are refused), and not the person who did or
- * recorded the work unless they are the only manager. A one-time stamp.
- */
-export async function clearMaintenance(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  active: readonly ModuleId[],
-  id: string,
-  input: HygieneClearanceInput,
-) {
-  await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const [record] = await tx
-      .select()
-      .from(siteMaintenanceRecords)
-      .where(and(eq(siteMaintenanceRecords.id, id), eq(siteMaintenanceRecords.workspaceId, workspaceId)));
-    if (!record) throw notFound("Maintenance record");
-    await assertNoHseIsolation(tx, workspaceId, record.assetId);
-    if (!record.clearanceRequired) {
-      throw new ApiError(409, "clearance_not_required", "This work didn't need a hygiene clearance");
-    }
-    const [corrected] = await tx
-      .select({ id: siteMaintenanceRecords.id })
-      .from(siteMaintenanceRecords)
-      .where(eq(siteMaintenanceRecords.correctsRecordId, id));
-    if (corrected) {
-      throw new ApiError(
-        409,
-        "already_corrected",
-        "A correction replaced this record; clear that one instead",
-      );
-    }
-    if (record.clearedAt) throw new ApiError(409, "already_cleared", "This area has already been cleared");
-    // Four-eyes: not whoever did the work or recorded it, unless the only manager.
-    await assertFourEyes(
-      tx,
-      workspaceId,
-      active,
-      actorId,
-      [record.doneBy, record.recordedBy],
-      "did or recorded this work",
-    );
-    const [updated] = await tx
-      .update(siteMaintenanceRecords)
-      .set({ clearedAt: new Date(), clearedBy: actorId, clearanceNote: input.note ?? null })
-      .where(and(eq(siteMaintenanceRecords.id, id), isNull(siteMaintenanceRecords.clearedAt)))
-      .returning();
-    if (!updated) throw new ApiError(409, "already_cleared", "This area has already been cleared");
-    await recordChanges(tx, workspaceId, actorId, [change("site_maintenance_record", updated)]);
-  });
-  return getMaintenanceRecord(db, workspaceId, id);
 }
 
 // ─── Storage temperatures ────────────────────────────────────────────────────
@@ -2680,676 +1800,6 @@ export async function closeSiteAction(
   return getSiteAction(db, workspaceId, id);
 }
 
-// ─── Pre-start and allergen changeover checks ────────────────────────────────
-
-async function findTemplate(db: Executor, workspaceId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(siteChecklistTemplates)
-    .where(
-      and(
-        eq(siteChecklistTemplates.id, id),
-        eq(siteChecklistTemplates.workspaceId, workspaceId),
-        isNull(siteChecklistTemplates.deletedAt),
-      ),
-    );
-  if (!row) throw notFound("Checklist");
-  return row;
-}
-
-const liveItemsOf = (db: Executor, templateIds: string[]) =>
-  templateIds.length
-    ? db
-        .select()
-        .from(siteChecklistItems)
-        .where(and(inArray(siteChecklistItems.templateId, templateIds), isNull(siteChecklistItems.deletedAt)))
-        .orderBy(asc(siteChecklistItems.sortOrder), asc(siteChecklistItems.id))
-    : Promise.resolve([] as TemplateItemRow[]);
-
-const notCorrectedCheck = sql`not exists (select 1 from ${siteChecklistChecks} c where c.corrects_check_id = ${siteChecklistChecks.id})`;
-/** A check that counts as done for what's due: replaced by nothing, not held, and passed. */
-const countsAsDoneCheck = and(
-  notCorrectedCheck,
-  ne(siteChecklistChecks.signOffStatus, "rejected"),
-  eq(siteChecklistChecks.outcome, "passed"),
-);
-
-/** The latest check of each template that counts as done. */
-async function lastDoneChecks(db: Executor, workspaceId: string, templateIds: string[]) {
-  if (templateIds.length === 0) return new Map<string, CheckRow>();
-  const rows = await db
-    .selectDistinctOn([siteChecklistChecks.templateId])
-    .from(siteChecklistChecks)
-    .where(
-      and(
-        eq(siteChecklistChecks.workspaceId, workspaceId),
-        inArray(siteChecklistChecks.templateId, templateIds),
-        countsAsDoneCheck,
-      ),
-    )
-    .orderBy(
-      siteChecklistChecks.templateId,
-      desc(siteChecklistChecks.performedAt),
-      desc(siteChecklistChecks.createdAt),
-      desc(siteChecklistChecks.id),
-    );
-  return new Map(rows.map((r) => [r.templateId, r]));
-}
-
-const templateFrequency = (t: TemplateRow) => frequencyOf(t.frequencyEvery, t.frequencyUnit);
-
-/** Whether any production batch is in progress (checks made only during production are idle otherwise). */
-async function isProducing(db: Executor, workspaceId: string) {
-  const [row] = await db
-    .select({ id: productionBatches.id })
-    .from(productionBatches)
-    .where(
-      and(
-        eq(productionBatches.workspaceId, workspaceId),
-        isNull(productionBatches.deletedAt),
-        eq(productionBatches.status, "in_progress"),
-      ),
-    )
-    .limit(1);
-  return !!row;
-}
-
-async function describeTemplates(db: Executor, workspaceId: string, rows: TemplateRow[]) {
-  if (rows.length === 0) return [];
-  const timeZone = await workspaceTimeZone(db, workspaceId);
-  const ids = rows.map((r) => r.id);
-  const [items, areas, last, producing] = await Promise.all([
-    liveItemsOf(db, ids),
-    areasById(
-      db,
-      rows.map((r) => r.areaId),
-    ),
-    lastDoneChecks(db, workspaceId, ids),
-    isProducing(db, workspaceId),
-  ]);
-  return rows.map((row) => {
-    const frequency = templateFrequency(row);
-    const lastCheck = last.get(row.id) ?? null;
-    return {
-      ...stripSoft(row),
-      frequency,
-      frequencyText: frequency ? describeFrequency(frequency) : null,
-      area: areaOf(areas, row.areaId),
-      items: items
-        .filter((i) => i.templateId === row.id)
-        .map((i) => ({ id: i.id, sortOrder: i.sortOrder, prompt: i.prompt, guidance: i.guidance })),
-      lastCheck: lastCheck
-        ? { id: lastCheck.id, performedAt: lastCheck.performedAt, signOffStatus: lastCheck.signOffStatus }
-        : null,
-      due:
-        row.status === "active" && frequency
-          ? siteCheckDueState({
-              frequency,
-              lastAt: lastCheck?.performedAt ?? null,
-              timeZone,
-              duringProduction: row.duringProduction,
-              producing,
-            })
-          : null,
-    };
-  });
-}
-
-export async function listChecklistTemplates(
-  db: Database,
-  workspaceId: string,
-  query: ChecklistTemplateListQuery,
-) {
-  const where: (SQL | undefined)[] = [
-    eq(siteChecklistTemplates.workspaceId, workspaceId),
-    isNull(siteChecklistTemplates.deletedAt),
-  ];
-  if (query.kind) where.push(eq(siteChecklistTemplates.kind, query.kind));
-  if (query.status !== "all") where.push(eq(siteChecklistTemplates.status, query.status));
-  const rows = await db
-    .select()
-    .from(siteChecklistTemplates)
-    .where(and(...where))
-    .orderBy(asc(siteChecklistTemplates.name), asc(siteChecklistTemplates.id));
-  return { templates: await describeTemplates(db, workspaceId, rows) };
-}
-
-export async function getChecklistTemplate(db: Executor, workspaceId: string, id: string) {
-  return (await describeTemplates(db, workspaceId, [await findTemplate(db, workspaceId, id)]))[0]!;
-}
-
-const templateFrequencyColumns = (f: SiteFrequency | null | undefined) =>
-  f === undefined ? {} : { frequencyEvery: f?.every ?? null, frequencyUnit: f?.unit ?? null };
-
-export async function createChecklistTemplate(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  input: ChecklistTemplateCreateInput,
-) {
-  const id = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    if (input.areaId) await assertArea(tx, workspaceId, input.areaId);
-    if (input.duringProduction && !input.frequency) {
-      throw badRequest("A check made only during production needs a frequency");
-    }
-    const { id, items: itemInputs, frequency, ...fields } = input;
-    const [template] = await tx
-      .insert(siteChecklistTemplates)
-      .values({
-        ...(id ? { id } : {}),
-        ...fields,
-        ...templateFrequencyColumns(frequency),
-        workspaceId,
-      } as typeof siteChecklistTemplates.$inferInsert)
-      .returning();
-    const items = await tx
-      .insert(siteChecklistItems)
-      .values(
-        itemInputs.map((item, index) => ({
-          workspaceId,
-          templateId: template!.id,
-          sortOrder: index,
-          prompt: item.prompt,
-          guidance: item.guidance ?? null,
-        })),
-      )
-      .returning();
-    await recordChanges(tx, workspaceId, actorId, [
-      change("site_checklist_template", template!),
-      ...items.map((i) => change("site_checklist_item", i)),
-    ]);
-    return template!.id;
-  });
-  return getChecklistTemplate(db, workspaceId, id);
-}
-
-/**
- * Edits a checklist. Sending `items` replaces the list: items that keep their `id` stay the same
- * item (history follows them), new ones are added and the ones left out are removed. Checks already
- * done keep the wording they were done against.
- */
-export async function updateChecklistTemplate(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  id: string,
-  patch: ChecklistTemplateUpdateInput,
-) {
-  await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const template = await findTemplate(tx, workspaceId, id);
-    if (patch.areaId) await assertArea(tx, workspaceId, patch.areaId);
-    const frequency = patch.frequency !== undefined ? patch.frequency : templateFrequency(template);
-    const during = patch.duringProduction ?? template.duringProduction;
-    if (during && !frequency) throw badRequest("A check made only during production needs a frequency");
-    const { items: itemInputs, frequency: freqPatch, ...fields } = patch;
-    const changes: ChangeInput[] = [];
-    const [updated] = await tx
-      .update(siteChecklistTemplates)
-      .set({ ...fields, ...templateFrequencyColumns(freqPatch), updatedAt: new Date() })
-      .where(eq(siteChecklistTemplates.id, id))
-      .returning();
-    changes.push(change("site_checklist_template", updated!));
-    if (itemInputs) {
-      const existing = (await liveItemsOf(tx, [id])).filter((i) => i.templateId === id);
-      const byId = new Map(existing.map((i) => [i.id, i]));
-      for (const item of itemInputs) {
-        if (item.id && !byId.has(item.id)) throw badRequest("An item doesn't belong to this checklist");
-      }
-      const keep = new Set(itemInputs.map((i) => i.id).filter((i): i is string => !!i));
-      for (const gone of existing.filter((i) => !keep.has(i.id))) {
-        const [row] = await tx
-          .update(siteChecklistItems)
-          .set({ deletedAt: new Date() })
-          .where(eq(siteChecklistItems.id, gone.id))
-          .returning();
-        changes.push({ entity: "site_checklist_item", entityId: row!.id, action: "delete" });
-      }
-      for (const [index, item] of itemInputs.entries()) {
-        if (item.id) {
-          const [row] = await tx
-            .update(siteChecklistItems)
-            .set({ sortOrder: index, prompt: item.prompt, guidance: item.guidance ?? null })
-            .where(eq(siteChecklistItems.id, item.id))
-            .returning();
-          changes.push(change("site_checklist_item", row!));
-        } else {
-          const [row] = await tx
-            .insert(siteChecklistItems)
-            .values({
-              workspaceId,
-              templateId: id,
-              sortOrder: index,
-              prompt: item.prompt,
-              guidance: item.guidance ?? null,
-            })
-            .returning();
-          changes.push(change("site_checklist_item", row!));
-        }
-      }
-    }
-    await recordChanges(tx, workspaceId, actorId, changes);
-  });
-  return getChecklistTemplate(db, workspaceId, id);
-}
-
-// Checks --------------------------------------------------------------------
-
-/** The oldest open glass breakage in each of the areas, by area id. */
-async function openBreakagesByArea(db: Executor, areaIds: (string | null)[]) {
-  const ids = [...new Set(areaIds.filter((a): a is string => !!a))];
-  const held = new Map<string, { id: string; description: string; occurredAt: Date }>();
-  if (ids.length === 0) return held;
-  const rows = await db
-    .select({
-      id: siteGlassBreakages.id,
-      areaId: siteGlassBreakages.areaId,
-      description: siteGlassBreakages.description,
-      occurredAt: siteGlassBreakages.occurredAt,
-    })
-    .from(siteGlassBreakages)
-    .where(and(inArray(siteGlassBreakages.areaId, ids), eq(siteGlassBreakages.status, "open")))
-    .orderBy(asc(siteGlassBreakages.occurredAt), asc(siteGlassBreakages.id));
-  for (const r of rows) if (!held.has(r.areaId)) held.set(r.areaId, r);
-  return held;
-}
-
-/** The allergens each batch's recipe version was approved with (`null` if none were recorded). */
-async function batchAllergens(db: Executor, batchIds: string[]) {
-  const out = new Map<string, AllergenRollup>();
-  if (batchIds.length === 0) return out;
-  const rows = await db
-    .select({ id: productionBatches.id, allergens: recipeVersions.approvedAllergens })
-    .from(productionBatches)
-    .innerJoin(recipeVersions, eq(recipeVersions.id, productionBatches.recipeVersionId))
-    .where(inArray(productionBatches.id, batchIds));
-  for (const r of rows) if (r.allergens) out.set(r.id, r.allergens);
-  return out;
-}
-
-/** The allergen risk of running one batch after another on a line, before a check is recorded. */
-export async function getChangeoverRisk(db: Database, workspaceId: string, query: ChangeoverRiskQuery) {
-  for (const id of [query.previousBatchId, query.nextBatchId]) await assertBatchRef(db, workspaceId, id);
-  const ids = [query.previousBatchId, query.nextBatchId].filter((b): b is string => !!b);
-  const allergensOf = await batchAllergens(db, ids);
-  return changeoverAllergenRisk({
-    previous: query.previousBatchId ? (allergensOf.get(query.previousBatchId) ?? null) : null,
-    next: query.nextBatchId ? (allergensOf.get(query.nextBatchId) ?? null) : null,
-    previousNamed: !!query.previousBatchId,
-    nextNamed: !!query.nextBatchId,
-  });
-}
-
-async function describeChecks(db: Executor, rows: CheckRow[]) {
-  if (rows.length === 0) return [];
-  const ids = rows.map((r) => r.id);
-  const batchIds = [
-    ...new Set(rows.flatMap((r) => [r.previousBatchId, r.nextBatchId]).filter((b): b is string => !!b)),
-  ];
-  const [items, areas, corrections, batches, names, holds] = await Promise.all([
-    db
-      .select()
-      .from(siteChecklistCheckItems)
-      .where(inArray(siteChecklistCheckItems.checkId, ids))
-      .orderBy(asc(siteChecklistCheckItems.sortOrder), asc(siteChecklistCheckItems.id)),
-    areasById(
-      db,
-      rows.map((r) => r.areaId),
-    ),
-    db
-      .select({ id: siteChecklistChecks.id, correctsCheckId: siteChecklistChecks.correctsCheckId })
-      .from(siteChecklistChecks)
-      .where(inArray(siteChecklistChecks.correctsCheckId, ids)),
-    batchIds.length
-      ? db
-          .select({ id: productionBatches.id, batchCode: productionBatches.batchCode })
-          .from(productionBatches)
-          .where(inArray(productionBatches.id, batchIds))
-      : Promise.resolve([] as { id: string; batchCode: string }[]),
-    userNames(
-      db,
-      rows.flatMap((r) => [r.performedBy, r.signedOffBy]),
-    ),
-    openBreakagesByArea(
-      db,
-      rows.filter((r) => r.signOffStatus === "pending").map((r) => r.areaId),
-    ),
-  ]);
-  const correctedBy = new Map(corrections.map((c) => [c.correctsCheckId!, c.id]));
-  const batchById = new Map(batches.map((b) => [b.id, b]));
-  const allergensOf = await batchAllergens(db, batchIds);
-  return rows.map((row) => {
-    const correctedByCheckId = correctedBy.get(row.id) ?? null;
-    const own = items.filter((i: CheckItemRow) => i.checkId === row.id);
-    return {
-      ...strip(row),
-      /** Allergen changeovers only: what the batch before leaves behind. A warning, never a block. */
-      allergenRisk:
-        row.kind === "allergen_changeover"
-          ? changeoverAllergenRisk({
-              previous: row.previousBatchId ? (allergensOf.get(row.previousBatchId) ?? null) : null,
-              next: row.nextBatchId ? (allergensOf.get(row.nextBatchId) ?? null) : null,
-              previousNamed: !!row.previousBatchId,
-              nextNamed: !!row.nextBatchId,
-            })
-          : null,
-      performedByName: nameOf(names, row.performedBy),
-      signedOffByName: nameOf(names, row.signedOffBy),
-      area: areaOf(areas, row.areaId),
-      previousBatch: row.previousBatchId ? (batchById.get(row.previousBatchId) ?? null) : null,
-      nextBatch: row.nextBatchId ? (batchById.get(row.nextBatchId) ?? null) : null,
-      correctedByCheckId,
-      awaitingSignOff: checkAwaitsSignOff({ signOffStatus: row.signOffStatus, correctedByCheckId }),
-      /** The open glass breakage that holds this check's area, so it can't be signed off yet. */
-      areaHold:
-        row.signOffStatus === "pending" && !correctedByCheckId && row.areaId
-          ? (holds.get(row.areaId) ?? null)
-          : null,
-      signOffLabel: checkSignOffLabels[row.signOffStatus],
-      results: own.map(({ checkId: _c, workspaceId: _w, ...item }) => item),
-      failedCount: own.filter((i) => i.result === "fail").length,
-    };
-  });
-}
-
-export async function getChecklistCheck(db: Executor, workspaceId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(siteChecklistChecks)
-    .where(and(eq(siteChecklistChecks.id, id), eq(siteChecklistChecks.workspaceId, workspaceId)));
-  if (!row) throw notFound("Check");
-  return (await describeChecks(db, [row]))[0]!;
-}
-
-/** Checks, newest first. */
-export async function listChecklistChecks(db: Database, workspaceId: string, query: ChecklistCheckListQuery) {
-  const where: (SQL | undefined)[] = [eq(siteChecklistChecks.workspaceId, workspaceId)];
-  if (query.templateId) where.push(eq(siteChecklistChecks.templateId, query.templateId));
-  if (query.kind) where.push(eq(siteChecklistChecks.kind, query.kind));
-  // `from` and `to` are inclusive local dates in the workspace's time zone.
-  const zone = query.from || query.to ? await workspaceTimeZone(db, workspaceId) : null;
-  if (query.from) where.push(gte(siteChecklistChecks.performedAt, startOfDayInZone(query.from, zone!)));
-  if (query.to) where.push(lt(siteChecklistChecks.performedAt, endOfDayInZone(query.to, zone!)));
-  if (query.outcome) where.push(eq(siteChecklistChecks.outcome, query.outcome));
-  if (query.signOff) where.push(eq(siteChecklistChecks.signOffStatus, query.signOff));
-  if (query.batchId) {
-    where.push(
-      or(
-        eq(siteChecklistChecks.previousBatchId, query.batchId),
-        eq(siteChecklistChecks.nextBatchId, query.batchId),
-      ),
-    );
-  }
-  if (!query.includeCorrected) where.push(notCorrectedCheck);
-  const [rows, [total]] = await Promise.all([
-    db
-      .select()
-      .from(siteChecklistChecks)
-      .where(and(...where))
-      .orderBy(
-        desc(siteChecklistChecks.performedAt),
-        desc(siteChecklistChecks.createdAt),
-        desc(siteChecklistChecks.id),
-      )
-      .limit(query.limit)
-      .offset(query.offset),
-    db
-      .select({ n: count() })
-      .from(siteChecklistChecks)
-      .where(and(...where)),
-  ]);
-  const p = page(await describeChecks(db, rows), total?.n, query);
-  return { checks: p.rows, total: p.total, limit: p.limit, offset: p.offset };
-}
-
-/** One result per item, no more and no fewer: `expected` are the item ids the check must cover. */
-function assertCovers(expected: string[], results: { itemId: string }[]) {
-  const given = new Set(results.map((r) => r.itemId));
-  const missing = expected.filter((id) => !given.has(id));
-  const unknown = results.filter((r) => !expected.includes(r.itemId));
-  if (unknown.length) throw badRequest("A result is for an item that isn't on this checklist");
-  if (missing.length) {
-    throw new ApiError(400, "invalid_input", "Every item on the checklist needs a result", { missing });
-  }
-}
-
-async function assertBatchRef(tx: Executor, workspaceId: string, id: string | null | undefined) {
-  if (id) await findBatch(tx, workspaceId, id);
-}
-
-/**
- * Records a completed check against a checklist: one result per item (the wording is copied, so a
- * later edit doesn't rewrite it). A person's attestation (the route refuses tokens). It starts
- * `pending`; a person with `manage` signs it off before production starts.
- */
-export async function recordChecklistCheck(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  input: ChecklistCheckCreateInput,
-) {
-  const id = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const template = await findTemplate(tx, workspaceId, input.templateId);
-    if (template.status === "archived") {
-      throw new ApiError(409, "checklist_archived", `${template.name} is archived`);
-    }
-    const items = (await liveItemsOf(tx, [template.id])).filter((i) => i.templateId === template.id);
-    assertCovers(
-      items.map((i) => i.id),
-      input.results,
-    );
-    if (template.kind !== "allergen_changeover" && (input.previousBatchId || input.nextBatchId)) {
-      throw badRequest("Only an allergen changeover check refers to the batches before and after it");
-    }
-    if (input.previousBatchId && input.previousBatchId === input.nextBatchId) {
-      throw badRequest("The batch before and the batch after are the same");
-    }
-    await assertBatchRef(tx, workspaceId, input.previousBatchId);
-    await assertBatchRef(tx, workspaceId, input.nextBatchId);
-    const itemById = new Map(items.map((i) => [i.id, i]));
-    return insertCheck(tx, workspaceId, actorId, {
-      id: input.id,
-      templateId: template.id,
-      templateName: template.name,
-      kind: template.kind,
-      areaId: template.areaId,
-      line: template.line,
-      performedAt: momentOf(input.performedAt, new Date()),
-      note: input.note ?? null,
-      previousBatchId: input.previousBatchId ?? null,
-      nextBatchId: input.nextBatchId ?? null,
-      results: input.results.map((r) => ({
-        itemId: r.itemId,
-        prompt: itemById.get(r.itemId)!.prompt,
-        sortOrder: itemById.get(r.itemId)!.sortOrder,
-        result: r.result,
-        note: r.note ?? null,
-      })),
-    });
-  });
-  return getChecklistCheck(db, workspaceId, id);
-}
-
-interface CheckToInsert {
-  id?: string | undefined;
-  templateId: string;
-  templateName: string;
-  kind: CheckRow["kind"];
-  areaId: string | null;
-  line: string | null;
-  performedAt: Date;
-  note: string | null;
-  previousBatchId: string | null;
-  nextBatchId: string | null;
-  results: {
-    itemId: string | null;
-    prompt: string;
-    sortOrder: number;
-    result: CheckItemRow["result"];
-    note: string | null;
-  }[];
-  correction?: { originalId: string; reason: string };
-}
-
-async function insertCheck(tx: Transaction, workspaceId: string, actorId: string, check: CheckToInsert) {
-  const [row] = await tx
-    .insert(siteChecklistChecks)
-    .values({
-      ...(check.id ? { id: check.id } : {}),
-      workspaceId,
-      templateId: check.templateId,
-      templateName: check.templateName,
-      kind: check.kind,
-      areaId: check.areaId,
-      line: check.line,
-      performedAt: check.performedAt,
-      performedBy: actorId,
-      outcome: checkOutcome(check.results),
-      note: check.note,
-      previousBatchId: check.previousBatchId,
-      nextBatchId: check.nextBatchId,
-      correctsCheckId: check.correction?.originalId ?? null,
-      correctionReason: check.correction?.reason ?? null,
-    })
-    .returning();
-  const results = await tx
-    .insert(siteChecklistCheckItems)
-    .values(check.results.map((r) => ({ workspaceId, checkId: row!.id, ...r })))
-    .returning();
-  await recordChanges(tx, workspaceId, actorId, [
-    change("site_checklist_check", row!),
-    ...results.map((r) => change("site_checklist_check_item", r)),
-  ]);
-  return row!.id;
-}
-
-/**
- * Corrects a check: the results again, as a new check pointing at the old one (same checklist,
- * time and batches). A person's act. The replaced check no longer counts and leaves the sign-off
- * queue; the new one needs its own sign-off.
- */
-export async function correctChecklistCheck(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  id: string,
-  input: ChecklistCheckCorrectInput,
-) {
-  const newId = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const [original] = await tx
-      .select()
-      .from(siteChecklistChecks)
-      .where(and(eq(siteChecklistChecks.id, id), eq(siteChecklistChecks.workspaceId, workspaceId)));
-    if (!original) throw notFound("Check");
-    const [already] = await tx
-      .select({ id: siteChecklistChecks.id })
-      .from(siteChecklistChecks)
-      .where(eq(siteChecklistChecks.correctsCheckId, id));
-    if (already) throw new ApiError(409, "already_corrected", "This check has already been corrected");
-    const originalItems = await tx
-      .select()
-      .from(siteChecklistCheckItems)
-      .where(eq(siteChecklistCheckItems.checkId, id));
-    const itemKey = (i: CheckItemRow) => i.itemId ?? i.id;
-    assertCovers(originalItems.map(itemKey), input.results);
-    const byKey = new Map(originalItems.map((i) => [itemKey(i), i]));
-    return insertCheck(tx, workspaceId, actorId, {
-      templateId: original.templateId,
-      templateName: original.templateName,
-      kind: original.kind,
-      areaId: original.areaId,
-      line: original.line,
-      performedAt: original.performedAt,
-      note: input.note ?? null,
-      previousBatchId: original.previousBatchId,
-      nextBatchId: original.nextBatchId,
-      results: input.results.map((r) => {
-        const old = byKey.get(r.itemId)!;
-        return {
-          itemId: old.itemId,
-          prompt: old.prompt,
-          sortOrder: old.sortOrder,
-          result: r.result,
-          note: r.note ?? null,
-        };
-      }),
-      correction: { originalId: id, reason: input.reason },
-    });
-  });
-  return getChecklistCheck(db, workspaceId, newId);
-}
-
-/**
- * The sign-off before production starts: a person with `manage` (checked by the route; tokens are
- * refused) signs a check off or holds it. A check with failed items can only be held: it is done
- * again once what failed is put right. A one-time stamp; a replaced (corrected) check can't be
- * signed off.
- */
-export async function signOffChecklistCheck(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  id: string,
-  input: CheckSignOffInput,
-) {
-  await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const [check] = await tx
-      .select()
-      .from(siteChecklistChecks)
-      .where(and(eq(siteChecklistChecks.id, id), eq(siteChecklistChecks.workspaceId, workspaceId)));
-    if (!check) throw notFound("Check");
-    if (check.signOffStatus !== "pending") {
-      throw new ApiError(409, "already_signed_off", "This check has already been signed off or held");
-    }
-    const [corrected] = await tx
-      .select({ id: siteChecklistChecks.id })
-      .from(siteChecklistChecks)
-      .where(eq(siteChecklistChecks.correctsCheckId, id));
-    if (corrected) {
-      throw new ApiError(
-        409,
-        "already_corrected",
-        "A correction has replaced this check; sign that one off instead",
-      );
-    }
-    if (input.decision === "approve" && check.areaId) {
-      // An open glass breakage holds its area: no production starts there until a person releases it.
-      const breakage = (await openBreakagesByArea(tx, [check.areaId])).get(check.areaId);
-      if (breakage) {
-        throw new ApiError(
-          409,
-          "area_on_hold",
-          `This area is on hold after a glass breakage (${breakage.description}). Release the breakage before signing off`,
-        );
-      }
-    }
-    if (input.decision === "approve" && check.outcome === "failed") {
-      throw new ApiError(
-        409,
-        "check_failed",
-        "Items failed on this check, so production can't be signed off. Hold it, put the failures right and check again",
-      );
-    }
-    const [updated] = await tx
-      .update(siteChecklistChecks)
-      .set({
-        signOffStatus: input.decision === "approve" ? "approved" : "rejected",
-        signedOffBy: actorId,
-        signedOffAt: new Date(),
-        signOffNote: input.note ?? null,
-      })
-      .where(and(eq(siteChecklistChecks.id, id), eq(siteChecklistChecks.signOffStatus, "pending")))
-      .returning();
-    if (!updated) throw new ApiError(409, "already_signed_off", "Someone else signed this check off first");
-    await recordChanges(tx, workspaceId, actorId, [change("site_checklist_check", updated)]);
-  });
-  return getChecklistCheck(db, workspaceId, id);
-}
-
 // ─── What is due ─────────────────────────────────────────────────────────────
 
 /**
@@ -3360,6 +1810,9 @@ export async function signOffChecklistCheck(
  * damaged or missing glass, and pest activity on the last visit.
  */
 export interface SiteDueOptions {
+  withMaintenance?: boolean;
+  withChecklists?: boolean;
+  withProduction?: boolean;
   /** The moment to decide due states at (the notification sweep passes its own); default now. */
   now?: Date;
   /**
@@ -3503,59 +1956,8 @@ export async function getSiteDue(
     }
   }
 
-  // Maintenance: each active task.
-  if (want("maintenance")) {
-    const tasks = await db
-      .select()
-      .from(siteMaintenanceTasks)
-      .where(
-        and(
-          eq(siteMaintenanceTasks.workspaceId, workspaceId),
-          isNull(siteMaintenanceTasks.deletedAt),
-          eq(siteMaintenanceTasks.status, "active"),
-        ),
-      );
-    const [last, assets] = await Promise.all([
-      lastMaintenance(
-        db,
-        workspaceId,
-        tasks.map((t) => t.id),
-      ),
-      tasks.length
-        ? db
-            .select()
-            .from(siteAssets)
-            .where(
-              and(
-                inArray(siteAssets.id, [...new Set(tasks.map((t) => t.assetId))]),
-                eq(siteAssets.status, "active"),
-                isNull(siteAssets.deletedAt),
-              ),
-            )
-        : Promise.resolve([] as AssetRow[]),
-    ]);
-    const areas = await areasById(
-      db,
-      assets.map((a) => a.areaId),
-    );
-    const assetById = new Map(assets.map((a) => [a.id, a]));
-    for (const task of tasks) {
-      const asset = assetById.get(task.assetId);
-      if (!asset) continue; // an archived asset isn't maintained
-      const record = last.get(task.id) ?? null;
-      const due = taskDue(task, record, today, timeZone);
-      items.push({
-        programme: "maintenance",
-        subjectId: task.id,
-        title: `${asset.name}: ${task.title}`,
-        where: areaOf(areas, asset.areaId)?.name ?? asset.location ?? null,
-        state: due.state,
-        dueOn: due.dueOn,
-        dueAt: null,
-        lastAt: record?.completedAt.toISOString() ?? null,
-        note: describeFrequency(taskFrequency(task)),
-      });
-    }
+  if (options.withMaintenance && want("maintenance")) {
+    items.push(...(await maintenanceDueItems(db, workspaceId, today, timeZone)));
   }
 
   // Storage: each active unit.
@@ -3597,54 +1999,8 @@ export async function getSiteDue(
     }
   }
 
-  // Checklists: templates with a frequency.
-  if (want("checklist")) {
-    const templates = await db
-      .select()
-      .from(siteChecklistTemplates)
-      .where(
-        and(
-          eq(siteChecklistTemplates.workspaceId, workspaceId),
-          isNull(siteChecklistTemplates.deletedAt),
-          eq(siteChecklistTemplates.status, "active"),
-          sql`${siteChecklistTemplates.frequencyEvery} is not null`,
-        ),
-      );
-    const [last, producing, areas] = await Promise.all([
-      lastDoneChecks(
-        db,
-        workspaceId,
-        templates.map((t) => t.id),
-      ),
-      isProducing(db, workspaceId),
-      areasById(
-        db,
-        templates.map((t) => t.areaId),
-      ),
-    ]);
-    for (const template of templates) {
-      const frequency = templateFrequency(template)!;
-      const check = last.get(template.id) ?? null;
-      const due = siteCheckDueState({
-        frequency,
-        lastAt: check?.performedAt ?? null,
-        now,
-        timeZone,
-        duringProduction: template.duringProduction,
-        producing,
-      });
-      items.push({
-        programme: "checklist",
-        subjectId: template.id,
-        title: template.name,
-        where: template.line ?? areaOf(areas, template.areaId)?.name ?? null,
-        state: due.state,
-        dueOn: due.dueOn,
-        dueAt: due.dueAt,
-        lastAt: check?.performedAt.toISOString() ?? null,
-        note: describeFrequency(frequency),
-      });
-    }
+  if (options.withChecklists && want("checklist")) {
+    items.push(...(await checklistDueItems(db, workspaceId, "site", now, timeZone, options.withProduction)));
   }
 
   const shown =
@@ -3656,12 +2012,11 @@ export async function getSiteDue(
   const [
     awaitingReview,
     awaitingSignOff,
-    awaitingClearance,
     openBreakages,
     openActions,
     pestActivity,
     glassProblems,
-    openWorkOrders,
+    maintenance,
   ] = await Promise.all([
     one(
       db
@@ -3675,31 +2030,7 @@ export async function getSiteDue(
           ),
         ),
     ),
-    one(
-      db
-        .select({ n: count() })
-        .from(siteChecklistChecks)
-        .where(
-          and(
-            eq(siteChecklistChecks.workspaceId, workspaceId),
-            eq(siteChecklistChecks.signOffStatus, "pending"),
-            notCorrectedCheck,
-          ),
-        ),
-    ),
-    one(
-      db
-        .select({ n: count() })
-        .from(siteMaintenanceRecords)
-        .where(
-          and(
-            eq(siteMaintenanceRecords.workspaceId, workspaceId),
-            eq(siteMaintenanceRecords.clearanceRequired, true),
-            isNull(siteMaintenanceRecords.clearedAt),
-            notCorrectedMaintenance,
-          ),
-        ),
-    ),
+    options.withChecklists ? pendingSiteChecks(db, workspaceId) : 0,
     one(
       db
         .select({ n: count() })
@@ -3720,18 +2051,9 @@ export async function getSiteDue(
     ),
     pestActivityOnLastVisit(db, workspaceId),
     glassNeedingAction(db, workspaceId),
-    one(
-      db
-        .select({ n: count() })
-        .from(siteWorkOrders)
-        .where(
-          and(
-            eq(siteWorkOrders.workspaceId, workspaceId),
-            inArray(siteWorkOrders.status, ["requested", "in_progress"]),
-            isNull(siteWorkOrders.deletedAt),
-          ),
-        ),
-    ),
+    options.withMaintenance
+      ? maintenanceCounts(db, workspaceId)
+      : { awaitingClearance: 0, openWorkOrders: 0 },
   ]);
 
   return {
@@ -3742,12 +2064,11 @@ export async function getSiteDue(
       due: items.filter((i) => i.state === "due").length,
       awaitingReview,
       awaitingSignOff,
-      awaitingClearance,
       openBreakages,
       openActions,
       pestActivity,
       glassProblems,
-      openWorkOrders,
+      ...maintenance,
     },
   };
 }
@@ -3783,246 +2104,4 @@ async function glassNeedingAction(db: Executor, workspaceId: string) {
     items.map((i) => i.id),
   );
   return [...last.values()].filter((c) => glassConditionNeedsAction(c.condition)).length;
-}
-
-// ─── Breakdowns and work orders ──────────────────────────────────────────────
-
-type WorkOrderRow = typeof siteWorkOrders.$inferSelect;
-
-async function describeWorkOrders(db: Executor, rows: WorkOrderRow[]) {
-  if (rows.length === 0) return [];
-  const taskIds = [...new Set(rows.map((r) => r.taskId).filter((t): t is string => !!t))];
-  const [assets, tasks, areas, names] = await Promise.all([
-    db
-      .select()
-      .from(siteAssets)
-      .where(inArray(siteAssets.id, [...new Set(rows.map((r) => r.assetId))])),
-    taskIds.length
-      ? db
-          .select({ id: siteMaintenanceTasks.id, title: siteMaintenanceTasks.title })
-          .from(siteMaintenanceTasks)
-          .where(inArray(siteMaintenanceTasks.id, taskIds))
-      : Promise.resolve([] as { id: string; title: string }[]),
-    areasById(
-      db,
-      rows.map((r) => r.areaId),
-    ),
-    userNames(
-      db,
-      rows.flatMap((r) => [r.requestedBy, r.assignedTo, r.completedBy, r.doneBy, r.cancelledBy]),
-    ),
-  ]);
-  const assetById = new Map(assets.map((a) => [a.id, a]));
-  const taskById = new Map(tasks.map((t) => [t.id, t]));
-  return rows.map((row) => {
-    const asset = assetById.get(row.assetId);
-    return {
-      ...stripSoft(row),
-      asset: asset ? { id: asset.id, code: asset.code, name: asset.name } : null,
-      task: row.taskId ? (taskById.get(row.taskId) ?? null) : null,
-      area: areaOf(areas, row.areaId),
-      requestedByName: nameOf(names, row.requestedBy),
-      assignedToName: nameOf(names, row.assignedTo),
-      completedByName: nameOf(names, row.completedBy),
-      doneByName: nameOf(names, row.doneBy),
-      cancelledByName: nameOf(names, row.cancelledBy),
-      isOpen: workOrderIsOpen(row.status),
-      totalCost: workOrderTotalCost(row),
-    };
-  });
-}
-
-async function findWorkOrder(db: Executor, workspaceId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(siteWorkOrders)
-    .where(
-      and(
-        eq(siteWorkOrders.id, id),
-        eq(siteWorkOrders.workspaceId, workspaceId),
-        isNull(siteWorkOrders.deletedAt),
-      ),
-    );
-  if (!row) throw notFound("Work order");
-  return row;
-}
-
-function assertWorkOrderOpen(row: WorkOrderRow) {
-  if (!workOrderIsOpen(row.status)) {
-    throw new ApiError(409, "work_order_closed", `This work order is ${row.status} and can't change`);
-  }
-}
-
-export async function getWorkOrder(db: Executor, workspaceId: string, id: string) {
-  return (await describeWorkOrders(db, [await findWorkOrder(db, workspaceId, id)]))[0]!;
-}
-
-/** Open work orders first (most urgent, newest), then the closed ones, newest first. */
-export async function listWorkOrders(db: Database, workspaceId: string, query: WorkOrderListQuery) {
-  const where: (SQL | undefined)[] = [
-    eq(siteWorkOrders.workspaceId, workspaceId),
-    isNull(siteWorkOrders.deletedAt),
-  ];
-  if (query.status === "open") where.push(inArray(siteWorkOrders.status, ["requested", "in_progress"]));
-  else if (query.status !== "all") where.push(eq(siteWorkOrders.status, query.status));
-  if (query.assetId) where.push(eq(siteWorkOrders.assetId, query.assetId));
-  if (query.priority) where.push(eq(siteWorkOrders.priority, query.priority));
-  if (query.kind) where.push(eq(siteWorkOrders.kind, query.kind));
-  const priorityRank = sql`case ${siteWorkOrders.priority} when 'urgent' then 0 when 'high' then 1 when 'medium' then 2 else 3 end`;
-  const [rows, [total]] = await Promise.all([
-    db
-      .select()
-      .from(siteWorkOrders)
-      .where(and(...where))
-      .orderBy(
-        sql`(${siteWorkOrders.status} in ('requested', 'in_progress')) desc`,
-        priorityRank,
-        desc(siteWorkOrders.createdAt),
-        desc(siteWorkOrders.id),
-      )
-      .limit(query.limit)
-      .offset(query.offset),
-    db
-      .select({ n: count() })
-      .from(siteWorkOrders)
-      .where(and(...where)),
-  ]);
-  const p = page(await describeWorkOrders(db, rows), total?.n, query);
-  return { workOrders: p.rows, total: p.total, limit: p.limit, offset: p.offset };
-}
-
-/** Raises a breakdown or work request (an API token may). The asset's area is copied. */
-export async function createWorkOrder(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  input: WorkOrderCreateInput,
-  options: { source: SiteSource },
-) {
-  const id = await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const asset = await findSiteAsset(tx, workspaceId, input.assetId);
-    if (asset.status === "archived") throw new ApiError(409, "asset_archived", `${asset.name} is archived`);
-    if (input.taskId) {
-      const task = await findTask(tx, workspaceId, input.taskId);
-      if (task.assetId !== asset.id) throw badRequest("That task is on a different asset");
-    }
-    if (input.assignedTo) await assertMember(tx, workspaceId, input.assignedTo);
-    const [row] = await tx
-      .insert(siteWorkOrders)
-      .values({
-        ...(input.id ? { id: input.id } : {}),
-        workspaceId,
-        assetId: asset.id,
-        taskId: input.taskId ?? null,
-        areaId: asset.areaId,
-        kind: input.kind,
-        title: input.title,
-        description: input.description ?? null,
-        priority: input.priority,
-        stopsProduction: input.stopsProduction,
-        assignedTo: input.assignedTo ?? null,
-        contractor: input.contractor ?? null,
-        source: options.source,
-        requestedBy: actorId,
-        updatedBy: actorId,
-      })
-      .returning();
-    await recordChanges(tx, workspaceId, actorId, [change("site_work_order", row!)]);
-    return row!.id;
-  });
-  return getWorkOrder(db, workspaceId, id);
-}
-
-/** Edits an open work order, or starts it (`status: in_progress`). Closed ones never change. */
-export async function updateWorkOrder(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  id: string,
-  patch: WorkOrderUpdateInput,
-) {
-  await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const row = await findWorkOrder(tx, workspaceId, id);
-    assertWorkOrderOpen(row);
-    if (patch.assignedTo) await assertMember(tx, workspaceId, patch.assignedTo);
-    const starting = patch.status === "in_progress" && row.status !== "in_progress";
-    const [updated] = await tx
-      .update(siteWorkOrders)
-      .set({ ...patch, ...(starting ? { startedAt: new Date() } : {}), updatedBy: actorId })
-      .where(eq(siteWorkOrders.id, id))
-      .returning();
-    await recordChanges(tx, workspaceId, actorId, [change("site_work_order", updated!)]);
-  });
-  return getWorkOrder(db, workspaceId, id);
-}
-
-/**
- * Completes a work order: what was done, the spares and costs. A person's attestation (the route
- * refuses tokens). Once.
- */
-export async function completeWorkOrder(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  id: string,
-  input: WorkOrderCompleteInput,
-) {
-  await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const row = await findWorkOrder(tx, workspaceId, id);
-    assertWorkOrderOpen(row);
-    const doneBy = input.doneBy ?? actorId;
-    if (doneBy !== actorId) await assertMember(tx, workspaceId, doneBy);
-    const completedAt = momentOf(input.completedAt, new Date());
-    const [updated] = await tx
-      .update(siteWorkOrders)
-      .set({
-        status: "completed",
-        completedAt,
-        completedBy: actorId,
-        doneBy,
-        workDone: input.workDone,
-        downtimeMinutes: input.downtimeMinutes ?? null,
-        // What was entered while the work was open stays unless the completion says otherwise.
-        ...(input.sparesUsed !== undefined ? { sparesUsed: input.sparesUsed } : {}),
-        ...(input.partsCost !== undefined ? { partsCost: input.partsCost } : {}),
-        ...(input.labourCost !== undefined ? { labourCost: input.labourCost } : {}),
-        ...(input.contractorCost !== undefined ? { contractorCost: input.contractorCost } : {}),
-        updatedBy: actorId,
-      })
-      .where(and(eq(siteWorkOrders.id, id), inArray(siteWorkOrders.status, ["requested", "in_progress"])))
-      .returning();
-    if (!updated) throw new ApiError(409, "work_order_closed", "This work order has already been closed");
-    await recordChanges(tx, workspaceId, actorId, [change("site_work_order", updated)]);
-  });
-  return getWorkOrder(db, workspaceId, id);
-}
-
-export async function cancelWorkOrder(
-  db: Database,
-  workspaceId: string,
-  actorId: string,
-  id: string,
-  input: WorkOrderCancelInput,
-) {
-  await db.transaction(async (tx) => {
-    await lockWorkspaceLog(tx, workspaceId);
-    const row = await findWorkOrder(tx, workspaceId, id);
-    assertWorkOrderOpen(row);
-    const [updated] = await tx
-      .update(siteWorkOrders)
-      .set({
-        status: "cancelled",
-        cancelledAt: new Date(),
-        cancelledBy: actorId,
-        cancelReason: input.reason,
-        updatedBy: actorId,
-      })
-      .where(eq(siteWorkOrders.id, id))
-      .returning();
-    await recordChanges(tx, workspaceId, actorId, [change("site_work_order", updated!)]);
-  });
-  return getWorkOrder(db, workspaceId, id);
 }

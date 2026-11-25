@@ -118,7 +118,7 @@ export const notificationTypeInfo: Record<
   maintenance_due: {
     label: "Maintenance due",
     description: "Planned maintenance falls due",
-    module: "site",
+    module: "maintenance",
   },
   site_check_due: {
     label: "Site checks due",
@@ -339,7 +339,7 @@ export function notificationPath(n: {
     case "hazard_review_due":
       return n.data.subjectId ? `/haccp/plans/${n.data.subjectId}` : "/haccp/plans";
     case "maintenance_due":
-      return "/site/maintenance";
+      return "/maintenance";
     case "site_check_due":
       return n.data.checkKind === "glass" ? "/site/glass" : "/site/checks";
     case "pest_visit_due":

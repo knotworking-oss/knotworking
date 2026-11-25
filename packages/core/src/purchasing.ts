@@ -547,23 +547,78 @@ export const PURCHASE_RECEIPT_MAX_LINES = 100;
 /** How many orders one `POST /purchasing/suggestions` may create. */
 export const PURCHASE_SUGGESTIONS_MAX_ORDERS = 50;
 
-const lineFields = {
-  itemId: z.uuid(),
-  /** In `unit`; stored in the item's base unit. */
-  quantity: positiveQuantity,
-  unit: z.enum(unitCodes),
-  /** Per `unit`. Left out: the item's standard cost, converted. Null: price unknown. */
+/**
+ * What an order line buys. `stock`: an item (ingredient or packaging) received into stock as a lot,
+ * with its quantity in the item's base unit; needs the stock module. `non_stock`: a service,
+ * subscription or goods not kept in stock, described in free text with its own unit, received
+ * without a lot or stock movement.
+ */
+export const purchaseOrderLineKinds = ["stock", "non_stock"] as const;
+export type PurchaseOrderLineKind = (typeof purchaseOrderLineKinds)[number];
+export const purchaseOrderLineKindLabels: Record<PurchaseOrderLineKind, string> = {
+  stock: "Stock item",
+  non_stock: "Non-stock",
+};
+
+/** Longest free-text unit (`hour`, `month`, `licence`) on a non-stock line. */
+export const PURCHASE_UNIT_LABEL_MAX = 40;
+/** Longest expense or nominal code text on a non-stock line. */
+export const PURCHASE_NOMINAL_CODE_MAX = 60;
+
+const commonLineFields = {
+  /** Per the line's unit. Stock lines: left out, the price list or the item's standard cost. Null: price unknown. */
   unitPrice: price.nullable().optional(),
   /** Overrides the order's expected date for this line. */
   expectedOn: isoDate.nullable().optional(),
   notes: optionalText(2000).optional(),
 };
 
-export const purchaseOrderLineSchema = z.object(lineFields);
+const stockLineFields = {
+  /** Left out: a stock line (what every order line was before non-stock lines). */
+  kind: z.literal("stock").default("stock"),
+  itemId: z.uuid(),
+  /** In `unit`; stored in the item's base unit. */
+  quantity: positiveQuantity,
+  unit: z.enum(unitCodes),
+  ...commonLineFields,
+};
+
+const nonStockLineFields = {
+  kind: z.literal("non_stock"),
+  /** What is bought: "Window cleaning, March", "CRM subscription". */
+  description: requiredText(500),
+  /** Optional: an item this line is for (a reference only: nothing is converted or stocked). */
+  itemId: z.uuid().nullable().optional(),
+  /** In the line's own unit, stored as entered. */
+  quantity: positiveQuantity,
+  /** Free text or a unit code (`hour`, `month`, `each`); left out: no unit. */
+  unit: optionalText(PURCHASE_UNIT_LABEL_MAX).optional(),
+  /** The expense account or nominal code it is coded to, as text (`7500`, `Cleaning`). */
+  nominalCode: optionalText(PURCHASE_NOMINAL_CODE_MAX).optional(),
+  ...commonLineFields,
+};
+
+/** A stock line only: what suggestions create. */
+export const purchaseOrderStockLineSchema = z.object(stockLineFields);
+export type PurchaseOrderStockLineInput = z.infer<typeof purchaseOrderStockLineSchema>;
+export const purchaseOrderNonStockLineSchema = z.object(nonStockLineFields);
+export type PurchaseOrderNonStockLineInput = z.infer<typeof purchaseOrderNonStockLineSchema>;
+
+/** A line: `kind` left out is a stock line. */
+export const purchaseOrderLineSchema = z.discriminatedUnion("kind", [
+  purchaseOrderStockLineSchema,
+  purchaseOrderNonStockLineSchema,
+]);
 export type PurchaseOrderLineInput = z.infer<typeof purchaseOrderLineSchema>;
 
-/** A line in an update: `id` keeps (and edits) an existing line; without one it is a new line. */
-export const purchaseOrderLineUpdateSchema = z.object({ id: z.uuid().optional(), ...lineFields });
+/**
+ * A line in an update: `id` keeps (and edits) an existing line; without one it is a new line. A
+ * line's kind can't change once it has deliveries or is on an invoice.
+ */
+export const purchaseOrderLineUpdateSchema = z.discriminatedUnion("kind", [
+  z.object({ id: z.uuid().optional(), ...stockLineFields }),
+  z.object({ id: z.uuid().optional(), ...nonStockLineFields }),
+]);
 export type PurchaseOrderLineUpdateInput = z.infer<typeof purchaseOrderLineUpdateSchema>;
 
 const headerFields = {
@@ -623,12 +678,20 @@ export type PurchaseOrderCloseInput = z.infer<typeof purchaseOrderCloseSchema>;
 export const purchaseOrderCancelSchema = z.object({ reason: requiredText(500) });
 export type PurchaseOrderCancelInput = z.infer<typeof purchaseOrderCancelSchema>;
 
+/**
+ * An accepted line. For a **stock** line it is received into stock as a lot: `locationId` is
+ * needed (or the order's delivery location), `unit` defaults to the order line's, and the lot
+ * fields apply. For a **non-stock** line only the quantity (in the line's own unit), price and
+ * over-delivery reason count: `unit` and the lot fields must be left out.
+ */
 const acceptedReceiptLine = z.object({
   lineId: z.uuid(),
   outcome: z.literal("accepted"),
   quantity: positiveQuantity,
-  unit: z.enum(unitCodes),
-  locationId: z.uuid(),
+  /** Stock lines: the unit of `quantity` (default the order line's). Non-stock lines: leave out. */
+  unit: z.enum(unitCodes).optional(),
+  /** Stock lines: where it goes (default the order's delivery location). */
+  locationId: z.uuid().optional(),
   /** Generated (`L` + yymmdd + sequence) when left out. */
   lotCode: optionalText(60).optional(),
   /** The supplier's own batch code: one step back in the trace. */
@@ -650,7 +713,8 @@ const rejectedReceiptLine = z.object({
   lineId: z.uuid(),
   outcome: z.literal("rejected"),
   quantity: positiveQuantity,
-  unit: z.enum(unitCodes),
+  /** Stock lines: the unit of `quantity` (default the order line's). Non-stock lines: leave out. */
+  unit: z.enum(unitCodes).optional(),
   /** Why it was refused. */
   reason: requiredText(500),
 });
@@ -746,7 +810,7 @@ export const purchaseSuggestionsCreateSchema = z.object({
   orders: z
     .array(
       purchaseOrderCreateSchema.extend({
-        lines: z.array(purchaseOrderLineSchema).min(1).max(PURCHASE_ORDER_MAX_LINES),
+        lines: z.array(purchaseOrderStockLineSchema).min(1).max(PURCHASE_ORDER_MAX_LINES),
       }),
     )
     .min(1)

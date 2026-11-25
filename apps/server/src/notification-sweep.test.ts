@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { sweepDueNotifications } from "./services/notification-sweep";
 import { listNotifications } from "./services/notifications";
-import { makeApp, signIn, type TestCtx } from "./test-utils";
+import { addHaccpAsset, makeApp, signIn, type TestCtx } from "./test-utils";
 
 const WS = "/v1/workspaces/acme";
 const DAY = 86_400_000;
@@ -87,6 +87,7 @@ describe("due-date and exception notifications", () => {
       "demand",
       "production",
       "haccp",
+      "assets",
       "people",
       "training",
       "quality",
@@ -96,19 +97,16 @@ describe("due-date and exception notifications", () => {
 
     // HACCP: an area cleaned daily, never cleaned yet (due now).
     area = (
-      await ok(
-        await send(ada.cookie, "POST", "/haccp/assets", {
-          kind: "area",
-          name: "Packing hall",
-          cleaningFrequency: { every: 1, unit: "day" },
-        }),
-        201,
-      )
+      await addHaccpAsset((m, p, j) => send(ada.cookie, m, p, j), {
+        kind: "area",
+        name: "Packing hall",
+        cleaningFrequency: { every: 1, unit: "day" },
+      })
     ).id;
     // Site: planned maintenance never done (due now), and a chiller with limits.
     const asset = (
       await ok(
-        await send(ada.cookie, "POST", "/site/maintenance/assets", { code: "MX-1", name: "Mixer" }),
+        await send(ada.cookie, "POST", "/assets", { kind: "equipment", code: "MX-1", name: "Mixer" }),
         201,
       )
     ).id;
@@ -195,7 +193,7 @@ describe("due-date and exception notifications", () => {
   afterAll(() => ctx.handle.close());
 
   it("creates nothing for inactive modules", async () => {
-    const off: ModuleId[] = ["haccp", "site", "training", "quality", "labels"];
+    const off: ModuleId[] = ["haccp", "site", "maintenance", "training", "quality", "labels"];
     const none = await sweepDueNotifications(ctx.handle.db, {
       activeModules: moduleIds.filter((m) => !off.includes(m) && !["costing"].includes(m)),
       workspaceId,
@@ -204,7 +202,7 @@ describe("due-date and exception notifications", () => {
 
     // HACCP on, site (and the rest) off: only HACCP's types.
     const haccpOnly = await sweepDueNotifications(ctx.handle.db, {
-      activeModules: ["items", "recipes", "stock", "demand", "production", "haccp"],
+      activeModules: ["assets", "items", "recipes", "stock", "demand", "production", "haccp"],
       workspaceId,
     });
     expect(haccpOnly.created.length).toBeGreaterThan(0);
@@ -247,7 +245,7 @@ describe("due-date and exception notifications", () => {
     expect(adas.filter((n) => n.type === "cleaning_due")).toHaveLength(1);
     expect(adas.filter((n) => n.type === "maintenance_due")).toHaveLength(1);
     expect(adas.find((n) => n.type === "maintenance_due")).toMatchObject({
-      module: "site",
+      module: "maintenance",
       actorId: null,
       data: { title: "Mixer: Strip and grease", subjectId: task, dueState: "due" },
     });
@@ -432,7 +430,7 @@ describe("due-date and exception notifications", () => {
 
   it("keeps a glass area's notification while it stays overdue after its oldest item is checked", async () => {
     const hall = (
-      await ok(await send(ada.cookie, "POST", "/haccp/assets", { kind: "area", name: "Bottling hall" }), 201)
+      await addHaccpAsset((m, p, j) => send(ada.cookie, m, p, j), { kind: "area", name: "Bottling hall" })
     ).id;
     const item = async (description: string) =>
       (
@@ -570,10 +568,15 @@ describe("due-date and exception notifications", () => {
   it("seeds the first sweep of a module without emailing, then emails as usual", async () => {
     await ctx.handle.db
       .delete(notificationSweeps)
-      .where(and(eq(notificationSweeps.workspaceId, workspaceId), eq(notificationSweeps.module, "site")));
+      .where(
+        and(eq(notificationSweeps.workspaceId, workspaceId), eq(notificationSweeps.module, "maintenance")),
+      );
     const newTask = async (title: string) => {
       const asset = (
-        await ok(await send(ada.cookie, "POST", "/site/maintenance/assets", { name: `${title} asset` }), 201)
+        await ok(
+          await send(ada.cookie, "POST", "/assets", { kind: "equipment", name: `${title} asset` }),
+          201,
+        )
       ).id;
       return (
         await ok(

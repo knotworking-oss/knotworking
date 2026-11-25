@@ -104,7 +104,7 @@ export function PermitEditor({
           onChange={setContractor}
           required
         />
-        <HsePicker slug={slug} kind="asset" label="Site asset" value={asset} onChange={setAsset} required />
+        <HsePicker slug={slug} kind="asset" label="Asset" value={asset} onChange={setAsset} required />
         <HsePicker
           slug={slug}
           kind="assessment"

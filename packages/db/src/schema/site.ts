@@ -1,21 +1,16 @@
 /**
- * Site programmes module (`site`): pest control, the glass and brittle plastics register, planned
- * maintenance, storage temperature logging, and pre-start and allergen changeover checks.
+ * Site programmes module (`site`): pest control, the glass and brittle plastics register,
+ * and storage temperature logging. Site checklists share the checklist schema.
  * See docs/modules.md and `@knotworking/core` site.ts.
  *
- * Records (visits, checks, maintenance records, storage readings, check results) are append-only:
- * no route updates or deletes them, except one-time stamps (a storage reading's review, a
- * maintenance record's hygiene clearance, a check's sign-off). A correction is a new row that
- * points at the one it corrects. Areas are rows of the HACCP register (`haccp_assets`, kind
- * `area`), which is why the module needs `haccp`.
+ * Records (visits, glass checks and storage readings) are append-only:
+ * no route updates or deletes them, except one-time stamps (a storage reading's review). A correction is a new row that
+ * points at the one it corrects. Areas are rows of the asset register
+ * (`assets`; areas are kind `area`), which is why the module needs `assets`.
  */
 import type {
   BreakageStatus,
   CcpLogReviewStatus,
-  CheckItemResult,
-  CheckOutcome,
-  CheckSignOffStatus,
-  ChecklistKind,
   DeviationReason,
   GlassCondition,
   GlassItemKind,
@@ -28,9 +23,6 @@ import type {
   SiteStatus,
   StorageMeasure,
   StorageUnitKind,
-  WorkOrderKind,
-  WorkOrderPriority,
-  WorkOrderStatus,
 } from "@knotworking/core";
 import { sql } from "drizzle-orm";
 import {
@@ -46,14 +38,12 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { users } from "../schema";
-import { haccpAssets } from "./haccp";
+import { assets } from "./assets";
 import { pk, timestamps, ts, workspaceRef } from "./helpers";
-import { productionBatches } from "./production";
 
 const value = (name: string) => numeric(name, { precision: 14, scale: 4, mode: "number" });
-const money = (name: string) => numeric(name, { precision: 12, scale: 2, mode: "number" });
 const userRef = (name: string) => uuid(name).references(() => users.id, { onDelete: "set null" });
-const areaRef = (name = "area_id") => uuid(name).references(() => haccpAssets.id);
+const areaRef = (name = "area_id") => uuid(name).references(() => assets.id);
 
 // ─── Pest control ────────────────────────────────────────────────────────────
 
@@ -143,7 +133,7 @@ export const siteGlassItems = pgTable(
     workspaceId: workspaceRef(),
     areaId: uuid("area_id")
       .notNull()
-      .references(() => haccpAssets.id),
+      .references(() => assets.id),
     kind: text("kind").$type<GlassItemKind>().notNull(),
     description: text("description").notNull(),
     quantity: integer("quantity").notNull().default(1),
@@ -168,7 +158,7 @@ export const siteGlassChecks = pgTable(
     /** Denormalised from the item: the area it was in when checked. */
     areaId: uuid("area_id")
       .notNull()
-      .references(() => haccpAssets.id),
+      .references(() => assets.id),
     condition: text("condition").$type<GlassCondition>().notNull(),
     note: text("note"),
     checkedAt: ts("checked_at").notNull(),
@@ -198,7 +188,7 @@ export const siteGlassBreakages = pgTable(
     workspaceId: workspaceRef(),
     areaId: uuid("area_id")
       .notNull()
-      .references(() => haccpAssets.id),
+      .references(() => assets.id),
     itemId: uuid("item_id").references(() => siteGlassItems.id),
     occurredAt: ts("occurred_at").notNull(),
     description: text("description").notNull(),
@@ -222,148 +212,6 @@ export const siteGlassBreakages = pgTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [index("site_glass_breakages_workspace_idx").on(t.workspaceId, t.status, t.occurredAt)],
-);
-
-// ─── Planned maintenance ─────────────────────────────────────────────────────
-
-/** A piece of equipment that is maintained. Archived, never deleted. */
-export const siteAssets = pgTable(
-  "site_assets",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    /** Asset tag; unique among live assets when set. */
-    code: text("code"),
-    name: text("name").notNull(),
-    location: text("location"),
-    areaId: areaRef(),
-    /**
-     * The instrument of the HACCP calibration register (`haccp_assets`, equipment) this asset is.
-     * A reference only: HACCP's records are read, never written, from here.
-     */
-    calibrationInstrumentId: uuid("calibration_instrument_id").references(() => haccpAssets.id),
-    status: text("status").$type<SiteStatus>().notNull().default("active"),
-    ...timestamps(),
-  },
-  (t) => [
-    index("site_assets_workspace_idx").on(t.workspaceId, t.name),
-    uniqueIndex("site_assets_workspace_code_key")
-      .on(t.workspaceId, sql`lower(${t.code})`)
-      .where(sql`${t.deletedAt} is null and ${t.code} is not null`),
-  ],
-);
-
-/** A recurring maintenance task on an asset. Archived, never deleted. */
-export const siteMaintenanceTasks = pgTable(
-  "site_maintenance_tasks",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    assetId: uuid("asset_id")
-      .notNull()
-      .references(() => siteAssets.id),
-    title: text("title").notNull(),
-    description: text("description"),
-    frequencyEvery: integer("frequency_every").notNull(),
-    frequencyUnit: text("frequency_unit").$type<ScheduleFrequencyUnit>().notNull(),
-    startOn: date("start_on"),
-    /** Work in a production area: the area needs a hygiene clearance before it restarts. */
-    clearanceRequired: boolean("clearance_required").notNull().default(false),
-    status: text("status").$type<SiteStatus>().notNull().default("active"),
-    ...timestamps(),
-  },
-  (t) => [index("site_maintenance_tasks_asset_idx").on(t.assetId)],
-);
-
-/**
- * Maintenance done. **Append-only**, except the one-time hygiene clearance stamp. `clearance_required`
- * is copied from the task when written; a correction is a new row that needs its own clearance.
- */
-export const siteMaintenanceRecords = pgTable(
-  "site_maintenance_records",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    taskId: uuid("task_id")
-      .notNull()
-      .references(() => siteMaintenanceTasks.id),
-    assetId: uuid("asset_id")
-      .notNull()
-      .references(() => siteAssets.id),
-    /** The asset's area when the work was done. */
-    areaId: areaRef(),
-    completedAt: ts("completed_at").notNull(),
-    doneBy: userRef("done_by"),
-    contractor: text("contractor"),
-    workDone: text("work_done"),
-    nextDueOn: date("next_due_on").notNull(),
-    note: text("note"),
-    clearanceRequired: boolean("clearance_required").notNull().default(false),
-    /** The sign-off: the area is safe to restart. */
-    clearedAt: ts("cleared_at"),
-    clearedBy: userRef("cleared_by"),
-    clearanceNote: text("clearance_note"),
-    recordedBy: userRef("recorded_by"),
-    correctsRecordId: uuid("corrects_record_id").references((): AnyPgColumn => siteMaintenanceRecords.id),
-    correctionReason: text("correction_reason"),
-    createdAt: ts("created_at").notNull().defaultNow(),
-  },
-  (t) => [
-    index("site_maintenance_records_task_idx").on(t.taskId, t.completedAt),
-    index("site_maintenance_records_workspace_idx").on(t.workspaceId, t.completedAt),
-    uniqueIndex("site_maintenance_records_corrects_key")
-      .on(t.correctsRecordId)
-      .where(sql`${t.correctsRecordId} is not null`),
-  ],
-);
-
-/**
- * A breakdown or work request on a maintained asset. Open (requested, in progress) it can change;
- * completed or cancelled it never does. The completion is a person's attestation.
- */
-export const siteWorkOrders = pgTable(
-  "site_work_orders",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    assetId: uuid("asset_id")
-      .notNull()
-      .references(() => siteAssets.id),
-    /** The planned task this is about, if any. */
-    taskId: uuid("task_id").references(() => siteMaintenanceTasks.id),
-    /** The asset's area when raised. */
-    areaId: areaRef(),
-    kind: text("kind").$type<WorkOrderKind>().notNull().default("breakdown"),
-    title: text("title").notNull(),
-    description: text("description"),
-    priority: text("priority").$type<WorkOrderPriority>().notNull().default("medium"),
-    stopsProduction: boolean("stops_production").notNull().default(false),
-    status: text("status").$type<WorkOrderStatus>().notNull().default("requested"),
-    source: text("source").$type<SiteSource>().notNull().default("manual"),
-    requestedBy: userRef("requested_by"),
-    assignedTo: userRef("assigned_to"),
-    contractor: text("contractor"),
-    startedAt: ts("started_at"),
-    /** Completion: what was done, by whom, spares and costs. */
-    completedAt: ts("completed_at"),
-    completedBy: userRef("completed_by"),
-    doneBy: userRef("done_by"),
-    workDone: text("work_done"),
-    downtimeMinutes: integer("downtime_minutes"),
-    sparesUsed: text("spares_used"),
-    partsCost: money("parts_cost"),
-    labourCost: money("labour_cost"),
-    contractorCost: money("contractor_cost"),
-    cancelledAt: ts("cancelled_at"),
-    cancelledBy: userRef("cancelled_by"),
-    cancelReason: text("cancel_reason"),
-    updatedBy: userRef("updated_by"),
-    ...timestamps(),
-  },
-  (t) => [
-    index("site_work_orders_workspace_idx").on(t.workspaceId, t.status, t.createdAt),
-    index("site_work_orders_asset_idx").on(t.assetId),
-  ],
 );
 
 // ─── Storage temperatures ────────────────────────────────────────────────────
@@ -468,106 +316,4 @@ export const siteCorrectiveActions = pgTable(
     index("site_corrective_actions_workspace_idx").on(t.workspaceId, t.status, t.createdAt),
     index("site_corrective_actions_reading_idx").on(t.readingId),
   ],
-);
-
-// ─── Pre-start and allergen changeover checks ────────────────────────────────
-
-/** A checklist for a line or area. Archived, never deleted. Its items are in `site_checklist_items`. */
-export const siteChecklistTemplates = pgTable(
-  "site_checklist_templates",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    name: text("name").notNull(),
-    kind: text("kind").$type<ChecklistKind>().notNull(),
-    areaId: areaRef(),
-    line: text("line"),
-    frequencyEvery: integer("frequency_every"),
-    frequencyUnit: text("frequency_unit").$type<ScheduleFrequencyUnit>(),
-    duringProduction: boolean("during_production").notNull().default(false),
-    status: text("status").$type<SiteStatus>().notNull().default("active"),
-    ...timestamps(),
-  },
-  (t) => [index("site_checklist_templates_workspace_idx").on(t.workspaceId, t.name)],
-);
-
-/** An item of a checklist. Removing one from the template deletes it softly; past checks keep its wording. */
-export const siteChecklistItems = pgTable(
-  "site_checklist_items",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    templateId: uuid("template_id")
-      .notNull()
-      .references(() => siteChecklistTemplates.id),
-    sortOrder: integer("sort_order").notNull().default(0),
-    prompt: text("prompt").notNull(),
-    guidance: text("guidance"),
-    ...timestamps(),
-  },
-  (t) => [index("site_checklist_items_template_idx").on(t.templateId, t.sortOrder)],
-);
-
-/**
- * A completed check. **Append-only**, except the one-time sign-off stamp. The template's name,
- * kind, area and line are copied when written. A correction is a new check with
- * `corrects_check_id`.
- */
-export const siteChecklistChecks = pgTable(
-  "site_checklist_checks",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    templateId: uuid("template_id")
-      .notNull()
-      .references(() => siteChecklistTemplates.id),
-    templateName: text("template_name").notNull(),
-    kind: text("kind").$type<ChecklistKind>().notNull(),
-    areaId: areaRef(),
-    line: text("line"),
-    performedAt: ts("performed_at").notNull(),
-    performedBy: userRef("performed_by"),
-    outcome: text("outcome").$type<CheckOutcome>().notNull(),
-    note: text("note"),
-    /** Allergen changeover: the batch that ran before and the one that follows. */
-    previousBatchId: uuid("previous_batch_id").references(() => productionBatches.id),
-    nextBatchId: uuid("next_batch_id").references(() => productionBatches.id),
-    /** The sign-off before production starts. */
-    signOffStatus: text("sign_off_status").$type<CheckSignOffStatus>().notNull().default("pending"),
-    signedOffBy: userRef("signed_off_by"),
-    signedOffAt: ts("signed_off_at"),
-    signOffNote: text("sign_off_note"),
-    correctsCheckId: uuid("corrects_check_id").references((): AnyPgColumn => siteChecklistChecks.id),
-    correctionReason: text("correction_reason"),
-    createdAt: ts("created_at").notNull().defaultNow(),
-  },
-  (t) => [
-    index("site_checklist_checks_template_idx").on(t.templateId, t.performedAt),
-    index("site_checklist_checks_workspace_idx").on(t.workspaceId, t.performedAt),
-    index("site_checklist_checks_pending_idx")
-      .on(t.workspaceId, t.performedAt)
-      .where(sql`${t.signOffStatus} = 'pending'`),
-    uniqueIndex("site_checklist_checks_corrects_key")
-      .on(t.correctsCheckId)
-      .where(sql`${t.correctsCheckId} is not null`),
-  ],
-);
-
-/** One item's result in a check, with the wording it was done against. Append-only with its check. */
-export const siteChecklistCheckItems = pgTable(
-  "site_checklist_check_items",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    checkId: uuid("check_id")
-      .notNull()
-      .references(() => siteChecklistChecks.id),
-    itemId: uuid("item_id").references(() => siteChecklistItems.id),
-    sortOrder: integer("sort_order").notNull().default(0),
-    prompt: text("prompt").notNull(),
-    result: text("result").$type<CheckItemResult>().notNull(),
-    note: text("note"),
-    createdAt: ts("created_at").notNull().defaultNow(),
-  },
-  (t) => [index("site_checklist_check_items_check_idx").on(t.checkId, t.sortOrder)],
 );

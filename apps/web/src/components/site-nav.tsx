@@ -27,13 +27,17 @@ export type SiteNavCounts = Partial<Record<(typeof sections)[number][0], number>
 export function SiteNav({ slug, waiting = {} }: { slug: string; waiting?: SiteNavCounts }) {
   const pathname = usePathname();
   // Outside a workspace (the design page) the full navigation is shown.
-  const canManage = useOptionalWorkspace()?.can("site", "manage") ?? true;
+  const workspace = useOptionalWorkspace();
   const base = `/${slug}/site`;
   return (
     <nav className="flex min-w-0 items-center gap-1 overflow-x-auto" aria-label="Site programmes">
       <span className="mr-2 shrink-0 font-medium">Site</span>
       {sections.map(([path, label]) => {
-        const href = `${base}${path}`;
+        const isMaintenance = path === "/maintenance";
+        if (path === "/checks" && workspace && !workspace.can("checklists")) return null;
+        if (isMaintenance && workspace && !workspace.can("maintenance")) return null;
+        const href = isMaintenance ? `/${slug}/maintenance` : `${base}${path}`;
+        const canManage = workspace?.can(isMaintenance ? "maintenance" : "site", "manage") ?? true;
         const active = path === "" ? pathname === base : pathname.startsWith(href);
         const count = canManage ? (waiting[path] ?? 0) : 0;
         return (

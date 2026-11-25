@@ -28,6 +28,8 @@ export function mountFakePurchasing(
   /** Tests set these: what `GET /purchasing/suggestions` and `…/supplier-performance` answer. */
   const state = {
     productionAvailable: true,
+    /** Off: stock lines answer `404 module_inactive`, as when the stock module is switched off. */
+    stockActive: true,
     suggestions: { groups: [] as unknown[], covered: [] as unknown[], notPurchasable: [] as unknown[] },
     performance: [] as unknown[],
     /** Supplier price list entries (`GET /purchasing/prices`), as the API returns them. */
@@ -57,6 +59,11 @@ export function mountFakePurchasing(
     ...stockAmount(base, item),
     inLineUnit: toDisplay(base, unit, item),
   });
+  /** A line's quantity: stock lines as `amount`, non-stock lines as entered in their own unit. */
+  const lineAmount = (q: number, line: Record<string, any>) =>
+    line.kind === "non_stock"
+      ? { base: q, baseUnit: null, display: q, displayUnit: line.unitLabel, inLineUnit: q }
+      : amount(q, itemOf(line.itemId), line.unit);
   const toDisplay = (base: number, unit: UnitCode, item: any) => {
     const factor = toBaseQuantity(1, unit, item);
     return factor ? Math.round((base / factor) * 10000) / 10000 : null;
@@ -70,19 +77,19 @@ export function mountFakePurchasing(
       .reduce((sum, r) => sum + r.quantity, 0);
 
   const lineView = (order: Record<string, any>, l: Record<string, any>) => {
-    const item = itemOf(l.itemId);
+    const item = l.itemId ? itemOf(l.itemId) : null;
     const received = receivedOn(l.id, "accepted");
     const rejected = receivedOn(l.id, "rejected");
     const outstanding = Math.max(l.quantity - received, 0);
     return {
       ...l,
-      item: itemSummary(item),
+      item: item ? itemSummary(item) : null,
       effectiveExpectedOn: l.expectedOn ?? order.expectedOn,
       promiseMoved: l.promisedOn != null && l.promisedOn !== (l.expectedOn ?? order.expectedOn),
-      ordered: amount(l.quantity, item, l.unit),
-      received: amount(received, item, l.unit),
-      rejected: amount(rejected, item, l.unit),
-      outstanding: amount(outstanding, item, l.unit),
+      ordered: lineAmount(l.quantity, l),
+      received: lineAmount(received, l),
+      rejected: lineAmount(rejected, l),
+      outstanding: lineAmount(outstanding, l),
       state:
         received === 0
           ? "none"
@@ -91,10 +98,13 @@ export function mountFakePurchasing(
             : received === l.quantity
               ? "full"
               : "over",
-      lineValue: l.unitPrice == null ? null : (toDisplay(l.quantity, l.unit, item) ?? 0) * l.unitPrice,
+      lineValue:
+        l.unitPrice == null
+          ? null
+          : (l.kind === "non_stock" ? l.quantity : (toDisplay(l.quantity, l.unit, item) ?? 0)) * l.unitPrice,
       hasReceipts: receipts.some((r) => r.lineId === l.id),
       overdue: false,
-      supplierListed: item.supplierIds.includes(order.supplierId),
+      supplierListed: item ? item.supplierIds.includes(order.supplierId) : false,
     };
   };
   const summary = (order: Record<string, any>): Record<string, any> => {
@@ -134,7 +144,7 @@ export function mountFakePurchasing(
       (x) => lines.find((l) => l.id === x.lineId)?.purchaseOrderId === order.id,
     )) {
       const line = lines.find((l) => l.id === r.lineId)!;
-      const item = itemOf(line.itemId);
+      const item = line.itemId ? itemOf(line.itemId) : null;
       const delivery = deliveries.get(r.deliveryId) ?? {
         deliveryId: r.deliveryId,
         receivedOn: r.receivedOn,
@@ -148,8 +158,9 @@ export function mountFakePurchasing(
       delivery.receipts.push({
         ...r,
         lineNo: line.lineNo,
-        item: itemSummary(item),
-        quantity: amount(r.quantity, item, line.unit),
+        kind: line.kind,
+        item: item ? itemSummary(item) : null,
+        quantity: lineAmount(r.quantity, line),
         reversed: false,
       });
       deliveries.set(r.deliveryId, delivery);
@@ -173,6 +184,12 @@ export function mountFakePurchasing(
     return null;
   };
   const checkLine = (l: Record<string, any>) => {
+    if (l.kind === "non_stock") {
+      if (!l.description) return ["invalid_input", "A non-stock line needs a description", 400] as const;
+      if (l.itemId && !itemOf(l.itemId)) return ["not_found", "Item not found", 404] as const;
+      return null;
+    }
+    if (!state.stockActive) return ["module_inactive", "The stock module is not enabled", 404] as const;
     const item = itemOf(l.itemId);
     if (!item) return ["not_found", "Item not found", 404] as const;
     if (item.type !== "ingredient" && item.type !== "packaging")
@@ -188,6 +205,25 @@ export function mountFakePurchasing(
     input: Record<string, any>,
     keep?: Record<string, any>,
   ) => {
+    if (input.kind === "non_stock")
+      return {
+        id: keep?.id ?? newId(),
+        purchaseOrderId: orderId,
+        lineNo,
+        kind: "non_stock",
+        itemId: input.itemId ?? null,
+        description: input.description,
+        quantity: input.quantity,
+        unit: null,
+        unitLabel: input.unit ?? null,
+        nominalCode: input.nominalCode ?? null,
+        unitPrice: input.unitPrice !== undefined ? input.unitPrice : keep ? keep.unitPrice : null,
+        expectedOn: input.expectedOn !== undefined ? input.expectedOn : (keep?.expectedOn ?? null),
+        promisedOn: keep ? keep.promisedOn : null,
+        notes: input.notes !== undefined ? input.notes : (keep?.notes ?? null),
+        createdAt: now,
+        updatedAt: now,
+      };
     const item = itemOf(input.itemId);
     const unit = input.unit as UnitCode;
     const defaultPrice =
@@ -199,9 +235,13 @@ export function mountFakePurchasing(
       id: keep?.id ?? newId(),
       purchaseOrderId: orderId,
       lineNo,
+      kind: "stock",
       itemId: input.itemId,
+      description: null,
       quantity: toBaseQuantity(input.quantity, unit, item)!,
       unit,
+      unitLabel: null,
+      nominalCode: null,
       unitPrice: input.unitPrice !== undefined ? input.unitPrice : keep ? keep.unitPrice : defaultPrice,
       expectedOn: input.expectedOn !== undefined ? input.expectedOn : (keep?.expectedOn ?? null),
       promisedOn: keep ? keep.promisedOn : null,
@@ -317,11 +357,18 @@ export function mountFakePurchasing(
     for (const input of body.lines as Record<string, any>[]) {
       const line = lines.find((l) => l.id === input.lineId && l.purchaseOrderId === order.id);
       if (!line) return c.json(err("invalid_input", "A line isn't on this order"), 400);
+      if (line.kind === "non_stock") {
+        if (input.unit !== undefined || input.locationId !== undefined)
+          return c.json(err("invalid_input", "A non-stock line has no unit or location"), 400);
+        rows.push({ input, line, item: line.itemId ? itemOf(line.itemId) : null, quantity: input.quantity });
+        continue;
+      }
+      if (!state.stockActive) return c.json(err("module_inactive", "The stock module is not enabled"), 404);
       const item = itemOf(line.itemId);
-      const quantity = toBaseQuantity(input.quantity, input.unit, item);
+      const quantity = toBaseQuantity(input.quantity, input.unit ?? line.unit, item);
       if (quantity === null) return c.json(err("unit_not_convertible", "Can't convert that unit"), 400);
       if (input.outcome === "accepted") {
-        if (!deps.stock.locations.some((l) => l.id === input.locationId))
+        if (!deps.stock.locations.some((l) => l.id === (input.locationId ?? order.deliveryLocationId)))
           return c.json(err("not_found", "Location not found"), 404);
         if (supplier.approvalStatus === "pending" && input.status !== "quarantine")
           return c.json(
@@ -336,7 +383,7 @@ export function mountFakePurchasing(
     const created = rows.map(({ input, line, item, quantity }) => {
       let lot: Record<string, any> | null = null;
       let movementId: string | null = null;
-      if (input.outcome === "accepted") {
+      if (input.outcome === "accepted" && line.kind !== "non_stock") {
         lot = {
           id: newId(),
           itemId: item.id,
@@ -356,7 +403,7 @@ export function mountFakePurchasing(
           id: movementId,
           lotId: lot.id,
           itemId: item.id,
-          locationId: input.locationId,
+          locationId: input.locationId ?? order.deliveryLocationId,
           quantity,
           type: "receipt",
           reference,
@@ -386,9 +433,10 @@ export function mountFakePurchasing(
       return {
         id: row.id,
         lineId: line.id,
-        item: itemSummary(item),
+        kind: line.kind,
+        item: item ? itemSummary(item) : null,
         outcome: row.outcome,
-        quantity: amount(quantity, item, line.unit),
+        quantity: lineAmount(quantity, line),
         unitPrice: row.unitPrice,
         lotId: row.lotId,
         lotCode: row.lotCode,

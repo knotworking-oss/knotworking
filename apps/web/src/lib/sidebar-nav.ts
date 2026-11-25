@@ -1,6 +1,7 @@
 import type { ModuleAccessLevel, ModuleId } from "@knotworking/core";
 import {
   BookOpen,
+  Boxes,
   Bug,
   CalendarClock,
   CalendarDays,
@@ -339,11 +340,23 @@ export const navAreas: readonly NavArea[] = [
             label: "Suggestions",
             path: "purchasing/suggestions",
             icon: TrendingUp,
+            // From production's shortfall: Production is a soft dependency of Purchasing.
+            show: needs("production"),
           },
           { label: "Supplier performance", path: "purchasing/suppliers", icon: Truck },
         ],
       },
     ],
+  },
+  {
+    id: "assets",
+    label: "Assets",
+    description: "Areas, equipment, vehicles, IT and tools",
+    icon: Boxes,
+    group: "Operations",
+    visible: needs("assets"),
+    keywords: ["asset register", "equipment", "areas", "vehicles", "tools", "it"],
+    sections: [{ items: [{ label: "Asset register", path: "assets", icon: Boxes }] }],
   },
   {
     id: "purchase_requests",
@@ -385,7 +398,7 @@ export const navAreas: readonly NavArea[] = [
       {
         items: [
           { label: "Production", path: "production", icon: Factory, exact: true },
-          { label: "Plan", path: "production/plan", icon: CalendarRange },
+          { label: "Plan", path: "production/plan", icon: CalendarRange, show: needs("demand") },
           { label: "Schedule", path: "production/schedule", icon: CalendarClock },
           { label: "Requirements", path: "production/requirements", icon: ClipboardList },
           { label: "Daily demand", path: "production/daily-demand", icon: TrendingUp },
@@ -436,6 +449,24 @@ export const navAreas: readonly NavArea[] = [
     ],
   },
   {
+    id: "maintenance",
+    label: "Maintenance",
+    description: "Recurring work, maintenance records and work orders",
+    icon: ClipboardList,
+    group: "Operations",
+    visible: needs("maintenance"),
+    sections: [{ items: [{ label: "Maintenance", path: "maintenance", icon: ClipboardList }] }],
+  },
+  {
+    id: "checklists",
+    label: "Checklists",
+    description: "Templates, scheduled checks and follow-up actions",
+    icon: ClipboardCheck,
+    group: "Operations",
+    visible: needs("checklists"),
+    sections: [{ items: [{ label: "Checklists", path: "checklists", icon: ClipboardCheck }] }],
+  },
+  {
     id: "site",
     label: "Site programmes",
     description: "Pest, glass, maintenance and storage checks",
@@ -449,9 +480,8 @@ export const navAreas: readonly NavArea[] = [
           { label: "What's due", path: "site", icon: Bug, exact: true },
           { label: "Pest control", path: "site/pest", icon: Bug },
           { label: "Glass", path: "site/glass", icon: ShieldCheck },
-          { label: "Maintenance", path: "site/maintenance", icon: ClipboardList },
           { label: "Storage temperatures", path: "site/storage", icon: Warehouse },
-          { label: "Pre-start checks", path: "site/checks", icon: ClipboardCheck },
+          { label: "Pre-start checks", path: "site/checks", icon: ClipboardCheck, show: needs("checklists") },
           { label: "Audit records", path: "site/records", icon: FileText },
         ],
       },
@@ -472,15 +502,15 @@ export const navAreas: readonly NavArea[] = [
           { label: "Complaints", path: "quality/complaints", icon: ClipboardList },
           { label: "Non-conformances", path: "quality/nonconformances", icon: Bug },
           { label: "Audits", path: "quality/audits", icon: FileCheck },
-          { label: "Authenticity", path: "quality/authenticity", icon: ShieldCheck },
-          { label: "Recall tests", path: "quality/recall-tests", icon: Truck },
+          { label: "Authenticity", path: "quality/authenticity", icon: ShieldCheck, show: needs("items") },
+          { label: "Recall tests", path: "quality/recall-tests", icon: Truck, show: needs("stock") },
           {
             label: "Live cases",
             path: "quality/incidents",
             icon: Network,
             show: (a) => a.can("despatch") && a.can("production"),
           },
-          { label: "Trends", path: "quality/trends", icon: TrendingUp },
+          { label: "Trends", path: "quality/trends", icon: TrendingUp, show: needs("items") },
           { label: "Audit records", path: "quality/records", icon: FileText },
         ],
       },
@@ -544,7 +574,7 @@ export const navAreas: readonly NavArea[] = [
       {
         items: [
           { label: "Health, safety & environment", path: "hse", icon: ShieldCheck, exact: true },
-          { label: "Permits", path: "hse/permits", icon: FileCheck, show: needs("site") },
+          { label: "Permits", path: "hse/permits", icon: FileCheck, show: needs("assets") },
           {
             label: "Incidents",
             path: "hse/incidents",

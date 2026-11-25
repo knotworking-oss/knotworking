@@ -292,7 +292,7 @@ export function InvoiceMatchTable({
         <p className="text-sm text-muted-foreground">No lines yet. Edit the invoice to add some.</p>
       </CardContent>
     );
-  const unit = (l: PurchaseInvoiceLine) => (l.unit ? units[l.unit].label : "");
+  const unit = (l: PurchaseInvoiceLine) => (l.unit ? units[l.unit].label : (l.orderLine?.unitLabel ?? ""));
   return (
     <Table className={stackedTable}>
       <TableHeader>
@@ -313,7 +313,11 @@ export function InvoiceMatchTable({
             <TableCell className="pl-4" data-primary>
               {l.orderLine ? (
                 <>
-                  <div className="font-medium">{l.item ? `${l.item.code} ${l.item.name}` : "Item"}</div>
+                  <div className="font-medium">
+                    {l.item
+                      ? `${l.item.code} ${l.item.name}`
+                      : (l.orderLine.description ?? l.description ?? "Item")}
+                  </div>
                   <div className="text-xs text-muted-foreground">
                     {slug ? (
                       <Link

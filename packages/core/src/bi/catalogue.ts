@@ -3,7 +3,7 @@ import { workflowStateTypes } from "../enums";
 import { itemTypes } from "../items";
 import { productionBatchStatuses } from "../production";
 import { purchaseInvoiceLineKinds, purchaseInvoiceStatuses } from "../purchase-invoices";
-import { purchaseOrderStatuses } from "../purchasing";
+import { purchaseOrderLineKinds, purchaseOrderStatuses } from "../purchasing";
 import {
   complaintCategories,
   complaintSources,
@@ -324,7 +324,7 @@ const purchaseOrders: BiDataset = {
   id: "purchase_orders",
   label: "Purchase orders",
   description:
-    "Purchase order lines with their order's supplier, status and dates. Order value is each line's quantity in its order unit × its unit price, in the workspace currency, for sent and closed orders; unpriced lines (and lines whose unit can't be converted) are left out.",
+    "Purchase order lines with their order's supplier, status and dates. Order value is each stock line's quantity in its order unit × its unit price, in the workspace currency, for sent and closed orders; unpriced lines, lines whose unit can't be converted and non-stock lines (services, subscriptions) are left out.",
   grain: "one purchase order line",
   module: "purchasing",
   table: "purchase_order_lines",
@@ -363,6 +363,14 @@ const purchaseOrders: BiDataset = {
     ...itemDims(),
     { id: "order_unit", label: "Order unit", type: "category", column: "unit" },
     baseUnitDim(),
+    {
+      id: "line_kind",
+      label: "Line kind",
+      description: "Stock items, or non-stock lines (services, subscriptions, goods not kept in stock).",
+      type: "category",
+      column: "kind",
+      values: purchaseOrderLineKinds,
+    },
   ],
   measures: [
     {
@@ -408,10 +416,10 @@ const purchaseOrders: BiDataset = {
       id: "ordered_quantity",
       label: "Ordered quantity",
       description:
-        "Sum of line quantities on sent and closed orders, in the item's base unit (g, ml or each).",
+        "Sum of stock line quantities on sent and closed orders, in the item's base unit (g, ml or each). Non-stock lines are left out.",
       agg: "sum",
       of: { column: "quantity" },
-      where: committedOrders,
+      where: [...committedOrders, { column: "kind", op: "eq", value: "stock" }],
       unit: "quantity",
       splitBy: ["item", "base_unit"],
     },

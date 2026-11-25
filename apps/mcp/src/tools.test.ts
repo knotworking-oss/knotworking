@@ -1,3 +1,4 @@
+import type { ModuleId } from "@knotworking/core";
 import { d, newId, tokenActionIds } from "@knotworking/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFakeApi, READ_TOKEN, WRITE_TOKEN } from "./testing/fake-api";
@@ -16,6 +17,17 @@ afterEach(async () => {
 });
 
 const READ_TOOLS = [
+  "list_checklist_templates",
+  "get_checklist_template",
+  "get_checklists_due",
+  "list_checklist_results",
+  "get_checklist_result",
+  "list_checklist_actions",
+  "list_maintenance_tasks",
+  "list_maintenance_records",
+  "get_maintenance_record",
+  "list_maintenance_work_orders",
+  "get_maintenance_work_order",
   // The reusable reads, listed in every mode.
   "list_modules",
   "find_records",
@@ -144,6 +156,12 @@ const READ_TOOLS = [
   "get_quality_record",
   "list_purchase_orders",
   "get_purchase_order",
+  "list_purchase_requests",
+  "get_purchase_request",
+  "list_service_quotes",
+  "get_service_quote",
+  "list_assets",
+  "get_asset",
   "suggest_purchase_orders",
   "supplier_performance",
   "list_supplier_prices",
@@ -196,6 +214,8 @@ const GATED_TOOLS = [
   "cancel_production_batch",
 ];
 const WRITE_TOOLS = [
+  "save_checklist_template",
+  "save_asset",
   "draft_hse_register",
   "draft_hse_permit",
   "report_hse_near_miss",
@@ -269,8 +289,10 @@ const WRITE_TOOLS = [
   "record_storage_readings",
   "save_site_register_entry",
   "report_glass_breakage",
-  "report_breakdown",
   "propose_site_action",
+  "save_maintenance_task",
+  "link_maintenance_calibration",
+  "report_breakdown",
   "set_item_nutrition",
   "import_item_nutrition_csv",
   "draft_product_label",
@@ -318,6 +340,29 @@ describe("tool catalogue", () => {
     const productLabelTools = /^(get_label_facts|list_product_labels|get_product_label|draft_product_label)$/;
     expect(names.filter((n) => !productLabelTools.test(n)).join(" ")).not.toMatch(
       /label|team|invite|member|calendar|meeting|admin|upload|download|state/,
+    );
+  });
+
+  it("leaves out tools that need a soft dependency (`requiresModules`) the connection doesn't offer", async () => {
+    const names = async (modules: readonly ModuleId[]) =>
+      (await (await session({ modules, listMode: "all" })).client.listTools()).tools.map((t) => t.name);
+    const without = await names(["tasks", "quality", "haccp", "items", "recipes", "stock", "production"]);
+    expect(without).toEqual(
+      expect.arrayContaining(["log_complaint", "get_quality_summary", "record_ccp_readings"]),
+    );
+    expect(without).toEqual(
+      expect.arrayContaining(["get_complaint_trends", "list_authenticity_assessments"]),
+    );
+    expect(without).not.toContain("propose_batches_from_demand");
+    const bare = await names(["tasks", "quality", "haccp"]);
+    expect(bare).toEqual(
+      expect.arrayContaining(["log_complaint", "raise_nonconformance", "record_ccp_readings"]),
+    );
+    for (const tool of ["get_complaint_trends", "get_supplier_quality", "list_authenticity_assessments"]) {
+      expect(bare).not.toContain(tool);
+    }
+    expect(await names(["items", "recipes", "stock", "demand", "production"])).toContain(
+      "propose_batches_from_demand",
     );
   });
 

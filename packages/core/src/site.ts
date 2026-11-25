@@ -152,9 +152,11 @@ export type SiteActionStatus = (typeof siteActionStatuses)[number];
 export const siteActionStatusLabels: Record<SiteActionStatus, string> = { open: "Open", closed: "Closed" };
 
 /** Checklists: before production starts (per line or area) and between products with different allergens. */
-export const checklistKinds = ["prestart", "allergen_changeover"] as const;
+export const siteChecklistKinds = ["prestart", "allergen_changeover"] as const;
+export const checklistKinds = ["general", ...siteChecklistKinds] as const;
 export type ChecklistKind = (typeof checklistKinds)[number];
 export const checklistKindLabels: Record<ChecklistKind, string> = {
+  general: "General checklist",
   prestart: "Pre-start check",
   allergen_changeover: "Allergen changeover check",
 };
@@ -173,12 +175,14 @@ export type CheckOutcome = (typeof checkOutcomes)[number];
 export const checkOutcomeLabels: Record<CheckOutcome, string> = { passed: "Passed", failed: "Failed" };
 
 /** Where a check stands before production starts. A person signs it off; a failed check can only be held. */
-export const checkSignOffStatuses = ["pending", "approved", "rejected"] as const;
+export const siteCheckSignOffStatuses = ["pending", "approved", "rejected"] as const;
+export const checkSignOffStatuses = [...siteCheckSignOffStatuses, "not_required"] as const;
 export type CheckSignOffStatus = (typeof checkSignOffStatuses)[number];
 export const checkSignOffLabels: Record<CheckSignOffStatus, string> = {
   pending: "Awaiting sign-off",
   approved: "Signed off",
   rejected: "Held",
+  not_required: "No sign-off required",
 };
 
 /**
@@ -438,6 +442,8 @@ export interface SiteDueItem {
    * pest control with no next visit set, or no visit recorded although devices exist.
    */
   reason?: SiteDueReason | null;
+  /** This checklist is scheduled only while production is running. */
+  duringProduction?: true;
 }
 
 export const siteDueReasons = ["no_next_visit", "no_visit_recorded"] as const;
@@ -623,7 +629,7 @@ const deviceFields = {
   /** Contractor's reference, e.g. `RB-07`; unique among live devices. */
   code: requiredText(40),
   location: requiredText(200),
-  /** The area (an area of the HACCP register) the device is in. */
+  /** The area (an asset of kind `area` of the asset register) the device is in. */
   areaId: z.uuid().nullable(),
 };
 
@@ -882,33 +888,11 @@ export type GlassBreakageListQuery = z.infer<typeof glassBreakageListQuerySchema
 
 // Planned maintenance --------------------------------------------------------
 
-const assetFields = {
-  code: optionalText(40),
-  name: requiredText(200),
-  location: optionalText(200),
-  /** The area it stands in. */
-  areaId: z.uuid().nullable(),
-  /**
-   * The instrument of the HACCP calibration register (equipment) this asset is, when it is one: a
-   * reference only, so the asset shows its calibration status and the register is not changed.
-   */
-  calibrationInstrumentId: z.uuid().nullable(),
-};
-
-export const siteAssetCreateSchema = z.object({
-  id: z.uuid().optional(),
-  code: assetFields.code.optional(),
-  name: assetFields.name,
-  location: assetFields.location.optional(),
-  areaId: assetFields.areaId.optional(),
-  calibrationInstrumentId: assetFields.calibrationInstrumentId.optional(),
-});
-export type SiteAssetCreateInput = z.infer<typeof siteAssetCreateSchema>;
-
-export const siteAssetUpdateSchema = z
-  .object({ ...assetFields, status: z.enum(siteStatuses) })
-  .partial()
-  .refine(nonEmptyPatch, "Nothing to update");
+/**
+ * Maintenance's optional link to a HACCP calibration instrument. The asset itself is edited in
+ * the asset register.
+ */
+export const siteAssetUpdateSchema = z.object({ calibrationInstrumentId: z.uuid().nullable() });
 export type SiteAssetUpdateInput = z.infer<typeof siteAssetUpdateSchema>;
 
 export const siteAssetListQuerySchema = z.object({
@@ -923,7 +907,7 @@ const taskFields = {
   frequency: scheduleFrequencySchema,
   /** The first due date for a task never done. Without one a task never done is due now. */
   startOn: isoDate.nullable(),
-  /** Work in a production area: the area needs a hygiene clearance before it restarts. */
+  /** Require clearance before the asset returns to use. */
   clearanceRequired: z.boolean(),
 };
 
@@ -1200,6 +1184,25 @@ export const checklistTemplateCreateSchema = z.object({
   duringProduction: templateFields.duringProduction.default(false),
   items: templateItems,
 });
+export const generalChecklistTemplateCreateSchema = checklistTemplateCreateSchema
+  .omit({
+    kind: true,
+    areaId: true,
+    duringProduction: true,
+  })
+  .strict();
+export const generalChecklistTemplateUpdateSchema = z
+  .object({
+    name: templateFields.name,
+    line: templateFields.line,
+    frequency: templateFields.frequency,
+    status: z.enum(siteStatuses),
+    items: templateItems,
+  })
+  .partial()
+  .strict()
+  .refine(nonEmptyPatch, "Nothing to update");
+
 export type ChecklistTemplateCreateInput = z.infer<typeof checklistTemplateCreateSchema>;
 
 /** Editing replaces the item list when `items` is sent. Past checks keep the wording they were done against. */
@@ -1248,6 +1251,13 @@ export const checklistCheckCreateSchema = z.object({
   previousBatchId: z.uuid().nullable().optional(),
   nextBatchId: z.uuid().nullable().optional(),
 });
+export const generalChecklistCheckCreateSchema = checklistCheckCreateSchema
+  .omit({
+    previousBatchId: true,
+    nextBatchId: true,
+  })
+  .strict();
+
 export type ChecklistCheckCreateInput = z.infer<typeof checklistCheckCreateSchema>;
 
 export const checklistCheckCorrectSchema = z.object({
@@ -1263,13 +1273,31 @@ export const checklistCheckListQuerySchema = z
     kind: z.enum(checklistKinds).optional(),
     ...recordRange,
     outcome: z.enum(checkOutcomes).optional(),
-    signOff: z.enum(checkSignOffStatuses).optional(),
+    signOff: z.enum(siteCheckSignOffStatuses).optional(),
     batchId: z.uuid().optional(),
     includeCorrected: booleanQuery.default(true),
     ...paging,
   })
   .refine(dateRange, dateRangeMessage);
 export type ChecklistCheckListQuery = z.infer<typeof checklistCheckListQuerySchema>;
+export const generalChecklistCheckListQuerySchema = z
+  .object({
+    templateId: z.uuid().optional(),
+    ...recordRange,
+    outcome: z.enum(checkOutcomes).optional(),
+    includeCorrected: booleanQuery.default(true),
+    ...paging,
+  })
+  .refine(dateRange, dateRangeMessage);
+
+export const checklistActionStatuses = ["open", "resolved", "superseded"] as const;
+export type ChecklistActionStatus = (typeof checklistActionStatuses)[number];
+export const checklistActionListQuerySchema = z.object({
+  status: z.enum([...checklistActionStatuses, "all"]).default("open"),
+  ...paging,
+});
+export type ChecklistActionListQuery = z.infer<typeof checklistActionListQuerySchema>;
+export const resolveChecklistActionSchema = z.object({ note: requiredText(2000) });
 
 /** A person with `manage` signs a check off (production may start) or holds it (it may not). */
 export const checkSignOffSchema = z

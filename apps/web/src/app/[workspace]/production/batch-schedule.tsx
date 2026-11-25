@@ -96,11 +96,13 @@ export function BatchSchedule({
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" asChild>
-            <Link href={`${base}/plan?from=${from}`}>
-              <CalendarRange data-icon="inline-start" /> Plan from demand
-            </Link>
-          </Button>
+          {can("demand") && (
+            <Button variant="outline" asChild>
+              <Link href={`${base}/plan?from=${from}`}>
+                <CalendarRange data-icon="inline-start" /> Plan from demand
+              </Link>
+            </Button>
+          )}
           <Button variant="outline" asChild>
             <Link href={`${base}/schedule?from=${from}`}>
               <Factory data-icon="inline-start" /> Line schedule

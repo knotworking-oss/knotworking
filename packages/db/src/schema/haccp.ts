@@ -15,8 +15,6 @@ import type {
   CheckFrequencyUnit,
   CorrectiveActionStatus,
   DeviationReason,
-  HaccpAssetKind,
-  HaccpAssetStatus,
   HaccpHazardType,
   HaccpPlanStatus,
   HaccpPlanVersionStatus,
@@ -39,6 +37,7 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { users } from "../schema";
+import { assets } from "./assets";
 import { pk, timestamps, ts, workspaceRef } from "./helpers";
 import { productionBatches } from "./production";
 import { stockLots } from "./stock";
@@ -310,33 +309,28 @@ export const haccpCcpLogs = pgTable(
   ],
 );
 
-/** An area to clean or a piece of equipment to clean and calibrate. Archived, never deleted. */
-export const haccpAssets = pgTable(
-  "haccp_assets",
-  {
-    id: pk(),
-    workspaceId: workspaceRef(),
-    kind: text("kind").$type<HaccpAssetKind>().notNull(),
-    /** Short reference; unique among live assets when set. */
-    code: text("code"),
-    name: text("name").notNull(),
-    location: text("location"),
-    cleaningEvery: integer("cleaning_every"),
-    cleaningUnit: text("cleaning_unit").$type<ScheduleFrequencyUnit>(),
-    calibrationEvery: integer("calibration_every"),
-    calibrationUnit: text("calibration_unit").$type<ScheduleFrequencyUnit>(),
-    calibrationTolerance: value("calibration_tolerance"),
-    measurementUnit: text("measurement_unit"),
-    status: text("status").$type<HaccpAssetStatus>().notNull().default("active"),
-    ...timestamps(),
-  },
-  (t) => [
-    index("haccp_assets_workspace_idx").on(t.workspaceId, t.name),
-    uniqueIndex("haccp_assets_workspace_code_key")
-      .on(t.workspaceId, sql`lower(${t.code})`)
-      .where(sql`${t.deletedAt} is null and ${t.code} is not null`),
-  ],
-);
+/**
+ * HACCP's part of an asset of the register (`assets`, kind `area` or `equipment`): its cleaning and
+ * calibration schedule. One row per asset, keyed by the asset's id; an asset without a row is in
+ * neither schedule. The asset itself (kind, code, name, location, status) lives in `assets`.
+ */
+export const haccpAssets = pgTable("haccp_assets", {
+  id: uuid("id")
+    .primaryKey()
+    .references(() => assets.id),
+  workspaceId: workspaceRef(),
+  cleaningEvery: integer("cleaning_every"),
+  cleaningUnit: text("cleaning_unit").$type<ScheduleFrequencyUnit>(),
+  calibrationEvery: integer("calibration_every"),
+  calibrationUnit: text("calibration_unit").$type<ScheduleFrequencyUnit>(),
+  calibrationTolerance: value("calibration_tolerance"),
+  measurementUnit: text("measurement_unit"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
 
 /**
  * A cleaning done. **Append-only**, except the one-time verification stamp by a second person.
@@ -348,7 +342,7 @@ export const haccpCleaningRecords = pgTable(
     workspaceId: workspaceRef(),
     assetId: uuid("asset_id")
       .notNull()
-      .references(() => haccpAssets.id),
+      .references(() => assets.id),
     cleanedAt: ts("cleaned_at").notNull(),
     doneBy: uuid("done_by").references(() => users.id, { onDelete: "set null" }),
     recordedBy: uuid("recorded_by").references(() => users.id, { onDelete: "set null" }),
@@ -380,7 +374,7 @@ export const haccpCalibrationRecords = pgTable(
     workspaceId: workspaceRef(),
     assetId: uuid("asset_id")
       .notNull()
-      .references(() => haccpAssets.id),
+      .references(() => assets.id),
     calibratedAt: ts("calibrated_at").notNull(),
     referenceReading: value("reference_reading").notNull(),
     actualReading: value("actual_reading").notNull(),

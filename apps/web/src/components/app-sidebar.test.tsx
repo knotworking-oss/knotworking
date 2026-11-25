@@ -54,7 +54,7 @@ vi.stubGlobal("matchMedia", (query: string) => ({
 }));
 
 const modules = (ids: [string, "read" | "write" | "manage" | "none"][]) =>
-  ids.map(([id, access]) => ({ id, name: id, description: "", dependsOn: [], access }));
+  ids.map(([id, access]) => ({ id, name: id, description: "", dependsOn: [], enhancedBy: [], access }));
 
 const docs = Array.from({ length: 7 }, (_, i) =>
   makeDoc({ id: `d${i + 1}`, title: `Doc ${i + 1}`, sortOrder: `a${i}` }),

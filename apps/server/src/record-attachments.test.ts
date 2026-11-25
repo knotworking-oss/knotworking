@@ -13,8 +13,7 @@ import {
   hseVersions,
   hseEntries,
   hsePermits,
-  siteAssets,
-  haccpAssets,
+  assets,
   haccpCalibrationRecords,
   haccpCleaningRecords,
   haccpCorrectiveActions,
@@ -27,6 +26,7 @@ import {
   qualityComplaints,
   qualityNonconformances,
   qualityRecallTests,
+  recordChanges,
   siteGlassBreakages,
   sops,
   npdProjects,
@@ -149,9 +149,7 @@ describe("attachments on module records", () => {
           .values({ workspaceId: w, code: "FLOUR", name: "Flour", type: "ingredient", unit: "g" })
           .returning(),
       ),
-      await one(
-        db.insert(haccpAssets).values({ workspaceId: w, kind: "area", name: "Bake hall" }).returning(),
-      ),
+      await one(db.insert(assets).values({ workspaceId: w, kind: "area", name: "Bake hall" }).returning()),
       await one(
         db
           .insert(trainingCourses)
@@ -240,7 +238,7 @@ describe("attachments on module records", () => {
         .returning(),
     );
     const hseAsset = await one(
-      db.insert(siteAssets).values({ workspaceId: w, name: "Fixture asset" }).returning(),
+      db.insert(assets).values({ workspaceId: w, kind: "equipment", name: "Fixture asset" }).returning(),
     );
     const hsePermit = await one(
       db
@@ -543,14 +541,14 @@ describe("attachments on module records", () => {
     }
   }, 60_000);
 
-  it("keeps contractor permit evidence behind Site access when HSE registers are visible", async () => {
+  it("keeps contractor permit evidence behind Assets access when HSE registers are visible", async () => {
     const { cursor } = await (await ctx.req(`${base}/bootstrap`, { cookie: ada })).json();
     const uploaded = await upload({ cookie: ada }, on("hse_permit"));
     expect(uploaded.status).toBe(201);
     const { id } = await uploaded.json();
     const link = await (await ctx.req(`${base}/attachments/${id}/link`, { cookie: marcus })).json();
     const publicPath = new URL(link.url).pathname.replace(/^\/api/, "");
-    await level("site", "none");
+    await level("assets", "none");
     try {
       expect((await ctx.req(`${base}/hse/registers`, { cookie: marcus })).status).toBe(200);
       expect((await list(marcus, "hse_permit", records.hse_permit)).status).toBe(403);
@@ -559,7 +557,51 @@ describe("attachments on module records", () => {
       const sync = await (await ctx.req(`${base}/sync?after=${cursor}`, { cookie: marcus })).json();
       expect(sync.changes.some((change: { entityId: string }) => change.entityId === id)).toBe(false);
     } finally {
-      await level("site", "write");
+      await level("assets", "write");
+    }
+  });
+
+  it("shares Quality sync records and recall files only with their linked module access", async () => {
+    const { cursor } = await (await ctx.req(`${base}/bootstrap`, { cookie: ada })).json();
+    const uploaded = await upload({ cookie: ada }, on("quality_recall_test"));
+    expect(uploaded.status).toBe(201);
+    const attachment = await uploaded.json();
+    const recallId = records.quality_recall_test;
+    const volumeId = newId();
+    const authenticityId = newId();
+    await ctx.handle.db.transaction((tx) =>
+      recordChanges(tx, workspaceId, null, [
+        { entity: "quality_recall_test", entityId: recallId, action: "upsert", data: { id: recallId } },
+        { entity: "quality_sales_volume", entityId: volumeId, action: "upsert", data: { id: volumeId } },
+        {
+          entity: "quality_authenticity",
+          entityId: authenticityId,
+          action: "upsert",
+          data: { id: authenticityId },
+        },
+      ]),
+    );
+    const seen = async () => {
+      const sync = await (await ctx.req(`${base}/sync?after=${cursor}`, { cookie: marcus })).json();
+      return sync.changes.map((change: { entityId: string }) => change.entityId) as string[];
+    };
+    expect(await seen()).toEqual(expect.arrayContaining([recallId, volumeId, authenticityId, attachment.id]));
+    await level("stock", "none");
+    try {
+      expect((await ctx.req(`${base}/quality/audits`, { cookie: marcus })).status).toBe(200);
+      expect((await list(marcus, "quality_recall_test", recallId)).status).toBe(403);
+      expect((await ctx.req(`${base}/attachments/${attachment.id}/content`, { cookie: marcus })).status).toBe(
+        403,
+      );
+      expect(await seen()).toEqual(expect.arrayContaining([volumeId, authenticityId]));
+      expect(await seen()).not.toContain(recallId);
+      expect(await seen()).not.toContain(attachment.id);
+      await level("items", "none");
+      expect(await seen()).not.toContain(volumeId);
+      expect(await seen()).not.toContain(authenticityId);
+    } finally {
+      await level("items", "write");
+      await level("stock", "write");
     }
   });
 

@@ -26,7 +26,7 @@ import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
 import { ApiError, badRequest } from "../errors";
 import { forbidTokens } from "../middleware/auth";
-import { canRead, requireModuleLevel } from "../middleware/modules";
+import { assertModule, canRead, hideUnreadableLinks, requireModuleLevel } from "../middleware/modules";
 import { personOrToken } from "../middleware/token-actions";
 import {
   cancelOrder,
@@ -56,6 +56,16 @@ import { todayIn } from "../middleware/workspace";
 import { validate } from "../validate";
 
 const idParam = z.object({ id: z.uuid() });
+
+/**
+ * Stock is a soft dependency: stock lines, receiving them into lots and delivery locations need it
+ * active and readable (`404 module_inactive`, `403 module_forbidden`); non-stock lines don't.
+ */
+const stockCheck = (c: Context<WorkspaceEnv>) => () => assertModule(c, "stock", "read");
+
+/** Stock records on an order (its delivery location, lot codes) are blanked for those who can't read stock. */
+const orderView = <T>(c: Context<WorkspaceEnv>, value: T) =>
+  hideUnreadableLinks(c, value, { deliveryLocation: "stock", lotCode: "stock" });
 const receiptParam = z.object({ id: z.uuid(), receiptId: z.uuid() });
 
 /**
@@ -98,10 +108,10 @@ function assertProductionReadable(c: Context<WorkspaceEnv>) {
 export const purchasingRoutes = new Hono<WorkspaceEnv>()
   // ── Orders ──
   .get("/purchasing/orders", validate("query", purchaseOrderListQuerySchema), async (c) =>
-    c.json(await listOrders(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+    c.json(orderView(c, await listOrders(c.var.db, c.var.workspace.id, c.req.valid("query")))),
   )
   .get("/purchasing/orders/:id", validate("param", idParam), async (c) => {
-    const order = await getOrder(c.var.db, c.var.workspace.id, c.req.valid("param").id);
+    const order = orderView(c, await getOrder(c.var.db, c.var.workspace.id, c.req.valid("param").id));
     const flags = await qualityFlags(c, [order.supplier.id]);
     // Null when quality is off or unreadable; otherwise the supplier's open non-conformances.
     return c.json({
@@ -119,7 +129,20 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
     });
   })
   .post("/purchasing/orders", validate("json", purchaseOrderCreateSchema), async (c) =>
-    c.json(await createOrder(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
+    c.json(
+      orderView(
+        c,
+        await createOrder(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          c.req.valid("json"),
+          undefined,
+          stockCheck(c),
+        ),
+      ),
+      201,
+    ),
   )
   .patch(
     "/purchasing/orders/:id",
@@ -127,12 +150,17 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
     validate("json", purchaseOrderUpdateSchema),
     async (c) =>
       c.json(
-        await updateOrder(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        orderView(
+          c,
+          await updateOrder(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+            undefined,
+            stockCheck(c),
+          ),
         ),
       ),
   )
@@ -147,12 +175,17 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
     validate("json", purchaseReceiveSchema),
     async (c) =>
       c.json(
-        await receiveOrder(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          ledgerInput(c, c.req.valid("json")),
+        orderView(
+          c,
+          await receiveOrder(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            ledgerInput(c, c.req.valid("json")),
+            undefined,
+            stockCheck(c),
+          ),
         ),
         201,
       ),
@@ -168,12 +201,15 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
     validate("json", purchaseOrderApproveSchema),
     async (c) =>
       c.json(
-        await approveOrderSend(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        orderView(
+          c,
+          await approveOrderSend(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
       ),
   )
@@ -187,13 +223,16 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
     async (c) => {
       const { id, receiptId } = c.req.valid("param");
       return c.json(
-        await voidRejectedReceipt(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          id,
-          receiptId,
-          c.req.valid("json"),
+        orderView(
+          c,
+          await voidRejectedReceipt(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            id,
+            receiptId,
+            c.req.valid("json"),
+          ),
         ),
       );
     },
@@ -217,21 +256,24 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
     validate("json", purchaseOrderSendSchema),
     async (c) =>
       c.json(
-        await sendOrder(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
-          undefined,
-          // A token may carry a cap on the value of an order it sends.
-          c.var.credential.kind === "token" ? (c.var.credential.maxOrderValue ?? null) : null,
-          {
-            active: c.var.workspace.availableModules,
-            // Overriding supplier control issues is a food-safety judgement: a person with Items manage.
-            mayOverride:
-              c.var.credential.kind !== "token" && hasModuleLevel(c.var.workspace.modules.items, "manage"),
-          },
+        orderView(
+          c,
+          await sendOrder(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+            undefined,
+            // A token may carry a cap on the value of an order it sends.
+            c.var.credential.kind === "token" ? (c.var.credential.maxOrderValue ?? null) : null,
+            {
+              active: c.var.workspace.availableModules,
+              // Overriding supplier control issues is a food-safety judgement: a person with Items manage.
+              mayOverride:
+                c.var.credential.kind !== "token" && hasModuleLevel(c.var.workspace.modules.items, "manage"),
+            },
+          ),
         ),
       ),
   )
@@ -262,12 +304,15 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
     validate("json", purchaseOrderCloseSchema),
     async (c) =>
       c.json(
-        await closeOrder(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        orderView(
+          c,
+          await closeOrder(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
       ),
   )
@@ -278,12 +323,15 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
     validate("json", purchaseOrderCancelSchema),
     async (c) =>
       c.json(
-        await cancelOrder(
-          c.var.db,
-          c.var.workspace.id,
-          c.var.user.id,
-          c.req.valid("param").id,
-          c.req.valid("json"),
+        orderView(
+          c,
+          await cancelOrder(
+            c.var.db,
+            c.var.workspace.id,
+            c.var.user.id,
+            c.req.valid("param").id,
+            c.req.valid("json"),
+          ),
         ),
       ),
   )
@@ -298,7 +346,17 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
   // Draft orders from a chosen proposal, all or nothing, each as `POST /purchasing/orders`.
   .post("/purchasing/suggestions", validate("json", purchaseSuggestionsCreateSchema), async (c) =>
     c.json(
-      await createSuggestedOrders(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")),
+      orderView(
+        c,
+        await createSuggestedOrders(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          c.req.valid("json"),
+          undefined,
+          stockCheck(c),
+        ),
+      ),
       201,
     ),
   )

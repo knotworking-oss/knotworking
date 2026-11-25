@@ -264,9 +264,13 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
     c.json(await getMaterialRequirements(c.var.db, c.var.workspace.id, c.req.valid("query"))),
   )
   // Batches proposed from demand: demand, what is planned, the gap and whole batches per item and
-  // week. Computed on read; reads the demand module, which production depends on.
-  .get("/production/plan-from-demand", validate("query", planFromDemandQuerySchema), async (c) =>
-    c.json(await getPlanFromDemand(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+  // week. Computed on read from the demand module, a soft dependency of production: only for
+  // callers who can read Demand (`404 module_inactive` / `403 module_forbidden` otherwise).
+  .get(
+    "/production/plan-from-demand",
+    requireModuleLevel("demand", "read"),
+    validate("query", planFromDemandQuerySchema),
+    async (c) => c.json(await getPlanFromDemand(c.var.db, c.var.workspace.id, c.req.valid("query"))),
   )
   .get(
     "/production/lots/:lotId/trace",
@@ -280,7 +284,8 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
   .post("/production/batches", validate("json", productionBatchCreateSchema), async (c) =>
     c.json(await createBatch(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
   )
-  // Several batches at once (from the plan-from-demand view), all or nothing, each as above.
+  // Several batches at once (from the plan-from-demand view), all or nothing, each as above. Plain
+  // batch planning: it reads nothing from Demand, so it doesn't need it.
   .post("/production/plan-from-demand", validate("json", productionPlanBatchesSchema), async (c) =>
     c.json(await planBatches(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
   )

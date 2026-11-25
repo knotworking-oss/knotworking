@@ -79,6 +79,24 @@ export const asText = (doc: DocContent | null | undefined) => clip(docToPlainTex
 /** Plain text (one paragraph per line) → the API's block format. */
 export const toDoc = (value: string): DocContent => textToDoc(value);
 
+/** A reference to a row of a register: an id, or an exact code or name. */
+export function pickReference<T extends { id: string }>(
+  rows: T[],
+  ref: string,
+  names: (row: T) => (string | null | undefined)[],
+  what: string,
+  hint: string,
+) {
+  const wanted = ref.trim();
+  if (z.uuid().safeParse(wanted).success) return wanted;
+  const match = rows.filter((r) => names(r).some((n) => n && n.toLowerCase() === wanted.toLowerCase()));
+  if (match.length === 1) return match[0]!.id;
+  throw new ToolError(
+    match.length === 0 ? "not_found" : "ambiguous",
+    `${match.length === 0 ? "No" : "More than one"} ${what} matches "${wanted}". ${hint}`,
+  );
+}
+
 // ── shared parameter schemas ──
 
 export const id = (what: string) =>

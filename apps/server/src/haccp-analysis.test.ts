@@ -1,11 +1,11 @@
 import { DEFAULT_TIME_ZONE, todayInZone } from "@knotworking/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { sweepDueNotifications } from "./services/notification-sweep";
-import { makeApp, signIn, type TestCtx } from "./test-utils";
+import { addHaccpAsset, makeApp, signIn, type TestCtx } from "./test-utils";
 
 const WS = "/v1/workspaces/acme";
 const today = todayInZone(DEFAULT_TIME_ZONE);
-const DEPENDENCIES = ["items", "recipes", "stock", "demand", "production"] as const;
+const DEPENDENCIES = ["assets", "items", "recipes", "stock", "demand", "production"] as const;
 
 const step = (
   ref: string,
@@ -193,14 +193,11 @@ describe("HACCP hazard analysis, four-eyes, corrections and sign-off", () => {
     let probe: string;
     it("corrects a cleaning record once, keeping the original and starting unverified", async () => {
       area = (
-        await ok(
-          await send(ada.cookie, "POST", "/haccp/assets", {
-            kind: "area",
-            name: "Line 1",
-            cleaningFrequency: { every: 1, unit: "day" },
-          }),
-          201,
-        )
+        await addHaccpAsset((m, p, j) => send(ada.cookie, m, p, j), {
+          kind: "area",
+          name: "Line 1",
+          cleaningFrequency: { every: 1, unit: "day" },
+        })
       ).id;
       const first = await ok(
         await send(ada.cookie, "POST", "/haccp/cleaning", { assetId: area, note: "wrong" }),
@@ -242,16 +239,13 @@ describe("HACCP hazard analysis, four-eyes, corrections and sign-off", () => {
 
     it("corrects a calibration against the original tolerance; failed ones need manage", async () => {
       probe = (
-        await ok(
-          await send(ada.cookie, "POST", "/haccp/assets", {
-            kind: "equipment",
-            name: "Probe",
-            calibrationFrequency: { every: 1, unit: "month" },
-            calibrationTolerance: 0.5,
-            measurementUnit: "°C",
-          }),
-          201,
-        )
+        await addHaccpAsset((m, p, j) => send(ada.cookie, m, p, j), {
+          kind: "equipment",
+          name: "Probe",
+          calibrationFrequency: { every: 1, unit: "month" },
+          calibrationTolerance: 0.5,
+          measurementUnit: "°C",
+        })
       ).id;
       const failed = await ok(
         await send(ada.cookie, "POST", "/haccp/calibration", {
@@ -390,7 +384,7 @@ describe("HACCP hazard analysis, four-eyes, corrections and sign-off", () => {
         );
         const run = () =>
           sweepDueNotifications(ctx.handle.db, {
-            activeModules: ["items", "recipes", "stock", "demand", "production", "haccp"],
+            activeModules: ["assets", "items", "recipes", "stock", "demand", "production", "haccp"],
           });
         const first = await run();
         const digests = first.created.filter((n) => n.type === "ccp_checks_overdue");

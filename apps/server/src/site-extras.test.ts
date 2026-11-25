@@ -1,6 +1,6 @@
 import { addDays, DEFAULT_TIME_ZONE, todayInZone } from "@knotworking/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { makeApp, signIn, type TestCtx } from "./test-utils";
+import { addHaccpAsset, makeApp, signIn, type TestCtx } from "./test-utils";
 
 /**
  * The site module's later additions: four-eyes on releases, glass register import, pest trends,
@@ -10,7 +10,7 @@ import { makeApp, signIn, type TestCtx } from "./test-utils";
 
 const WS = "/v1/workspaces/acme";
 const today = todayInZone(DEFAULT_TIME_ZONE);
-const DEPENDENCIES = ["items", "recipes", "stock", "demand", "production", "haccp"] as const;
+const DEPENDENCIES = ["assets", "items", "recipes", "stock", "demand", "production", "haccp"] as const;
 
 describe("site programmes: later additions", () => {
   let ctx: TestCtx;
@@ -63,9 +63,10 @@ describe("site programmes: later additions", () => {
     ).token as string;
     for (const id of DEPENDENCIES) await grant(id, "read");
     await grant("site", "write");
+    await grant("maintenance", "write");
 
     const area = async (name: string, code?: string) =>
-      (await ok(await as(ada).send("POST", "/haccp/assets", { kind: "area", name, code }), 201)).id as string;
+      (await addHaccpAsset(as(ada).send, { kind: "area", name, code })).id as string;
     packing = await area("Packing hall", "PK");
     dispatch = await area("Dispatch");
 
@@ -157,9 +158,9 @@ describe("site programmes: later additions", () => {
     });
 
     it("applies the same rule to the hygiene clearance after maintenance", async () => {
-      await grant("site", "manage");
+      await grant("maintenance", "manage");
       const asset = await ok(
-        await as(ada).send("POST", "/site/maintenance/assets", { name: "Oven", areaId: packing }),
+        await as(ada).send("POST", "/assets", { kind: "equipment", name: "Oven", parentAreaId: packing }),
         201,
       );
       const task = await ok(
@@ -179,7 +180,7 @@ describe("site programmes: later additions", () => {
         as(cookie).send("POST", `/site/maintenance/records/${record.id}/clearance`, {});
       expect(await error(await clear(ada), 403)).toBe("four_eyes");
       expect(await ok(await clear(marcus.cookie))).toMatchObject({ awaitingClearance: false });
-      await grant("site", "write");
+      await grant("maintenance", "write");
     });
   });
 
@@ -327,10 +328,11 @@ describe("site programmes: later additions", () => {
     it("raises a breakdown (an agent may) and starts it", async () => {
       asset = (
         await ok(
-          await as(ada).send("POST", "/site/maintenance/assets", {
+          await as(ada).send("POST", "/assets", {
+            kind: "equipment",
             code: "MX-1",
             name: "Mixer",
-            areaId: packing,
+            parentAreaId: packing,
           }),
           201,
         )
@@ -467,7 +469,7 @@ describe("site programmes: later additions", () => {
 
     it("refuses a task of another asset and an archived asset", async () => {
       const other = (
-        await ok(await as(ada).send("POST", "/site/maintenance/assets", { name: "Slicer" }), 201)
+        await ok(await as(ada).send("POST", "/assets", { kind: "equipment", name: "Slicer" }), 201)
       ).id;
       expect(
         await error(
@@ -479,7 +481,7 @@ describe("site programmes: later additions", () => {
           400,
         ),
       ).toBe("invalid_input");
-      await ok(await as(ada).send("PATCH", `/site/maintenance/assets/${other}`, { status: "archived" }));
+      await ok(await as(ada).send("POST", `/assets/${other}/archive`, {}));
       expect(
         await error(
           await as(ada).send("POST", "/site/maintenance/work-orders", { assetId: other, title: "x" }),
@@ -492,33 +494,27 @@ describe("site programmes: later additions", () => {
   describe("calibration instrument link", () => {
     it("links an asset to an instrument of the HACCP register, read-only", async () => {
       const probe = (
-        await ok(
-          await as(ada).send("POST", "/haccp/assets", {
-            kind: "equipment",
-            code: "PRB-01",
-            name: "Probe 1",
-            calibrationFrequency: { every: 1, unit: "month" },
-            calibrationTolerance: 0.5,
-            measurementUnit: "°C",
-          }),
-          201,
-        )
+        await addHaccpAsset(as(ada).send, {
+          kind: "equipment",
+          code: "PRB-01",
+          name: "Probe 1",
+          calibrationFrequency: { every: 1, unit: "month" },
+          calibrationTolerance: 0.5,
+          measurementUnit: "°C",
+        })
       ).id as string;
-      const plain = (
-        await ok(await as(ada).send("POST", "/haccp/assets", { kind: "equipment", name: "Scoop" }), 201)
-      ).id as string;
+      const plain = (await addHaccpAsset(as(ada).send, { kind: "equipment", name: "Scoop" })).id as string;
       const { instruments } = await ok(await as(ada).get("/site/calibration-instruments"));
       expect(instruments).toEqual([
         expect.objectContaining({ id: probe, name: "Probe 1", state: "due", linkedAssetId: null }),
       ]);
 
-      const asset = await ok(
-        await as(ada).send("POST", "/site/maintenance/assets", {
-          name: "Probe thermometer",
-          calibrationInstrumentId: probe,
-        }),
-        201,
-      );
+      // The asset is the register's; Site only links it to the instrument it is.
+      const newAsset = async (name: string) =>
+        (await ok(await as(ada).send("POST", "/assets", { kind: "equipment", name }), 201)).id as string;
+      const link = (id: string, calibrationInstrumentId: string | null) =>
+        as(ada).send("PATCH", `/site/maintenance/assets/${id}`, { calibrationInstrumentId });
+      const asset = await ok(await link(await newAsset("Probe thermometer"), probe));
       expect(asset.calibrationInstrument).toMatchObject({
         id: probe,
         name: "Probe 1",
@@ -544,39 +540,11 @@ describe("site programmes: later additions", () => {
         (await ok(await as(ada).get("/site/calibration-instruments"))).instruments[0].linkedAssetId,
       ).toBe(asset.id);
 
-      expect(
-        await error(
-          await as(ada).send("POST", "/site/maintenance/assets", {
-            name: "Second",
-            calibrationInstrumentId: probe,
-          }),
-          409,
-        ),
-      ).toBe("instrument_linked");
-      expect(
-        await error(
-          await as(ada).send("POST", "/site/maintenance/assets", {
-            name: "Third",
-            calibrationInstrumentId: plain,
-          }),
-          400,
-        ),
-      ).toBe("invalid_input");
-      expect(
-        await error(
-          await as(ada).send("POST", "/site/maintenance/assets", {
-            name: "Fourth",
-            calibrationInstrumentId: packing,
-          }),
-          404,
-        ),
-      ).toBe("not_found");
+      expect(await error(await link(await newAsset("Second"), probe), 409)).toBe("instrument_linked");
+      expect(await error(await link(await newAsset("Third"), plain), 400)).toBe("invalid_input");
+      expect(await error(await link(await newAsset("Fourth"), packing), 404)).toBe("not_found");
       // Unlinking leaves the HACCP record alone.
-      const unlinked = await ok(
-        await as(ada).send("PATCH", `/site/maintenance/assets/${asset.id}`, {
-          calibrationInstrumentId: null,
-        }),
-      );
+      const unlinked = await ok(await link(asset.id, null));
       expect(unlinked.calibrationInstrument).toBeNull();
     });
   });

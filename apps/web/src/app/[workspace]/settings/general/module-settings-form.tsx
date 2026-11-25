@@ -100,7 +100,7 @@ export function ModuleSettingsForm({
             </summary>
             <p className="mt-2 text-muted-foreground">
               Enabling a module also enables what it requires. Disabling one also disables modules that
-              require it.
+              require it. Modules it works better with are optional: they add features when enabled.
             </p>
             <div className="mt-2 grid gap-1 sm:grid-cols-2">
               {available.map((id) => (
@@ -117,6 +117,15 @@ export function ModuleSettingsForm({
                     {modules[id].dependsOn.length > 0 && (
                       <span className="block text-xs text-muted-foreground">
                         Requires {modules[id].dependsOn.map((dep) => modules[dep].name).join(", ")}
+                      </span>
+                    )}
+                    {modules[id].enhancedBy.some((other) => available.includes(other)) && (
+                      <span className="block text-xs text-muted-foreground">
+                        Works better with{" "}
+                        {modules[id].enhancedBy
+                          .filter((other) => available.includes(other))
+                          .map((other) => modules[other].name)
+                          .join(", ")}
                       </span>
                     )}
                   </span>

@@ -11,6 +11,8 @@ import { useFormatDateTime } from "@/lib/workspace-time";
 
 export { HaccpDialog as SiteDialog, SelectField } from "@/components/haccp-forms";
 
+export const maintenanceApi = () => browserApi().v1.workspaces[":slug"].maintenance;
+export const checklistApi = () => browserApi().v1.workspaces[":slug"].checklists;
 export const siteApi = () => browserApi().v1.workspaces[":slug"].site;
 
 export const NONE = "none";

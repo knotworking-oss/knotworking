@@ -673,6 +673,34 @@
       "when": 1795535213199,
       "tag": "0095_client_service_quotes",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1795612871879,
+      "tag": "0096_non_stock_purchasing",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1795615642487,
+      "tag": "0097_assets",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1795619661112,
+      "tag": "0098_maintenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1795621243657,
+      "tag": "0099_checklists",
+      "breakpoints": true
     }
   ]
 }

@@ -14,7 +14,10 @@ import {
   TableRow,
 } from "@knotworking/ui/components/table";
 import { BadgeCheck, Plus, Wrench } from "lucide-react";
+import { assetKinds } from "@knotworking/core";
+import Link from "next/link";
 import { useState } from "react";
+import { AssetDialog } from "@/components/asset-dialog";
 import { DueStateBadge } from "@/components/haccp-badges";
 import {
   FrequencyField,
@@ -25,7 +28,7 @@ import {
   TextField,
   useDateTime,
   frequencyBody,
-  siteApi,
+  maintenanceApi,
   text,
   type FrequencyState,
 } from "@/components/site-forms";
@@ -45,6 +48,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 
 type Dialog =
   | { kind: "asset" }
+  | { kind: "link"; asset: MaintenanceAsset }
   | { kind: "task" }
   | { kind: "record"; task: MaintenanceTask }
   | { kind: "clear"; record: MaintenanceRecord }
@@ -52,7 +56,7 @@ type Dialog =
 
 /**
  * Planned maintenance: assets with tasks on intervals, what is due, and records of completed work.
- * Work in a production area needs a hygiene clearance (the area is safe to restart): a sign-off by
+ * Work in a production area needs a return-to-service clearance (the area is safe to restart): a sign-off by
  * a person with manage access.
  */
 export function MaintenanceBoard({
@@ -63,6 +67,8 @@ export function MaintenanceBoard({
   areas,
   workOrders,
   instruments,
+  calibration,
+  members,
 }: {
   slug: string;
   assets: MaintenanceAsset[];
@@ -71,11 +77,14 @@ export function MaintenanceBoard({
   areas: SiteArea[];
   workOrders: WorkOrder[];
   instruments: CalibrationInstrument[];
+  /** Whether the viewer can read HACCP: calibration instruments are its records. */
+  calibration: boolean;
+  members: { id: string; name: string }[];
 }) {
   const dateTime = useDateTime();
   const { can } = useWorkspace();
-  const canWrite = can("site", "write");
-  const canManage = can("site", "manage");
+  const canWrite = can("maintenance", "write");
+  const canManage = can("maintenance", "manage");
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const activeTasks = tasks.filter((t) => t.status === "active");
 
@@ -85,9 +94,11 @@ export function MaintenanceBoard({
         <h2 className="text-xl font-semibold tracking-tight">Planned maintenance</h2>
         {canWrite && (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setDialog({ kind: "asset" })}>
-              <Plus data-icon="inline-start" /> Add asset
-            </Button>
+            {can("assets", "write") && (
+              <Button variant="outline" onClick={() => setDialog({ kind: "asset" })}>
+                <Plus data-icon="inline-start" /> Add asset
+              </Button>
+            )}
             <Button onClick={() => setDialog({ kind: "task" })} disabled={assets.length === 0}>
               <Plus data-icon="inline-start" /> Add task
             </Button>
@@ -127,7 +138,7 @@ export function MaintenanceBoard({
                       {t.title}
                       {t.clearanceRequired && (
                         <Badge variant="outline" className="ml-2">
-                          Hygiene clearance
+                          Return-to-service clearance
                         </Badge>
                       )}
                     </TableCell>
@@ -172,31 +183,51 @@ export function MaintenanceBoard({
               <TableRow>
                 <TableHead className="pl-4">Asset</TableHead>
                 <TableHead>Area</TableHead>
-                <TableHead className="pr-4">Calibration instrument</TableHead>
+                {calibration && <TableHead className="pr-4">Calibration instrument</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {assets
-                .filter((a) => a.status === "active")
+                .filter((a) => a.status === "active" && a.kind !== "area")
                 .map((a) => (
                   <TableRow key={a.id}>
-                    <TableCell className="pl-4 font-medium">{a.name}</TableCell>
-                    <TableCell>{a.area?.name ?? "—"}</TableCell>
-                    <TableCell className="pr-4">
-                      {a.calibrationInstrument ? (
-                        <span className="flex flex-wrap items-center gap-2">
-                          {a.calibrationInstrument.name}
-                          <DueStateBadge state={a.calibrationInstrument.state} />
-                          <span className="text-xs text-muted-foreground">
-                            {a.calibrationInstrument.lastCalibration
-                              ? `${a.calibrationInstrument.lastCalibration.passed ? "Passed" : "Failed"} ${formatLongDate(a.calibrationInstrument.lastCalibration.calibratedAt.slice(0, 10))}`
-                              : "Never calibrated"}
-                          </span>
-                        </span>
+                    <TableCell className="pl-4 font-medium">
+                      {can("assets") ? (
+                        <Link className="hover:underline" href={`/${slug}/assets/${a.id}`}>
+                          {a.name}
+                        </Link>
                       ) : (
-                        "—"
+                        a.name
                       )}
                     </TableCell>
+                    <TableCell>{a.area?.name ?? "—"}</TableCell>
+                    {calibration && (
+                      <TableCell className="pr-4">
+                        {a.calibrationInstrument ? (
+                          <span className="flex flex-wrap items-center gap-2">
+                            {a.calibrationInstrument.name}
+                            <DueStateBadge state={a.calibrationInstrument.state} />
+                            <span className="text-xs text-muted-foreground">
+                              {a.calibrationInstrument.lastCalibration
+                                ? `${a.calibrationInstrument.lastCalibration.passed ? "Passed" : "Failed"} ${formatLongDate(a.calibrationInstrument.lastCalibration.calibratedAt.slice(0, 10))}`
+                                : "Never calibrated"}
+                            </span>
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                        {canWrite && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="ml-2"
+                            onClick={() => setDialog({ kind: "link", asset: a })}
+                          >
+                            {a.calibrationInstrument ? "Change" : "Link"}
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
             </TableBody>
@@ -218,7 +249,7 @@ export function MaintenanceBoard({
                   <TableHead className="pl-4">Done</TableHead>
                   <TableHead>Work</TableHead>
                   <TableHead>By</TableHead>
-                  <TableHead>Hygiene clearance</TableHead>
+                  <TableHead>Return-to-service clearance</TableHead>
                   <TableHead className="pr-4" />
                 </TableRow>
               </TableHeader>
@@ -265,7 +296,24 @@ export function MaintenanceBoard({
       </Card>
 
       {dialog?.kind === "asset" && (
-        <AssetDialog slug={slug} areas={areas} instruments={instruments} onClose={() => setDialog(null)} />
+        <AssetDialog
+          slug={slug}
+          areas={areas}
+          members={members}
+          kinds={assetKinds.filter((k) => k !== "area")}
+          defaultKind="equipment"
+          title="Add asset"
+          description="An asset of the register that is maintained. Give it an area if work on it needs a return-to-service clearance."
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === "link" && (
+        <LinkInstrumentDialog
+          slug={slug}
+          asset={dialog.asset}
+          instruments={instruments}
+          onClose={() => setDialog(null)}
+        />
       )}
       {dialog?.kind === "correct" && (
         <CorrectMaintenanceDialog slug={slug} record={dialog.record} onClose={() => setDialog(null)} />
@@ -287,55 +335,35 @@ export function MaintenanceBoard({
   );
 }
 
-function AssetDialog({
+/** Links a maintained asset to the HACCP calibration instrument it is (read-only there). */
+function LinkInstrumentDialog({
   slug,
-  areas,
+  asset,
   instruments,
   onClose,
 }: {
   slug: string;
-  areas: SiteArea[];
+  asset: MaintenanceAsset;
   instruments: CalibrationInstrument[];
   onClose: () => void;
 }) {
-  const [instrument, setInstrument] = useState(NONE);
-  const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [location, setLocation] = useState("");
-  const [area, setArea] = useState(NONE);
+  const [instrument, setInstrument] = useState(asset.calibrationInstrumentId ?? NONE);
   return (
     <SiteDialog
-      title="Add asset"
-      description="A piece of equipment that is maintained."
-      submitLabel="Add asset"
+      title={`Calibration instrument of ${asset.name}`}
+      description="Links this asset to equipment in the calibration register (read-only there), so its calibration shows here."
+      submitLabel="Save"
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance.assets.$post({
-            param: { slug },
-            json: {
-              name: name.trim(),
-              ...(text(code) ? { code: text(code)! } : {}),
-              ...(text(location) ? { location: text(location)! } : {}),
-              ...(area !== NONE ? { areaId: area } : {}),
-              ...(instrument !== NONE ? { calibrationInstrumentId: instrument } : {}),
-            },
+          maintenanceApi().assets[":id"].$patch({
+            param: { slug, id: asset.id },
+            json: { calibrationInstrumentId: instrument === NONE ? null : instrument },
           }),
         );
-        return `${name.trim()} added`;
+        return `${asset.name} saved`;
       }}
     >
-      <TextField id="as-name" label="Name" required value={name} onChange={setName} />
-      <TextField id="as-code" label="Asset tag" value={code} onChange={setCode} />
-      <TextField id="as-loc" label="Location" value={location} onChange={setLocation} />
-      <SelectField
-        id="as-area"
-        label="Production area"
-        value={area}
-        onChange={setArea}
-        options={[[NONE, "No area"], ...areas.map((a) => [a.id, a.name] as const)]}
-        description="Needed for tasks that require a hygiene clearance."
-      />
       <SelectField
         id="as-instrument"
         label="Calibration instrument"
@@ -343,9 +371,10 @@ function AssetDialog({
         onChange={setInstrument}
         options={[
           [NONE, "Not a calibrated instrument"],
-          ...instruments.filter((i) => !i.linkedAssetId).map((i) => [i.id, i.name] as const),
+          ...instruments
+            .filter((i) => !i.linkedAssetId || i.linkedAssetId === asset.id)
+            .map((i) => [i.id, i.name] as const),
         ]}
-        description="Links this asset to equipment in the calibration register (read-only there)."
       />
     </SiteDialog>
   );
@@ -375,7 +404,7 @@ function TaskDialog({
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance.tasks.$post({
+          maintenanceApi().tasks.$post({
             param: { slug },
             json: {
               assetId: asset,
@@ -410,9 +439,7 @@ function TaskDialog({
       />
       <Field orientation="horizontal">
         <Checkbox id="tk-clear" checked={clearance} onCheckedChange={(v) => setClearance(v === true)} />
-        <FieldLabel htmlFor="tk-clear">
-          Work in a production area: needs a hygiene clearance afterwards
-        </FieldLabel>
+        <FieldLabel htmlFor="tk-clear">Require clearance before returning the asset to use</FieldLabel>
       </Field>
     </SiteDialog>
   );
@@ -425,12 +452,12 @@ function RecordDialog({ slug, task, onClose }: { slug: string; task: Maintenance
   return (
     <SiteDialog
       title="Record maintenance"
-      description={`${task.asset?.name}: ${task.title}. You are recording that the work was done${task.clearanceRequired ? "; a person with manage access then gives the hygiene clearance" : ""}.`}
+      description={`${task.asset?.name}: ${task.title}. You are recording that the work was done${task.clearanceRequired ? "; a person with manage access then gives the return-to-service clearance" : ""}.`}
       submitLabel="Record"
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance.records.$post({
+          maintenanceApi().records.$post({
             param: { slug },
             json: {
               taskId: task.id,
@@ -475,13 +502,13 @@ function ClearDialog({
   const [note, setNote] = useState("");
   return (
     <SiteDialog
-      title="Hygiene clearance"
+      title="Return-to-service clearance"
       description={`${record.area?.name ?? "The area"} is safe to restart after: ${record.task?.title}. This is your sign-off.`}
       submitLabel="Clear area"
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance.records[":id"].clearance.$post({
+          maintenanceApi().records[":id"].clearance.$post({
             param: { slug, id: record.id },
             json: { ...(text(note) ? { note: text(note)! } : {}) },
           }),

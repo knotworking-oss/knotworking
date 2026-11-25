@@ -190,7 +190,10 @@ async function userNames(db: Executor, ids: (string | null)[]) {
   return (id: string | null) => (id ? (map.get(id) ?? null) : null);
 }
 
-/** Accepted quantity (base unit) per order line, net of receipts whose movement was reversed. */
+/**
+ * Accepted quantity per order line (stock lines: base unit; non-stock lines: their own unit), net of
+ * receipts whose movement was reversed and of voided receipts.
+ */
 async function receivedByOrderLine(db: Executor, orderLineIds: string[]) {
   const map = new Map<string, number>();
   if (!orderLineIds.length) return map;
@@ -206,6 +209,7 @@ async function receivedByOrderLine(db: Executor, orderLineIds: string[]) {
         inArray(purchaseReceipts.lineId, orderLineIds),
         eq(purchaseReceipts.outcome, "accepted"),
         isNull(reversal.id),
+        isNull(purchaseReceipts.voidedAt),
       ),
     )
     .groupBy(purchaseReceipts.lineId);
@@ -278,7 +282,9 @@ async function loadInvoices(db: Executor, workspaceId: string, invoices: Invoice
           )
       : [],
   ]);
-  const itemIds = [...new Set([...orderLines.values()].map((o) => o.line.itemId))];
+  const itemIds = [
+    ...new Set([...orderLines.values()].flatMap((o) => (o.line.itemId ? [o.line.itemId] : []))),
+  ];
   const supplierIds = [...new Set(invoices.map((i) => i.supplierId))];
   const [itemRows, supplierRows] = await Promise.all([
     itemIds.length ? db.select().from(items).where(inArray(items.id, itemIds)) : [],
@@ -330,7 +336,9 @@ async function loadInvoices(db: Executor, workspaceId: string, invoices: Invoice
         value,
       };
       const ordered = line.orderLineId ? orderLines.get(line.orderLineId) : undefined;
-      if (line.kind !== "order" || !ordered || !line.unit) {
+      // A non-stock order line is invoiced in its own unit: the invoice line has no stock unit.
+      const nonStock = ordered?.line.kind === "non_stock";
+      if (line.kind !== "order" || !ordered || (!line.unit && !nonStock)) {
         return {
           ...base,
           item: null,
@@ -341,18 +349,19 @@ async function loadInvoices(db: Executor, workspaceId: string, invoices: Invoice
           now: null,
         };
       }
-      const item = itemMap.get(ordered.line.itemId)!;
+      const item = ordered.line.itemId ? itemMap.get(ordered.line.itemId)! : null;
       const unit = line.unit;
       const approved = frozen ? line.approvedMatch : null;
-      // What the line is compared against: stored at approval, else as it is now.
-      const factor = approved ? approved.basePerUnit : basePerUnit(unit, item);
+      // What the line is compared against: stored at approval, else as it is now. A non-stock
+      // line's quantities are all in its own unit: nothing converts.
+      const factor = approved ? approved.basePerUnit : nonStock ? 1 : basePerUnit(unit!, item!);
       const fromBase = (q: number) => (factor === null ? null : roundQuantity(q / factor));
       const liveOrderPrice =
         ordered.line.unitPrice === null
           ? null
-          : ordered.line.unit === unit
+          : nonStock || ordered.line.unit === unit
             ? ordered.line.unitPrice
-            : convertUnitPrice(ordered.line.unitPrice, ordered.line.unit, unit, item, PRICE_DECIMALS);
+            : convertUnitPrice(ordered.line.unitPrice, ordered.line.unit!, unit!, item!, PRICE_DECIMALS);
       const orderPrice = approved ? approved.orderUnitPrice : liveOrderPrice;
       const orderPriceNotConvertible =
         !approved && ordered.line.unitPrice !== null && liveOrderPrice === null;
@@ -360,7 +369,7 @@ async function loadInvoices(db: Executor, workspaceId: string, invoices: Invoice
       let elsewhereNow: number | null = 0;
       for (const o of othersByOrderLine.get(ordered.line.id) ?? []) {
         if (!countsAgainst(invoice, o.invoice)) continue;
-        const q = inUnit(o.line.quantity, o.line.unit ?? unit, unit, item);
+        const q = nonStock ? o.line.quantity : inUnit(o.line.quantity, o.line.unit ?? unit!, unit!, item!);
         elsewhereNow = q === null || elsewhereNow === null ? null : elsewhereNow + q;
       }
       if (elsewhereNow !== null) elsewhereNow = roundQuantity(elsewhereNow);
@@ -389,10 +398,15 @@ async function loadInvoices(db: Executor, workspaceId: string, invoices: Invoice
       }
       return {
         ...base,
-        item: itemSummary(item),
+        item: item ? itemSummary(item) : null,
         orderLine: {
           id: ordered.line.id,
           lineNo: ordered.line.lineNo,
+          kind: ordered.line.kind,
+          /** Non-stock order lines: what was ordered, its unit and expense code. */
+          description: ordered.line.description,
+          unitLabel: ordered.line.unitLabel,
+          nominalCode: ordered.line.nominalCode,
           purchaseOrderId: ordered.order.id,
           reference: ordered.order.reference,
           orderStatus: ordered.order.status,
@@ -676,8 +690,10 @@ async function lineValues(
       orderLineId: orderLine.id,
       purchaseOrderId: order.id,
       itemId: orderLine.itemId,
+      // Null for a non-stock order line: invoiced in its own unit.
       unit: orderLine.unit,
-      description: line.description ?? null,
+      // A non-stock line says what it is (the accounting export shows it).
+      description: line.description ?? (orderLine.kind === "non_stock" ? orderLine.description : null),
     };
   });
 }

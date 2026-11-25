@@ -57,6 +57,8 @@ import { purchaseCreditNoteRoutes } from "./routes/purchase-credit-notes";
 import { purchaseInvoiceRoutes } from "./routes/purchase-invoices";
 import { purchasingRoutes } from "./routes/purchasing";
 import { costingRoutes } from "./routes/costing";
+import { maintenanceRoutes } from "./routes/maintenance";
+import { checklistRoutes } from "./routes/checklists";
 import { siteRoutes } from "./routes/site";
 import { labelRoutes } from "./routes/labels";
 import { specificationRoutes } from "./routes/specifications";
@@ -66,6 +68,7 @@ import { defenceRoutes } from "./routes/defence";
 import { concernRoutes, governanceRoutes } from "./routes/governance";
 import { purchaseRequestRoutes } from "./routes/purchase-requests";
 import { clientServicesRoutes } from "./routes/client-services";
+import { assetRoutes } from "./routes/assets";
 import { notificationRoutes } from "./routes/notifications";
 import { registerNotificationDelivery } from "./services/notifications";
 import { structureRoutes } from "./routes/structure";
@@ -316,6 +319,7 @@ export function createApp({
     .route("/v1/workspaces/:slug", accessRoutes)
     .route("/v1/workspaces/:slug", tokenActionRoutes)
     .route("/v1/workspaces/:slug", meetingRoutes)
+    .route("/v1/workspaces/:slug", assetRoutes)
     .route("/v1/workspaces/:slug", notificationRoutes)
     .route("/v1/workspaces/:slug", itemRoutes)
     .route("/v1/workspaces/:slug", recipeRoutes)
@@ -342,7 +346,10 @@ export function createApp({
     .route("/v1/workspaces/:slug", purchaseInvoiceRoutes)
     .route("/v1/workspaces/:slug", purchaseCreditNoteRoutes)
     .route("/v1/workspaces/:slug", costingRoutes)
+    .route("/v1/workspaces/:slug/maintenance", maintenanceRoutes)
+    .route("/v1/workspaces/:slug/site/maintenance", maintenanceRoutes)
     .route("/v1/workspaces/:slug", siteRoutes)
+    .route("/v1/workspaces/:slug", checklistRoutes)
     .route("/v1/workspaces/:slug", labelRoutes)
     .route("/v1/workspaces/:slug", specificationRoutes)
     .route("/v1/workspaces/:slug", testingRoutes)

@@ -102,6 +102,8 @@ export const syncEntityTypes = [
   "production_packing_check",
   "production_device",
   "production_device_reading",
+  // Assets module: the shared register (metadata only).
+  "asset",
   // Food safety records (HACCP) module.
   "haccp_plan",
   "haccp_plan_version",
@@ -147,6 +149,12 @@ export const syncEntityTypes = [
   "costing_period_close",
   "costing_standard_cost",
   "costing_absorption_rate",
+  // General checklists.
+  "checklist_template",
+  "checklist_item",
+  "checklist_check",
+  "checklist_check_item",
+  "checklist_action",
   // Site programmes module.
   "site_pest_device",
   "site_pest_visit",

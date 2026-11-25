@@ -6,7 +6,6 @@ import {
   type GlassEntry,
 } from "@knotworking/core";
 import {
-  haccpAssets,
   lockWorkspaceLog,
   recordChanges,
   siteGlassItems,
@@ -16,10 +15,11 @@ import {
 } from "@knotworking/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { chunks, importResult, invalidRows, type ImportChange } from "./csv-import";
+import { listAreas } from "./ports/assets";
 
 /**
  * CSV import of the glass and brittle plastics register (the parser is in core). An item is
- * identified by its area (HACCP register area, by code or name) and its description, compared
+ * identified by its area (an area of the asset register, by code or name) and its description, compared
  * without case: a row that matches updates the item, one that doesn't creates it. Items are never
  * deleted by an import, and nothing is written while any row is wrong.
  */
@@ -38,21 +38,7 @@ type GlassPlan =
   | { action: "unchanged"; entry: GlassEntry };
 
 async function planGlass(tx: Executor, workspaceId: string, entries: GlassEntry[]) {
-  const areas = await tx
-    .select({
-      id: haccpAssets.id,
-      code: haccpAssets.code,
-      name: haccpAssets.name,
-      status: haccpAssets.status,
-    })
-    .from(haccpAssets)
-    .where(
-      and(
-        eq(haccpAssets.workspaceId, workspaceId),
-        eq(haccpAssets.kind, "area"),
-        isNull(haccpAssets.deletedAt),
-      ),
-    );
+  const areas = await listAreas(tx, workspaceId);
   const byCode = new Map(areas.filter((a) => a.code).map((a) => [a.code!.toLowerCase(), a]));
   const byName = new Map<string, typeof areas>();
   for (const a of areas) {
@@ -104,7 +90,7 @@ async function planGlass(tx: Executor, workspaceId: string, entries: GlassEntry[
     };
     if (!current) {
       if (area.status === "archived") {
-        fail("area", `"${entry.area}" is archived in the food safety register`);
+        fail("area", `"${entry.area}" is archived in the asset register`);
         continue;
       }
       plan.push({

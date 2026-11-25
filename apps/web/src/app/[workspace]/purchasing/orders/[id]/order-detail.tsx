@@ -3,7 +3,6 @@
 import { useWorkspaceCurrency } from "@/lib/workspace-time";
 import { RecordAttachments, RecordFilesButton } from "@/components/record-attachments";
 import { useWorkspaceToday } from "@/lib/workspace-time";
-import { units } from "@knotworking/core";
 import { Alert, AlertDescription } from "@knotworking/ui/components/alert";
 import { Button } from "@knotworking/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@knotworking/ui/components/card";
@@ -39,6 +38,8 @@ import { HaccpDialog } from "@/components/haccp-forms";
 import { SupplierApprovalBadge } from "@/components/item-badges";
 import {
   formatLineAmount,
+  lineTitle,
+  lineUnitLabel,
   formatPrice,
   LineReceiptStateBadge,
   OverdueBadge,
@@ -46,7 +47,6 @@ import {
   ReceiptOutcomeBadge,
 } from "@/components/purchasing-badges";
 import { stackedTable } from "@/components/stacked-table";
-import { formatAmount } from "@/components/stock-badges";
 import type { PurchaseDeliveryReceipt, PurchaseOrderDetail } from "@/lib/api";
 import { ApiError, unwrap, unwrapEmpty } from "@/lib/auth-client";
 import { formatLongDate } from "@/lib/format";
@@ -230,7 +230,7 @@ export function OrderDetailView({
             </Row>
             <Row label="Supplier's reference">{o.supplierReference ?? "—"}</Row>
             <Row label="Expected">{o.expectedOn ? formatLongDate(o.expectedOn) : "Per line"}</Row>
-            <Row label="Deliver to">{o.deliveryLocation?.name ?? "—"}</Row>
+            {options.stock && <Row label="Deliver to">{o.deliveryLocation?.name ?? "—"}</Row>}
             <Row label="Drafted">
               {time(o.createdAt)} by {o.createdByName ?? "—"}
             </Row>
@@ -289,9 +289,16 @@ export function OrderDetailView({
                   <TableRow key={l.id} className="align-top">
                     <TableCell className="pl-4 whitespace-normal" data-primary>
                       <span className="text-muted-foreground tabular-nums">{l.lineNo}.</span>{" "}
-                      <span className="font-medium">{l.item.name}</span>{" "}
-                      <span className="font-mono text-xs text-muted-foreground">{l.item.code}</span>
-                      {!l.supplierListed && (
+                      <span className="font-medium">{lineTitle(l)}</span>{" "}
+                      {l.item && (
+                        <span className="font-mono text-xs text-muted-foreground">{l.item.code}</span>
+                      )}
+                      {l.kind === "non_stock" && (
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          Non-stock{l.nominalCode ? ` · nominal code ${l.nominalCode}` : ""}
+                        </div>
+                      )}
+                      {l.kind === "stock" && !l.supplierListed && (
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-label-orange">
                           <TriangleAlert className="size-3" /> Not listed as supplied by {o.supplier.name}
                         </div>
@@ -326,7 +333,7 @@ export function OrderDetailView({
                       {l.unitPrice === null ? (
                         <span className="text-muted-foreground">Unknown</span>
                       ) : (
-                        `${formatPrice(l.unitPrice, currency)} / ${units[l.unit].label}`
+                        `${formatPrice(l.unitPrice, currency)}${lineUnitLabel(l) ? ` / ${lineUnitLabel(l)}` : ""}`
                       )}
                     </TableCell>
                     <TableCell data-label="Value" className="text-right tabular-nums">
@@ -410,7 +417,10 @@ export function OrderDetailView({
                 <ul className="flex flex-col divide-y text-sm">
                   {d.receipts.map((r) => {
                     const line = o.lines.find((l) => l.id === r.lineId);
-                    const amount = line ? formatLineAmount(r.quantity, line.unit) : formatAmount(r.quantity);
+                    const amount = line
+                      ? formatLineAmount(r.quantity, line.unit)
+                      : formatLineAmount(r.quantity, null);
+                    const name = line ? lineTitle(line) : (r.item?.name ?? "");
                     const struck = r.reversed || r.voided;
                     return (
                       <li
@@ -419,7 +429,7 @@ export function OrderDetailView({
                       >
                         <ReceiptOutcomeBadge outcome={r.outcome} reversed={r.reversed} voided={r.voided} />
                         <span className={struck ? "line-through" : undefined}>
-                          <span className="tabular-nums">{amount}</span> {r.item.name}{" "}
+                          <span className="tabular-nums">{amount}</span> {name}{" "}
                           <span className="text-xs text-muted-foreground">line {r.lineNo}</span>
                         </span>
                         {r.lotId && (
@@ -447,9 +457,10 @@ export function OrderDetailView({
                             {r.voidedAt ? ` (${time(r.voidedAt)})` : ""}: {r.voidReason}; no longer counted
                           </span>
                         )}
-                        {r.outcome === "rejected" && !r.voided && canSend && (
+                        {(r.outcome === "rejected" || r.kind === "non_stock") && !r.voided && canSend && (
                           <Button variant="ghost" size="sm" onClick={() => setVoiding(r)}>
-                            <Ban data-icon="inline-start" /> Void refusal
+                            <Ban data-icon="inline-start" />{" "}
+                            {r.outcome === "rejected" ? "Void refusal" : "Void receipt"}
                           </Button>
                         )}
                         {/* Photos of this line only; the delivery's own files are above. */}
@@ -457,7 +468,7 @@ export function OrderDetailView({
                           <RecordFilesButton
                             entityType="purchase_receipt_line"
                             entityId={r.id}
-                            title={`Photos: ${r.item.name}`}
+                            title={`Photos: ${name}`}
                             description={`Line ${r.lineNo ?? ""} of the delivery on ${formatLongDate(d.receivedOn)}: photos of this item as it arrived.`}
                             label="Photos"
                           />
@@ -490,7 +501,13 @@ export function OrderDetailView({
       {dialog === "approve" && <ApproveDialog slug={slug} order={o} onClose={() => setDialog(null)} />}
       {dialog === "email" && <EmailDialog slug={slug} order={o} onClose={() => setDialog(null)} />}
       {dialog === "receive" && (
-        <ReceiveDialog slug={slug} order={o} locations={options.locations} onClose={() => setDialog(null)} />
+        <ReceiveDialog
+          slug={slug}
+          order={o}
+          locations={options.locations}
+          stock={options.stock}
+          onClose={() => setDialog(null)}
+        />
       )}
       {(dialog === "close" || dialog === "cancel") && (
         <ReasonDialog slug={slug} order={o} kind={dialog} onClose={() => setDialog(null)} />
@@ -761,9 +778,17 @@ function VoidReceiptDialog({
   const [reason, setReason] = useState("");
   return (
     <HaccpDialog
-      title={`Void the refusal of ${r.item.name}`}
-      description={`For a refusal recorded in error on ${o.reference}. It stays on the order, struck through, and no longer counts against ${o.supplier.name} in supplier performance. Record the right delivery separately.`}
-      submitLabel="Void refusal"
+      title={
+        r.outcome === "rejected"
+          ? `Void the refusal of ${r.item?.name ?? "this line"}`
+          : `Void the receipt of line ${r.lineNo}`
+      }
+      description={
+        r.outcome === "rejected"
+          ? `For a refusal recorded in error on ${o.reference}. It stays on the order, struck through, and no longer counts against ${o.supplier.name} in supplier performance. Record the right delivery separately.`
+          : `For a non-stock receipt recorded in error on ${o.reference}. It stays on the order, struck through, and no longer counts as received, in invoice matching or in supplier performance. Record the right delivery separately.`
+      }
+      submitLabel={r.outcome === "rejected" ? "Void refusal" : "Void receipt"}
       disabled={!reason.trim()}
       onClose={onClose}
       onSubmit={async () => {

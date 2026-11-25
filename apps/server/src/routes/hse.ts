@@ -78,7 +78,8 @@ const incidentView = async (c: Context<WorkspaceEnv>, incidentId: string) => {
   return { ...incidentForReader(incident, allowed), ...followUp, canSeeRestricted: allowed };
 };
 const manage = requireModuleLevel("hse", "manage");
-const siteRead = requireModuleLevel("site", "read");
+// Permits are raised against an asset of the register: Assets is a soft dependency of HSE.
+const assetsRead = requireModuleLevel("assets", "read");
 export const hseRoutes = new Hono<WorkspaceEnv>()
   // Anyone with HSE write access (an agent too) reports an incident in which nobody was hurt; it
   // becomes a restricted incident. Only its reference comes back.
@@ -203,20 +204,20 @@ export const hseRoutes = new Hono<WorkspaceEnv>()
         ),
       ),
   )
-  .get("/hse/permits", siteRead, validate("query", hsePermitListSchema), async (c) =>
+  .get("/hse/permits", assetsRead, validate("query", hsePermitListSchema), async (c) =>
     c.json(await listHsePermits(c.var.db, c.var.workspace.id, c.req.valid("query"))),
   )
-  .post("/hse/permits", siteRead, validate("json", hsePermitCreateSchema), async (c) => {
+  .post("/hse/permits", assetsRead, validate("json", hsePermitCreateSchema), async (c) => {
     const input = c.req.valid("json");
     if (input.body.visitId) assertModule(c, "attendance", "read");
     return c.json(await createHsePermit(c.var.db, c.var.workspace.id, c.var.user.id, input), 201);
   })
-  .get("/hse/permits/:id", siteRead, validate("param", id), async (c) =>
+  .get("/hse/permits/:id", assetsRead, validate("param", id), async (c) =>
     c.json(await getHsePermit(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
   )
   .put(
     "/hse/permits/:id",
-    siteRead,
+    assetsRead,
     validate("param", id),
     validate("json", hsePermitSaveSchema),
     async (c) => {
@@ -229,7 +230,7 @@ export const hseRoutes = new Hono<WorkspaceEnv>()
   )
   .get(
     "/hse/permits/:id/history",
-    siteRead,
+    assetsRead,
     validate("param", id),
     validate("query", hsePageSchema),
     async (c) =>
@@ -241,7 +242,7 @@ export const hseRoutes = new Hono<WorkspaceEnv>()
     "/hse/permits/:id/issue",
     forbidTokens,
     manage,
-    siteRead,
+    assetsRead,
     validate("param", id),
     validate("json", hsePermitSignSchema),
     async (c) => {
@@ -265,7 +266,7 @@ export const hseRoutes = new Hono<WorkspaceEnv>()
     "/hse/permits/:id/suspend",
     forbidTokens,
     manage,
-    siteRead,
+    assetsRead,
     validate("param", id),
     validate("json", hseActionSchema),
     async (c) =>
@@ -284,7 +285,7 @@ export const hseRoutes = new Hono<WorkspaceEnv>()
     "/hse/permits/:id/resume",
     forbidTokens,
     manage,
-    siteRead,
+    assetsRead,
     validate("param", id),
     validate("json", hsePermitSignSchema),
     async (c) => {
@@ -308,7 +309,7 @@ export const hseRoutes = new Hono<WorkspaceEnv>()
     "/hse/permits/:id/close",
     forbidTokens,
     manage,
-    siteRead,
+    assetsRead,
     validate("param", id),
     validate("json", hsePermitCloseSchema),
     async (c) =>
@@ -327,7 +328,7 @@ export const hseRoutes = new Hono<WorkspaceEnv>()
     "/hse/permits/:id/cancel",
     forbidTokens,
     manage,
-    siteRead,
+    assetsRead,
     validate("param", id),
     validate("json", hseActionSchema),
     async (c) =>

@@ -1,6 +1,6 @@
 import { addDays, DEFAULT_TIME_ZONE, todayInZone } from "@knotworking/core";
 import { beforeAll, describe, expect, it } from "vitest";
-import { makeApp, signIn, type Res, type TestCtx } from "./test-utils";
+import { addHaccpAsset, makeApp, signIn, type Res, type TestCtx } from "./test-utils";
 
 const WS = "/v1/workspaces/acme";
 const today = todayInZone(DEFAULT_TIME_ZONE);
@@ -135,17 +135,14 @@ describe("standards gap analysis: evidence checks (G2)", () => {
 
   it("lists the records behind a gap: overdue calibration", async () => {
     const asset = (
-      await ok(
-        await call("POST", "/haccp/assets", {
-          kind: "equipment",
-          code: "PRB-1",
-          name: "Probe thermometer",
-          calibrationFrequency: { every: 1, unit: "month" },
-          calibrationTolerance: 0.5,
-          measurementUnit: "°C",
-        }),
-        201,
-      )
+      await addHaccpAsset(call, {
+        kind: "equipment",
+        code: "PRB-1",
+        name: "Probe thermometer",
+        calibrationFrequency: { every: 1, unit: "month" },
+        calibrationTolerance: 0.5,
+        measurementUnit: "°C",
+      })
     ).id;
     await ok(
       await call("POST", "/haccp/calibration", {
@@ -166,17 +163,14 @@ describe("standards gap analysis: evidence checks (G2)", () => {
   });
 
   it("counts equipment never calibrated as a gap, not met", async () => {
-    await ok(
-      await call("POST", "/haccp/assets", {
-        kind: "equipment",
-        code: "PRB-2",
-        name: "Spare probe",
-        calibrationFrequency: { every: 1, unit: "month" },
-        calibrationTolerance: 0.5,
-        measurementUnit: "°C",
-      }),
-      201,
-    );
+    await addHaccpAsset(call, {
+      kind: "equipment",
+      code: "PRB-2",
+      name: "Spare probe",
+      calibrationFrequency: { every: 1, unit: "month" },
+      calibrationTolerance: 0.5,
+      measurementUnit: "°C",
+    });
     const [check] = (await clause("4.6")).evidence;
     expect(check).toMatchObject({ status: "gap", detail: "2 calibrations overdue or never done" });
     expect(check.items).toEqual(

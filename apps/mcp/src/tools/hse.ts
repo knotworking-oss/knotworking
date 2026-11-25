@@ -103,7 +103,7 @@ export function registerHseTools({ define, slugOf, workspaceParam }: ToolContext
     "list_hse_permits",
     {
       module: "hse",
-      requiresModules: ["site"],
+      requiresModules: ["assets"],
       resource: { name: "hse_permits", op: "list" },
       title: "List contractor permits",
       description:
@@ -125,7 +125,7 @@ export function registerHseTools({ define, slugOf, workspaceParam }: ToolContext
     "get_hse_permit",
     {
       module: "hse",
-      requiresModules: ["site"],
+      requiresModules: ["assets"],
       resource: { name: "hse_permits", op: "get" },
       title: "Read permit and decision evidence",
       description:
@@ -155,10 +155,10 @@ export function registerHseTools({ define, slugOf, workspaceParam }: ToolContext
     "draft_hse_permit",
     {
       module: "hse",
-      requiresModules: ["site"],
+      requiresModules: ["assets"],
       title: "Prepare contractor work permit",
       description:
-        "Prepare a draft against existing Site assets, signed HSE assessments and contractor competence. Existing Training records remain authoritative. Optional visitor references additionally require Attendance read access. A draft cannot authorise work, create an isolation or return equipment to service. Stable command IDs and reviewed revisions protect retries/edits.",
+        "Prepare a draft against an existing asset of the register (Assets), signed HSE assessments and contractor competence. Existing Training records remain authoritative. Optional visitor references additionally require Attendance read access. A draft cannot authorise work, create an isolation or return equipment to service. Stable command IDs and reviewed revisions protect retries/edits.",
       annotations: WRITE,
       input: {
         workspace: workspaceParam,

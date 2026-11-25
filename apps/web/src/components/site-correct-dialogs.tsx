@@ -21,6 +21,8 @@ import {
   TextAreaField,
   TextField,
   siteApi,
+  checklistApi,
+  maintenanceApi,
   text,
 } from "@/components/site-forms";
 import type {
@@ -164,12 +166,12 @@ export function CorrectMaintenanceDialog({
   return (
     <SiteDialog
       title="Correct maintenance record"
-      description={`${record.asset?.name}: ${record.task?.title}. What isn't changed is kept from the original${record.clearanceRequired ? "; the correction needs its own hygiene clearance" : ""}.`}
+      description={`${record.asset?.name}: ${record.task?.title}. What isn't changed is kept from the original${record.clearanceRequired ? "; the correction needs its own return-to-service clearance" : ""}.`}
       submitLabel="Correct record"
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().maintenance.records[":id"].correct.$post({
+          maintenanceApi().records[":id"].correct.$post({
             param: { slug, id: record.id },
             json: {
               reason: reason.trim(),
@@ -220,12 +222,16 @@ export function CorrectCheckDialog({
     <SiteDialog
       wide
       title="Correct a check"
-      description={`${check.templateName}. The correction replaces it and needs its own sign-off.`}
+      description={
+        check.kind === "general"
+          ? check.templateName
+          : `${check.templateName}. The correction needs its own sign-off.`
+      }
       submitLabel="Correct check"
       onClose={onClose}
       onSubmit={async () => {
         await unwrap(
-          siteApi().checklists.checks[":id"].correct.$post({
+          (check.kind === "general" ? checklistApi() : siteApi().checklists).checks[":id"].correct.$post({
             param: { slug, id: check.id },
             json: {
               reason: reason.trim(),

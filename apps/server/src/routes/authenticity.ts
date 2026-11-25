@@ -29,7 +29,11 @@ import {
   archiveAuthenticity,
 } from "../services/authenticity";
 const idParam = z.object({ id: z.uuid() });
+// Authenticity assessments are of an item (and its supplier): they need Items, a soft dependency
+// of Quality (`404 module_inactive` / `403 module_forbidden` without it).
 export const authenticityRoutes = new Hono<WorkspaceEnv>()
+  .use("/quality/authenticity", requireModuleLevel("items", "read"))
+  .use("/quality/authenticity/*", requireModuleLevel("items", "read"))
   .get("/quality/authenticity", validate("query", authenticityListQuerySchema), async (c) =>
     c.json(await listAuthenticity(c.var.db, c.var.workspace.id, c.req.valid("query"))),
   )

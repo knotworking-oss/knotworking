@@ -322,7 +322,11 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json"),
-          c.var.activeModules.includes("routings") ? { beforeReplan: refuseReplanWithCards } : {},
+          {
+            // Applies with Routings off too: cards made earlier keep the batch's size and version.
+            beforeReplan: (tx, batch) =>
+              refuseReplanWithCards(tx, batch, { routingsActive: c.var.activeModules.includes("routings") }),
+          },
         ),
       ),
   )

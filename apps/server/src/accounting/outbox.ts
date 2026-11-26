@@ -7,7 +7,7 @@ import {
   type Database,
   type Transaction,
 } from "@knotworking/db";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { ApiError, notFound } from "../errors";
 import { assertAccountingConnection } from "../services/accounting";
@@ -297,8 +297,70 @@ export async function recordAccountingOutcome(
 }
 
 /**
+ * How long one allocate request holds a pending allocation. A request that died mid-call (its
+ * outcome unrecorded) stops blocking others after this; allocating reads back first, so a later
+ * try never allocates twice.
+ */
+export const ALLOCATION_CLAIM_MS = 5 * 60_000;
+
+/** The allocate request now holding this credit's pending allocation, if any. */
+async function allocationInFlight(tx: Transaction, ws: string, id: string) {
+  const [latest] = await tx
+    .select({ action: events.action, createdAt: events.createdAt })
+    .from(events)
+    .where(and(eq(events.workspaceId, ws), eq(events.postingId, id)))
+    .orderBy(desc(events.createdAt), desc(events.id))
+    .limit(1);
+  return (
+    latest?.action === "allocation_started" && Date.now() - latest.createdAt.getTime() < ALLOCATION_CLAIM_MS
+  );
+}
+
+const allocationBusy = () =>
+  new ApiError(
+    409,
+    "allocation_in_progress",
+    "This credit is being allocated now. Wait for that to finish, then refresh",
+  );
+
+/**
+ * Claims a posted credit's pending allocation for one allocate request, under the workspace lock,
+ * before the adapter is called: concurrent requests would otherwise both see it pending and both
+ * call the ledger. The claim is an `allocation_started` event; it ends with the request's outcome
+ * (`allocation_verified`, or `allocation_not_verified` from `releaseAccountingAllocation`) or lapses
+ * after `ALLOCATION_CLAIM_MS`.
+ */
+export async function claimAccountingAllocation(db: Database, ws: string, id: string, actor: string) {
+  return db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, ws);
+    const row = await find(tx, ws, id);
+    if (row.state !== "posted" || row.allocation !== "pending" || !row.externalId)
+      throw conflict("Only a posted credit with a pending allocation can be settled");
+    if (await allocationInFlight(tx, ws, id)) throw allocationBusy();
+    await event(tx, ws, id, row.attemptId, actor, "allocation_started", "Allocating the credit");
+    return row;
+  });
+}
+
+/** Ends an allocate request's claim without an allocation: it stays pending, with the evidence. */
+export async function releaseAccountingAllocation(
+  db: Database,
+  ws: string,
+  id: string,
+  actor: string,
+  evidence: string,
+) {
+  await db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, ws);
+    const row = await find(tx, ws, id);
+    await event(tx, ws, id, row.attemptId, actor, "allocation_not_verified", evidence);
+  });
+}
+
+/**
  * Settles a posted credit's pending allocation: `allocated` after the adapter read the allocation
- * back, or `recorded` when a person states how finance settled it in the ledger instead.
+ * back (by the request holding the claim), or `recorded` when a person states how finance settled
+ * it in the ledger instead (refused while an allocate request is in flight).
  */
 export async function recordAccountingAllocation(
   db: Database,
@@ -313,6 +375,7 @@ export async function recordAccountingAllocation(
     const row = await find(tx, ws, id);
     if (row.state !== "posted" || row.allocation !== "pending")
       throw conflict("Only a posted credit with a pending allocation can be settled");
+    if (allocation === "recorded" && (await allocationInFlight(tx, ws, id))) throw allocationBusy();
     const [updated] = await tx
       .update(postings)
       .set({ allocation, updatedAt: new Date() })

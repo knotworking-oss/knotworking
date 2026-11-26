@@ -4,7 +4,7 @@ import {
   workspaces,
   type Database,
 } from "@knotworking/db";
-import { and, arrayContains, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, arrayContains, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { dispatchAccountingPosting } from "./outbox";
 import type { AccountingAdapterRegistry, AccountingBinding, InstalledAccountingAdapter } from "./registry";
 
@@ -24,8 +24,8 @@ export interface DispatchSummary {
 }
 
 /**
- * One pass of the dispatcher: sends queued postings, oldest first, for enabled connections whose
- * provider has an installed adapter. Each send goes through the outbox, which commits `unknown`
+ * One pass of the dispatcher: sends queued postings for enabled connections whose provider has an
+ * installed adapter, oldest first within each connection and taking connections in turn. Each send goes through the outbox, which commits `unknown`
  * before calling the adapter, so concurrent passes (or several API processes) can't send twice.
  * Failures stay visible in the queue; nothing here resends an uncertain posting.
  */
@@ -37,7 +37,12 @@ export async function dispatchQueuedPostings(
   const summary: DispatchSummary = { posted: 0, failed: 0, unknown: 0, skipped: 0, deferred: 0 };
   const log = options.log ?? console;
   if (!registry.providers.length) return summary;
-  const rows = await db
+  // Round-robin across connections: every connection's oldest queued posting comes before any
+  // connection's second. A destination that defers or can't start (a lapsed grant, a rate limit,
+  // a misconfigured adapter) leaves its postings queued with their old timestamps; ordering purely
+  // by age would put the same stuck postings at the head of every pass and starve every other
+  // connection and workspace.
+  const ranked = db
     .select({
       id: postings.id,
       workspaceId: postings.workspaceId,
@@ -46,6 +51,10 @@ export async function dispatchQueuedPostings(
       connectionId: postings.connectionId,
       provider: connections.provider,
       companyId: connections.companyId,
+      createdAt: postings.createdAt,
+      turn: sql<number>`row_number() over (partition by ${postings.workspaceId}, ${postings.connectionId} order by ${postings.createdAt}, ${postings.id})`.as(
+        "turn",
+      ),
     })
     .from(postings)
     .innerJoin(
@@ -63,7 +72,11 @@ export async function dispatchQueuedPostings(
         inArray(connections.provider, [...registry.providers]),
       ),
     )
-    .orderBy(asc(postings.createdAt), asc(postings.id))
+    .as("ranked");
+  const rows = await db
+    .select()
+    .from(ranked)
+    .orderBy(asc(ranked.turn), asc(ranked.createdAt), asc(ranked.id))
     .limit(options.limit ?? 25);
   const adapters = new Map<string, InstalledAccountingAdapter | null>();
   /** Destinations (provider + company) that deferred a posting in this pass. */

@@ -486,6 +486,51 @@ describe("routings and job cards", () => {
       plannedQuantity: { base: 10 },
       expected: { setupMinutes: 15, runMinutes: 100 },
     });
+
+    // Switching Routings off doesn't free the batch: its cards would come back with the old size.
+    await ok("PATCH", "/module-settings", { modules: genericModules.filter((id) => id !== "routings") });
+    try {
+      const body = await refused(
+        "PATCH",
+        `/production/batches/${batch.id}`,
+        { batches: 2 },
+        409,
+        "job_cards_exist",
+      );
+      expect(body.error.message).toContain("switch Routings on");
+      await ok("PATCH", `/production/batches/${batch.id}`, { notes: "Still fine" });
+    } finally {
+      await ok("PATCH", "/module-settings", { modules: genericModules });
+    }
+    expect((await ok("GET", `/routings/batches/${batch.id}/job-cards`)).jobCards[0]).toMatchObject({
+      plannedQuantity: { base: 10 },
+    });
+  });
+
+  it("makes no job cards on a work centre archived since the routing was approved", async () => {
+    const [weld] = (await ok("GET", "/routings/work-centres?q=RT-WELD")).workCentres;
+    const batch = await ok(
+      "POST",
+      "/production/batches",
+      { recipeId: frameRecipe, plannedOn: today, batches: 1, outputLocationId: store },
+      201,
+    );
+    await ok("PATCH", `/routings/work-centres/${weld.id}`, { status: "archived" });
+    try {
+      await refused(
+        "POST",
+        `/routings/batches/${batch.id}/job-cards`,
+        undefined,
+        409,
+        "work_centre_archived",
+      );
+      expect((await ok("GET", `/routings/batches/${batch.id}/job-cards`)).jobCards).toEqual([]);
+    } finally {
+      await ok("PATCH", `/routings/work-centres/${weld.id}`, { status: "active" });
+    }
+    expect(
+      (await ok("POST", `/routings/batches/${batch.id}/job-cards`, undefined, 201)).jobCards,
+    ).toHaveLength(3);
   });
 
   it("touches the card and emits a sync change on every piece of work recorded on it", async () => {

@@ -914,7 +914,11 @@ export async function updateCrmOpportunity(
   return getCrmOpportunity(db, workspaceId, id, links);
 }
 
-/** Records a won or lost outcome with its reason, or reopens a closed opportunity that wasn't handed off. */
+/**
+ * Records a won or lost outcome with its reason, or reopens a closed opportunity that wasn't handed
+ * off. An open opportunity whose quote was already handed off in Sales or Client services can't be
+ * lost: it would show a lost deal with an order or project that can never be reopened.
+ */
 export async function decideCrmOutcome(
   db: Database,
   workspaceId: string,
@@ -945,6 +949,12 @@ export async function decideCrmOutcome(
           stageId = stages[0].id;
         }
       } else if (current.status !== "open") throw conflict("This opportunity is already closed");
+      else if (input.outcome === "lost" && (await handoffOf(tx, workspaceId, current)))
+        // Its quote was converted to an order or accepted into a project in its own module.
+        throw conflict(
+          "This opportunity's quote was already handed off to delivery. Record it as won, or correct it in Sales or Client services",
+          "quote_handed_off",
+        );
       const outcome = input.outcome === "reopen" ? null : input.outcome;
       const closing = outcome !== null;
       const [row] = await tx

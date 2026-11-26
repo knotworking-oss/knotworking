@@ -45,6 +45,8 @@ const actionLabels: Record<string, string> = {
   retry_requested: "Retry requested",
   reprepared: "Prepared again after rejection",
   allocation_pending: "Credit posted, allocation not verified",
+  allocation_started: "Allocation started",
+  allocation_not_verified: "Allocation not confirmed, still pending",
   allocation_verified: "Allocation confirmed in accounting system",
   allocation_recorded: "Allocation settled in accounting system",
 };

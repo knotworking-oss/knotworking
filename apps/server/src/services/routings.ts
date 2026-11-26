@@ -1193,6 +1193,7 @@ export async function getJobCard(db: Executor, workspaceId: string, id: string) 
  * Makes a batch's job cards from its bill's routing: one per operation of the approved version,
  * with expected minutes scaled to the batch (setup once, run per yield) and the work centre's
  * current rate. A planned or in-progress batch only, and only once (cancel the cards to remake them).
+ * Every operation's work centre must still be active.
  */
 export async function createJobCards(db: Database, workspaceId: string, actorId: string, batchId: string) {
   await db.transaction(async (tx) => {
@@ -1230,6 +1231,13 @@ export async function createJobCards(db: Database, workspaceId: string, actorId:
       throw new ApiError(409, "routing_not_approved", `Routing ${routing.code} has no approved version`);
     }
     const ops = await operationsOf(tx, [version.id]);
+    // A centre archived since the version was approved takes no new cards: restore it, or revise
+    // the routing onto a live centre.
+    await assertWorkCentresUsable(
+      tx,
+      workspaceId,
+      ops.map((o) => o.workCentreId),
+    );
     const centres = await workCentresById(
       tx,
       ops.map((o) => o.workCentreId),
@@ -1377,15 +1385,25 @@ async function assertOutputWithinGood(tx: Executor, batch: BatchRow, last: CardR
 }
 
 /**
- * Production's resize check while Routings is active: a planned batch's job cards froze its size
- * and recipe version (expected minutes and cost), so it keeps them until its cards are cancelled.
+ * Production's resize check, whether or not Routings is active (data integrity, not a feature): a
+ * planned batch's job cards froze its size and recipe version (expected minutes and cost), so it
+ * keeps them until its cards are cancelled. Switching Routings off doesn't free it, or its cards
+ * would come back with the old size when it is switched on again.
  */
-export async function refuseReplanWithCards(tx: Executor, batch: BatchRow) {
+export async function refuseReplanWithCards(
+  tx: Executor,
+  batch: BatchRow,
+  { routingsActive = true }: { routingsActive?: boolean } = {},
+) {
   if ((await liveCardsOfBatch(tx, batch.id)).length) {
     throw new ApiError(
       409,
       "job_cards_exist",
-      `Batch ${batch.batchCode} has job cards made for its current size and version; cancel the job cards first`,
+      `Batch ${batch.batchCode} has job cards made for its current size and version; ${
+        routingsActive
+          ? "cancel the job cards first"
+          : "switch Routings on to cancel the job cards first, or cancel the batch and plan another"
+      }`,
     );
   }
 }

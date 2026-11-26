@@ -1,4 +1,5 @@
-import { addDays, DEFAULT_TIME_ZONE, todayInZone, type ModuleId } from "@knotworking/core";
+import { addDays, DEFAULT_TIME_ZONE, newId, todayInZone, type ModuleId } from "@knotworking/core";
+import { prepareDespatch } from "./despatch-test-helpers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeApp, signIn, type TestCtx } from "./test-utils";
 
@@ -321,33 +322,99 @@ describe("catalogue and bills of materials", () => {
     expect(valuation.lots[0].value).toBe(1497);
   });
 
-  it("buys merchandise into stock and despatches it with Food items disabled", async () => {
-    await ok("PATCH", "/module-settings", { modules: [...genericModules, "customers", "despatch"] });
+  it("buys merchandise, sells it and despatches it from stock with Food items disabled", async () => {
+    await ok("PATCH", "/module-settings", {
+      modules: [...genericModules, "customers", "despatch", "sales"],
+    });
     const store = await ok("POST", "/stock/locations", { name: "Shop store" }, 201);
     const mug = await item("MUG", "merchandise", "each", { standardCost: 3 });
-    const lot = await ok(
+    const supplier = await ok("POST", "/suppliers", { name: "Synthetic pottery" }, 201);
+    await ok("POST", `/suppliers/${supplier.id}/approval`, { status: "approved" });
+    const purchase = await ok(
       "POST",
-      "/stock/receipts",
-      { itemId: mug.id, quantity: 12, unit: "each", locationId: store.id, receivedOn: today },
+      "/purchasing/orders",
+      {
+        supplierId: supplier.id,
+        expectedOn: today,
+        lines: [{ itemId: mug.id, quantity: 12, unit: "each", unitPrice: 2.5 }],
+      },
       201,
     );
+    await ok("POST", `/purchasing/orders/${purchase.id}/send`, {});
+    const received = await ok(
+      "POST",
+      `/purchasing/orders/${purchase.id}/receipts`,
+      {
+        receivedOn: today,
+        lines: [
+          {
+            lineId: purchase.lines[0].id,
+            outcome: "accepted",
+            quantity: 12,
+            unit: "each",
+            locationId: store.id,
+          },
+        ],
+      },
+      201,
+    );
+    const lotId = received.receipts[0].lotId as string;
+    expect(await ok("GET", `/stock/lots/${lotId}`)).toMatchObject({ onHand: { base: 12 } });
     const customer = await ok(
       "POST",
       "/customers",
       { code: "retail", name: "Synthetic retailer", address: "1 Example Street" },
       201,
     );
+    const created = await ok(
+      "POST",
+      "/sales/orders",
+      {
+        commandId: newId(),
+        kind: "order",
+        document: {
+          customerId: customer.id,
+          currency: "GBP",
+          lines: [{ itemId: mug.id, quantity: 5, unit: "each", dueOn: today, unitPrice: 6 }],
+        },
+      },
+      201,
+    );
+    const sale = await ok("POST", `/sales/orders/${created.id}/confirm`, {
+      commandId: newId(),
+      expectedRevision: created.revision,
+      reason: "Confirmed by phone",
+    });
     const despatch = await ok(
       "POST",
       "/despatch",
       {
         customerId: customer.id,
         despatchedOn: today,
-        lines: [{ lotId: lot.id, locationId: store.id, quantity: 5, unit: "each" }],
+        lines: [{ lotId, locationId: store.id, quantity: 5, unit: "each" }],
       },
       201,
     );
     expect(despatch.lines).toHaveLength(1);
+    const prepared = await prepareDespatch(request, despatch.id);
+    expect(prepared.error).toBeUndefined();
+    await ok("POST", `/despatch/${despatch.id}/confirm`, {
+      commandId: newId(),
+      expectedUpdatedAt: prepared.stamp,
+    });
+    // Confirming the despatch takes the mugs out of stock.
+    expect(await ok("GET", `/stock/lots/${lotId}`)).toMatchObject({ onHand: { base: 7 } });
+    await ok("POST", `/sales/orders/${sale.id}/fulfilments`, {
+      commandId: newId(),
+      expectedRevision: sale.revision,
+      orderLineId: sale.lines[0].id,
+      despatchLineId: despatch.lines[0].id,
+      reason: "Fulfilled customer order",
+    });
+    expect((await ok("GET", `/sales/orders/${sale.id}/fulfilments`)).lines[0]).toMatchObject({
+      shipped: 5,
+      outstanding: 0,
+    });
     const raw = await item("STEEL", "raw_material", "kg");
     const rawLot = await ok(
       "POST",
@@ -421,6 +488,77 @@ describe("catalogue and bills of materials", () => {
       allergens: ["cereals_gluten"],
       mayContain: ["milk"],
     });
+  });
+
+  it("redacts food data from sync for a member and a token without Food items while it is active", async () => {
+    await ok("PATCH", "/module-settings", { modules: null });
+    const nuts = await item("NUTMIX", "ingredient", "kg", { allergens: ["nuts"], shelfLifeDays: 30 });
+    const snack = await item("SNACK", "finished", "each", { allergens: ["nuts"] });
+    const recipe = await ok(
+      "POST",
+      "/recipes",
+      {
+        code: "SNACK-RECIPE",
+        name: "Synthetic snack",
+        outputItemId: snack.id,
+        draft: {
+          yieldQuantity: 2,
+          yieldUnit: "each",
+          lines: [{ itemId: nuts.id, quantity: 100, unit: "g" }],
+        },
+      },
+      201,
+    );
+    await ok("POST", `/recipes/${recipe.id}/draft/approve`);
+
+    const { members } = await ok("GET", "/members");
+    const marcus = members.find((m: { email: string }) => m.email === "marcus@knotworking.dev");
+    for (const module of ["items", "recipes"])
+      await ok("PUT", `/members/${marcus.userId}/module-access/${module}`, { level: "read" });
+    await ok("PUT", `/members/${marcus.userId}/module-access/food_items`, { level: "none" });
+    const marcusCookie = (await signIn(ctx, marcus.email)).cookie;
+    const created = await ctx.req("/v1/me/api-tokens", {
+      method: "POST",
+      cookie,
+      json: { name: "Catalogue sync", scope: "read", modules: ["items", "recipes"] },
+    });
+    expect(created.status).toBe(201);
+    const restrictedToken = (await created.json()).token as string;
+
+    type Change = { entity: string; entityId: string; data: Record<string, unknown> | null };
+    const pull = async (auth: { cookie: string } | { headers: Record<string, string> }) => {
+      const all: Change[] = [];
+      let after = "0";
+      for (;;) {
+        const res = await ctx.req(`${ws}/sync?after=${after}&limit=1000`, { method: "GET", ...auth });
+        const page = await res.json();
+        expect(res.status, JSON.stringify(page)).toBe(200);
+        all.push(...page.changes);
+        if (!page.hasMore) return all;
+        after = page.cursor;
+      }
+    };
+    const leaks = (changes: Change[]) =>
+      changes.filter(
+        (c) =>
+          c.entity === "food_item" ||
+          (c.data !== null && ("allergens" in c.data || "approvedAllergens" in c.data)),
+      );
+    // The owner sees the food data; it is there to leak.
+    const owner = await pull({ cookie });
+    expect(leaks(owner).some((c) => c.entityId === nuts.id)).toBe(true);
+    expect(owner.some((c) => c.entity === "recipe_version" && c.data?.approvedAllergens)).toBe(true);
+
+    for (const auth of [
+      { cookie: marcusCookie },
+      { headers: { authorization: `Bearer ${restrictedToken}`, origin: "" } },
+    ]) {
+      const changes = await pull(auth);
+      // The items and versions still sync, without their food fields.
+      expect(changes.some((c) => c.entity === "item" && c.entityId === nuts.id)).toBe(true);
+      expect(changes.some((c) => c.entity === "recipe_version" && c.data?.recipeId === recipe.id)).toBe(true);
+      expect(leaks(changes)).toEqual([]);
+    }
   });
 
   it("records the allergen baseline of a version approved while Food items is off", async () => {

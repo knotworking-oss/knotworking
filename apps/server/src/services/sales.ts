@@ -36,6 +36,7 @@ import {
 } from "@knotworking/db";
 import { and, asc, count, desc, eq, gte, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { ApiError, badRequest, notFound } from "../errors";
+import { assertNoCrmLinkOnCustomerChange } from "./crm-quote-link";
 import { findCustomer } from "./customers";
 import { findDeliverySite } from "./customer-sites";
 import { findItem, toBase } from "./ports/stock";
@@ -322,6 +323,8 @@ export async function saveSalesOrder(
             ? "Customer, delivery site and currency cannot change after confirmation; cancel the balance and create another order"
             : "Customer, delivery site and currency come from the quote this order was made from; cancel this draft and create a new order instead",
         );
+      if (row.kind === "quote" && input.document.customerId !== row.customerId)
+        await assertNoCrmLinkOnCustomerChange(tx, ws, "sales", id);
       const dest = amend ? row.recipient : await recipient(tx, ws, input.document);
       if (amend) await recipient(tx, ws, input.document); // revalidate active master data; retain historical recipient
       const existing = await orderLines(tx, ws, id);

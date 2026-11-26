@@ -868,11 +868,14 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
     expect((await handoff(rewon, { kind: "sales_order" })).handoff).toMatchObject({ kind: "sales_order" });
   });
 
-  it("rechecks the quote's customer at handoff", async () => {
+  /** A link made before Sales and Client services guarded it: the quote moved customer anyway. */
+  const moveQuote = (quoteId: string, customerId: string) =>
+    s.ctx.handle.db.update(salesOrders).set({ customerId }).where(eq(salesOrders.id, quoteId));
+
+  it("keeps a linked quote on the deal's customer in Sales and Client services", async () => {
     const { body, req } = api;
     const draft = await salesQuote(false);
     const deal = await make("Moving quote", { salesQuoteId: draft.id });
-    // The draft is re-saved for another customer after it was linked.
     const moved = await body(
       await req("PUT", `/sales/orders/${draft.id}`, {
         commandId: newId(),
@@ -880,21 +883,86 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
         document: document(other.id),
         reason: "Wrong customer",
       }),
+      409,
     );
-    await body(
-      await req("POST", `/sales/orders/${draft.id}/issue`, {
+    expect(moved.error).toMatchObject({ code: "quote_linked_to_crm" });
+    expect(moved.error.message).toContain(deal.reference);
+    // Other edits still save; unlinked in CRM, the customer can change.
+    const saved = await body(
+      await req("PUT", `/sales/orders/${draft.id}`, {
         commandId: newId(),
-        expectedRevision: moved.revision,
-        reason: "Prices agreed",
+        expectedRevision: draft.revision,
+        document: { ...document(customer.id), customerReference: "PO-1" },
+        reason: "Reference",
       }),
     );
-    const won = await outcome(deal, "won");
+    await patch(deal, { salesQuoteId: null });
+    await body(
+      await req("PUT", `/sales/orders/${draft.id}`, {
+        commandId: newId(),
+        expectedRevision: saved.revision,
+        document: document(other.id),
+        reason: "Wrong customer",
+      }),
+    );
+
+    const service = await serviceQuote(false);
+    const serviceDeal = await make("Moving service", { serviceQuoteId: service.id });
+    const fields = {
+      customerId: other.id,
+      title: "Kitchen audit",
+      scope: "Review the line",
+      currency: "GBP",
+      unitPrice: 500,
+      quotedMinutes: null,
+      deliveryDate: "2027-03-01",
+    };
+    const refused = await body(
+      await req("PATCH", `/client-services/${service.id}`, {
+        ...fields,
+        commandId: newId(),
+        expectedRevision: service.revision,
+      }),
+      409,
+    );
+    expect(refused.error.message).toContain(serviceDeal.reference);
+  });
+
+  it("rechecks the quote's customer at handoff", async () => {
+    const quote = await salesQuote();
+    const won = await outcome(await make("Moved quote", { salesQuoteId: quote.id }), "won");
+    await moveQuote(quote.id, other.id);
     expect((await handoff(won, { kind: "sales_order" }, 409)).error.message).toMatch(/another customer/);
-    const orders = await s.ctx.handle.db
-      .select({ id: salesOrders.id })
-      .from(salesOrders)
-      .where(eq(salesOrders.sourceQuoteId, draft.id));
-    expect(orders).toEqual([]);
+    expect(await ordersOf(quote.id)).toEqual([]);
+  });
+
+  it("doesn't take another customer's order as the deal's handoff, so it can be corrected", async () => {
+    const { body, req } = api;
+    const quote = await salesQuote();
+    const lost = await outcome(await make("Moved and ordered", { salesQuoteId: quote.id }), "lost");
+    const won = await outcome(
+      await make("Won, moved and ordered", { salesQuoteId: (await salesQuote()).id }),
+      "won",
+    );
+    for (const deal of [lost, won]) {
+      await moveQuote(deal.salesQuoteId, other.id);
+      await body(
+        await req("POST", `/sales/orders/${deal.salesQuoteId}/convert`, {
+          commandId: newId(),
+          expectedRevision: deal.salesQuote.revision,
+          reason: "Ordered by phone",
+        }),
+      );
+      expect((await body(await req("GET", `/crm/opportunities/${deal.id}`))).handoff).toBeNull();
+    }
+    // The won deal isn't handed off by adopting it.
+    expect((await handoff(won, { kind: "sales_order" }, 409)).error.message).toMatch(/another customer/);
+    // The lost deal reopens and drops the quote.
+    const reopened = await outcome(lost, "reopen");
+    expect(await patch(reopened, { salesQuoteId: null })).toMatchObject({
+      salesQuoteId: null,
+      handoff: null,
+    });
   });
 
   it("reopens a deal whose stage was removed onto the first live stage", async () => {

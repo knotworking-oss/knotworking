@@ -518,6 +518,7 @@ async function decorate(db: Executor, workspaceId: string, rows: Opportunity[], 
           reference: salesOrders.reference,
           status: salesOrders.status,
           sourceQuoteId: salesOrders.sourceQuoteId,
+          customerId: salesOrders.customerId,
         })
         .from(salesOrders)
         .where(and(eq(salesOrders.workspaceId, workspaceId), liveOrderOf(salesIds)))
@@ -549,16 +550,19 @@ async function decorate(db: Executor, workspaceId: string, rows: Opportunity[], 
     const order = row.salesQuoteId ? orderByQuote.get(row.salesQuoteId) : undefined;
     const service = row.serviceQuoteId ? serviceMap.get(row.serviceQuoteId) : undefined;
     const project = service?.projectId ? projectMap.get(service.projectId) : undefined;
-    const handoff = order
-      ? { kind: "sales_order" as const, id: order.id, reference: order.reference, status: order.status }
-      : service?.projectId
-        ? {
-            kind: "service_project" as const,
-            id: service.projectId,
-            reference: project && !project.deletedAt ? project.name : null,
-            status: service.status,
-          }
-        : null;
+    // An order or project made for another customer (a quote moved before links guarded it) is not
+    // this deal's handoff: the deal stays reopenable, so its link can be corrected.
+    const handoff =
+      order && order.customerId === row.customerId
+        ? { kind: "sales_order" as const, id: order.id, reference: order.reference, status: order.status }
+        : service?.projectId && service.customerId === row.customerId
+          ? {
+              kind: "service_project" as const,
+              id: service.projectId,
+              reference: project && !project.deletedAt ? project.name : null,
+              status: service.status,
+            }
+          : null;
     return {
       ...row,
       stage: stageMap.get(row.stageId) ?? null,

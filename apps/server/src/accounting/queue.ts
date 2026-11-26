@@ -9,9 +9,11 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { ApiError, notFound } from "../errors";
 import { findAccountingConnection } from "../services/accounting";
 import {
+  claimAccountingAllocation,
   confirmAccountingPosting,
   dispatchAccountingPosting,
   recordAccountingAllocation,
+  releaseAccountingAllocation,
   retryAccountingPosting,
 } from "./outbox";
 import type { AccountingAdapterRegistry, AccountingBinding } from "./registry";
@@ -271,12 +273,24 @@ export async function allocateAccountingQueueItem(
   if (!adapter) throw notInstalled();
   if (!adapter.allocate)
     throw new ApiError(409, "allocation_unsupported", "This accounting adapter can't allocate credits");
-  const result = await adapter.allocate({
-    postingKey: row.id,
-    document: row.payload,
-    externalId: row.externalId,
-  });
-  if (!result.allocated) throw new ApiError(409, "allocation_not_verified", result.evidence);
+  // Claimed under the workspace lock first, so two clicks don't both call the ledger.
+  const claimed = await claimAccountingAllocation(db, ws.id, id, actor);
+  const result = await adapter
+    .allocate({ postingKey: claimed.id, document: claimed.payload, externalId: claimed.externalId! })
+    .catch(async (error: unknown) => {
+      await releaseAccountingAllocation(
+        db,
+        ws.id,
+        id,
+        actor,
+        "The allocation request failed; nothing confirmed",
+      );
+      throw error;
+    });
+  if (!result.allocated) {
+    await releaseAccountingAllocation(db, ws.id, id, actor, result.evidence.slice(0, 4000));
+    throw new ApiError(409, "allocation_not_verified", result.evidence);
+  }
   await recordAccountingAllocation(
     db,
     ws.id,

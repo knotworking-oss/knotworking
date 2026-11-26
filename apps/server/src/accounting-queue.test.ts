@@ -1,6 +1,9 @@
 import { DEFAULT_TIME_ZONE, newId, todayInZone, type AccountingReceipt } from "@knotworking/core";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { accountingPostingEvents, accountingPostings, users, workspaces } from "@knotworking/db";
+import { and, eq, sql } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { dispatchQueuedPostings } from "./accounting/dispatcher";
+import { allocateAccountingQueueItem } from "./accounting/queue";
 import { createAccountingAdapterRegistry, type AccountingAdapterFactory } from "./accounting/registry";
 import { makeApp, signIn, type Res, type TestCtx } from "./test-utils";
 
@@ -325,6 +328,81 @@ describe("accounting dispatch and the finance review queue", () => {
       [broken, stuck[3]],
     ])
       expect((await item(connection, id!)).posting).toMatchObject({ state: "queued" });
+  });
+
+  it("claims a pending allocation before calling the ledger, so two requests don't both allocate", async () => {
+    const connection = await connect("xero");
+    const id = await prepared(connection, "AL-1");
+    await ok(action(connection, id, "send"));
+    const { db } = ctx.handle;
+    await db.update(accountingPostings).set({ allocation: "pending" }).where(eq(accountingPostings.id, id));
+    const [ws] = await db.select().from(workspaces).where(eq(workspaces.slug, "acme"));
+    const [actor] = await db.select().from(users).where(eq(users.email, "ada@knotworking.dev"));
+    let allocations = 0;
+    let verdict = false;
+    let release!: () => void;
+    const gate = () => new Promise<void>((resolve) => (release = resolve));
+    let opened = gate();
+    const allocating = createAccountingAdapterRegistry({
+      xero: (binding) => ({
+        ...fakeXero(binding)!,
+        async allocate() {
+          allocations++;
+          await opened;
+          return { allocated: verdict, evidence: verdict ? "Allocation read back" : "Invoice already paid" };
+        },
+      }),
+    });
+    const allocate = (kind: "allocate" | "record" = "allocate") =>
+      allocateAccountingQueueItem(db, ws!, connection.id, id, actor!.id, allocating, {
+        action: kind,
+        reason: "Finance reviewed",
+      });
+    const refusal = (promise: Promise<unknown>) =>
+      promise.then(
+        () => null,
+        (error: { code?: string }) => error.code,
+      );
+
+    // A second request, or recording it by hand, while the first is with the ledger is refused.
+    const first = refusal(allocate());
+    await vi.waitFor(() => expect(allocations).toBe(1));
+    expect(await refusal(allocate())).toBe("allocation_in_progress");
+    expect(await refusal(allocate("record"))).toBe("allocation_in_progress");
+    release();
+    expect(await first).toBe("allocation_not_verified");
+    expect(allocations).toBe(1);
+    expect((await item(connection, id)).posting.allocation).toBe("pending");
+
+    // The refused outcome ended the claim: the next request goes to the ledger.
+    verdict = true;
+    opened = Promise.resolve();
+    expect((await allocate()).posting.allocation).toBe("allocated");
+    expect(allocations).toBe(2);
+    expect((await item(connection, id)).history.map((h: any) => h.action).slice(-4)).toEqual([
+      "allocation_started",
+      "allocation_not_verified",
+      "allocation_started",
+      "allocation_verified",
+    ]);
+
+    // A request that died with the ledger stops holding the allocation once its claim lapses.
+    await db.update(accountingPostings).set({ allocation: "pending" }).where(eq(accountingPostings.id, id));
+    opened = gate();
+    const stalled = refusal(allocate());
+    await vi.waitFor(() => expect(allocations).toBe(3));
+    await db
+      .update(accountingPostingEvents)
+      .set({ createdAt: sql`now() - interval '10 minutes'` })
+      .where(
+        and(
+          eq(accountingPostingEvents.postingId, id),
+          eq(accountingPostingEvents.action, "allocation_started"),
+        ),
+      );
+    expect((await allocate("record")).posting.allocation).toBe("recorded");
+    release();
+    expect(await stalled).toBe("accounting_conflict");
   });
 
   it("is for signed-in administrators only", async () => {

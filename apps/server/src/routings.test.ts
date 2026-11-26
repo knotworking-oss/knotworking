@@ -344,6 +344,14 @@ describe("routings and job cards", () => {
     });
     expect(res.status).toBe(403);
     expect((await viaToken("GET", "/routings/work-centres")).status).toBe(200);
+    // Approving a routing draft is a person's sign-off, even with a draft to approve.
+    const [routing] = (await ok("GET", "/routings?q=RT-FRAME")).routings;
+    const centre = (await ok("GET", "/routings/work-centres?q=RT-ASM")).workCentres[0].id;
+    await ok("PUT", `/routings/${routing.id}/draft`, {
+      operations: [{ name: "Assemble", workCentreId: centre, runMinutes: 5 }],
+    });
+    expect((await viaToken("POST", `/routings/${routing.id}/draft/approve`)).status).toBe(403);
+    await ok("DELETE", `/routings/${routing.id}/draft`, undefined, 204);
   });
 
   it("cancels a batch's open job cards with the batch, and only unused cards by hand", async () => {

@@ -70,7 +70,14 @@ function stepDescription(step: PlannedTemplateTask | null, slug: string): DocCon
   return { type: "doc", content };
 }
 
-/** Creates an ordinary project and dated tasks together. Retries return the original project ID. */
+/**
+ * Creates an ordinary project and dated tasks together. Retries return the original project ID.
+ *
+ * The command receipt is checked first (the route has already required Tasks `write`): an
+ * identical retry returns the original project even if a module grant has changed since, and a
+ * reused command ID with other input is a 409. Steps are resolved and authorized only for a new
+ * command, inside its transaction.
+ */
 export async function createProjectFromTemplate(
   db: Database,
   workspaceId: string,
@@ -79,7 +86,6 @@ export async function createProjectFromTemplate(
   creator: TemplateCreator,
   onNotified: NotifiedCallback,
 ) {
-  const resolved = resolveTasks(input, creator);
   const notified: NotificationRow[] = [];
   const result = await executeLedgerCommand(
     db,
@@ -89,6 +95,7 @@ export async function createProjectFromTemplate(
     input,
     input,
     async (tx) => {
+      const resolved = resolveTasks(input, creator);
       const planned = resolved
         .map((task, order) => ({
           title: task.title,

@@ -249,6 +249,38 @@ describe("project templates in a food workspace", () => {
     ]);
   });
 
+  it("replays a committed command before checking its module steps again", async () => {
+    // The materials order is a Purchasing step with no starter task behind it.
+    await grant("items", "read");
+    await grant("purchasing", "read");
+    const input = {
+      commandId: newId(),
+      templateId: "site_job",
+      name: "Boiler swap with materials",
+      tasks: [{ step: "materials_order", title: "Order the boiler", daysFromStart: -4 }],
+    };
+    const first = await body(await create(s.marcus, input), 201);
+    await grant("purchasing", "none");
+    // The project was committed: an identical retry returns it although Purchasing is now closed.
+    expect(await body(await create(s.marcus, input), 201)).toEqual(first);
+    // The same command ID with other input is a conflict, not a step or module error.
+    for (const tasks of [
+      [{ step: "materials_order", title: "Order a different boiler", daysFromStart: -4 }],
+      [{ step: "nope", title: "Unknown", daysFromStart: 0 }],
+    ]) {
+      const changed = await create(s.marcus, { ...input, tasks });
+      expect(changed.status).toBe(409);
+      expect((await changed.json()).error.code).toBe("command_conflict");
+    }
+    // A new command is still authorized against today's access.
+    const refused = await create(s.marcus, { ...input, commandId: newId() });
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error.code).toBe("module_forbidden");
+    expect(await tasksOf(first.id)).toHaveLength(1);
+    await grant("purchasing", null);
+    await grant("items", null);
+  });
+
   it("adds kitchen steps per module the creator can read", async () => {
     const owner = await tasksOf((await body(await create(s.ada, { templateId: "kitchen_opening" }), 201)).id);
     expect(owner.map((t) => t.title)).toEqual([

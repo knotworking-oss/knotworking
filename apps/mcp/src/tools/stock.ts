@@ -41,7 +41,8 @@ async function mapLimit<T, R>(
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const UNIT_HELP = "mg, g, kg (weight); ml, l (volume); each (count).";
+const UNIT_HELP =
+  "mg, g, kg (weight); ml, l (volume); each (count); mm, cm, m (length); mm2, cm2, m2 (area); s, min, h (time).";
 const PERSON_ONLY =
   "Lot status (quarantine, release, reject) and reversals are done by a person in the app; there are no tools for them. Waste, adjustments and stocktakes are too, unless an owner or admin allows them under Settings → API access (record_stock_waste, adjust_stock and post_stocktake then appear).";
 
@@ -397,7 +398,7 @@ export function registerStockTools({ define, slugOf, workspaceParam }: ToolConte
     {
       module: "stock",
       title: "Receive stock (goods-in)",
-      description: `Record a delivery: creates a lot and its goods-in movement. Ingredients and packaging only. Give the item (id or code), quantity and unit (converted to the item's unit; ${UNIT_HELP}), location and received date. Pass the supplier and the supplier's own lot code for traceability, and the expiry date with its type when the label shows one (otherwise the item's shelf life sets a best-before date). A suspended or rejected supplier is refused, and a supplier pending approval can only deliver into quarantine (\`quarantine: true\`). The lot code is generated when left out. ${PERSON_ONLY}`,
+      description: `Record a delivery: creates a lot and its goods-in movement. Choose a purchasable stock item. Give the item (id or code), quantity and unit (converted to the item's unit; ${UNIT_HELP}), location and received date. Pass the supplier and the supplier's own lot code for traceability, and the expiry date with its type when the label shows one (otherwise the item's shelf life sets a best-before date). A suspended or rejected supplier is refused, and a supplier pending approval can only deliver into quarantine (\`quarantine: true\`). The lot code is generated when left out. ${PERSON_ONLY}`,
       annotations: CREATE,
       input: {
         workspace: workspaceParam,

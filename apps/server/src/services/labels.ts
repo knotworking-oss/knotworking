@@ -1,3 +1,4 @@
+import { foodItemFields, selectFoodItems } from "./food-items";
 import {
   canApproveProductLabel,
   cleanMicronutrientMap,
@@ -69,7 +70,7 @@ import { audience, memberAccess } from "./notifications";
  * same transaction.
  */
 
-type ItemRow = typeof items.$inferSelect;
+type ItemRow = typeof items.$inferSelect & { food?: ReturnType<typeof foodItemFields> | null };
 type DataRow = typeof itemLabelData.$inferSelect;
 type LabelRow = typeof productLabels.$inferSelect;
 type RecipeRow = typeof recipes.$inferSelect;
@@ -123,10 +124,7 @@ const factsOf = (item: ItemRow, data: DataRow | undefined): LabelItemFacts => ({
   unit: item.unit,
   densityGPerMl: item.densityGPerMl,
   unitWeightG: item.unitWeightG,
-  allergens: item.allergens,
-  mayContain: item.mayContain,
-  storage: item.storage,
-  shelfLifeDays: item.shelfLifeDays,
+  ...foodItemFields(item.food),
   declarationName: data?.declarationName ?? null,
   components: data?.components ?? null,
   nutrition: nutritionOf(data),
@@ -178,7 +176,7 @@ const toLabelVersion = (
  */
 export async function loadLabelGraph(db: Executor, workspaceId: string): Promise<LabelGraph> {
   const [itemRows, dataRows, approved] = await Promise.all([
-    db.select().from(items).where(eq(items.workspaceId, workspaceId)),
+    selectFoodItems(db).where(eq(items.workspaceId, workspaceId)),
     db.select().from(itemLabelData).where(eq(itemLabelData.workspaceId, workspaceId)),
     db
       .select({ version: recipeVersions, recipe: recipes })
@@ -290,8 +288,8 @@ function itemView(item: ItemRow, data: DataRow | undefined, graph: LabelGraph, n
     type: item.type,
     status: item.status,
     unit: item.unit,
-    allergens: item.allergens,
-    mayContain: item.mayContain,
+    allergens: foodItemFields(item.food).allergens,
+    mayContain: foodItemFields(item.food).mayContain,
     declarationName: data?.declarationName ?? null,
     components: data?.components ?? null,
     /** As entered (from a specification). Not used while the item is made by an approved recipe. */
@@ -334,9 +332,7 @@ export async function listLabellingItems(db: Database, workspaceId: string, quer
     );
   }
   const [rows, graph, dataRows] = await Promise.all([
-    db
-      .select()
-      .from(items)
+    selectFoodItems(db)
       .where(and(...where))
       .orderBy(asc(items.code), asc(items.id)),
     loadLabelGraph(db, workspaceId),
@@ -359,10 +355,9 @@ export async function listLabellingItems(db: Database, workspaceId: string, quer
 }
 
 async function findItem(db: Executor, workspaceId: string, itemId: string) {
-  const [row] = await db
-    .select()
-    .from(items)
-    .where(and(eq(items.id, itemId), eq(items.workspaceId, workspaceId), isNull(items.deletedAt)));
+  const [row] = await selectFoodItems(db).where(
+    and(eq(items.id, itemId), eq(items.workspaceId, workspaceId), isNull(items.deletedAt)),
+  );
   if (!row) throw notFound("Item");
   return row;
 }

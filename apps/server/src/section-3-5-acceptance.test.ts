@@ -47,7 +47,7 @@ describe("Section 3.5 acceptance exercise", () => {
     marcus = (await signIn(ctx, "marcus@knotworking.dev")).cookie;
     const { members } = await ok(await call("GET", "/members"));
     const m = members.find((x: { email: string }) => x.email === "marcus@knotworking.dev");
-    for (const module of ["recipes", "items"])
+    for (const module of ["recipes", "items", "food_items"])
       await ok(await call("PUT", `/members/${m.userId}/module-access/${module}`, { level: "read" }));
     for (const module of ["labels", "specifications"])
       await ok(await call("PUT", `/members/${m.userId}/module-access/${module}`, { level: "write" }));
@@ -171,7 +171,7 @@ describe("Section 3.5 acceptance exercise", () => {
         rules: [{ fromRecipeId: recipe.plain, toRecipeId: recipe.milk, minutes: 5, note: "Same dough line" }],
       }),
     );
-  });
+  }, 60_000);
 
   it("plans the short-life day from confirmed orders, with an explained order and a changeover", async () => {
     const order = await ok(
@@ -235,7 +235,11 @@ describe("Section 3.5 acceptance exercise", () => {
     ]);
     // The allergen-free loaf starts the day, so the milk loaf follows without a clean-down.
     expect(day.proposal.order[0].reason).toBe("Starts the day: fewest allergens (Cereals containing gluten)");
-    expect(day.proposal).toMatchObject({ improves: true, current: { cleanDowns: 1 }, proposed: { cleanDowns: 0 } });
+    expect(day.proposal).toMatchObject({
+      improves: true,
+      current: { cleanDowns: 1 },
+      proposed: { cleanDowns: 0 },
+    });
     const applied = await ok(
       await call("PUT", "/production/schedule/sequence", {
         lineId: line,

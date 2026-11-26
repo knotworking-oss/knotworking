@@ -191,6 +191,38 @@ describe("detailed scheduling (3.5.1)", () => {
     expect(day.proposal).toMatchObject({ changed: true, improves: true });
   });
 
+  it("keeps clean-downs for a scheduler without Food items access, naming no allergens", async () => {
+    for (const module of ["recipes", "stock", "demand", "items"])
+      await ok(await call("PUT", `/members/${marcus.userId}/module-access/${module}`, { level: "read" }));
+    await ok(await call("PUT", `/members/${marcus.userId}/module-access/production`, { level: "read" }));
+    await ok(await call("PUT", `/members/${marcus.userId}/module-access/food_items`, { level: "none" }));
+    const full = await plan();
+    const day = await ok(
+      await call("GET", `/production/schedule/day?lineId=${line}&date=${monday}`, undefined, marcus.cookie),
+    );
+    expect(full.allergensHidden).toBe(false);
+    expect(day.allergensHidden).toBe(true);
+    // The same timing: the milk loaf → cracker changeover still takes the 45 min clean-down.
+    expect(day).toMatchObject({ changeoverMinutes: 50, cleanDowns: 1, endMinute: full.endMinute });
+    const c = day.steps[2];
+    expect(c.changeover).toMatchObject({ minutes: 45, cleanDown: true, allergenClean: [] });
+    expect([c.startClock, c.endClock]).toEqual(["08:50", "09:50"]);
+    expect(c.changeover.reason).toBe(
+      "Allergen clean-down: SCH-B leaves an allergen SCH-C doesn't contain; takes 45 min, the longer of the clean-down and the changeover",
+    );
+    expect(day.steps.every((s: { allergens: unknown }) => s.allergens === null)).toBe(true);
+    // The proposal is the same order and saving, and doesn't call the cracker allergen-free.
+    expect(day.proposal.order.map((s: { batchCode: string }) => s.batchCode)).toEqual(
+      full.proposal.order.map((s: { batchCode: string }) => s.batchCode),
+    );
+    expect(day.proposal.proposed).toEqual(full.proposal.proposed);
+    expect(day.proposal.order[0].reason).toBe("Starts the day: fewest allergens");
+    // No allergen code or name anywhere (the recipe called "Milk loaf" is not a declaration).
+    const text = JSON.stringify(day);
+    for (const word of ['"milk"', "cereals_gluten", "Cereals containing gluten", "no allergens"])
+      expect(text).not.toContain(word);
+  });
+
   it("applies an order only against the current set of batches", async () => {
     // Applying an order is planning: `write` is enough.
     for (const module of ["recipes", "stock", "demand", "items"])

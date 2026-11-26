@@ -14,7 +14,9 @@ import { Spinner } from "@knotworking/ui/components/spinner";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { Recipe, RecipeVersion } from "@/lib/api";
+import { useWorkspace } from "@/lib/workspace-store";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
+import { recipeTerms } from "@/lib/recipe-terms";
 
 type Line = RecipeVersion["lines"][number];
 
@@ -29,6 +31,7 @@ const names = (codes: AllergenChange["added"]) => codes.map((c) => allergens[c])
 
 /** Compares two versions of a recipe: lines added, removed and changed, yield, method and allergens. */
 export function VersionCompare({ slug, recipe }: { slug: string; recipe: Recipe }) {
+  const terms = recipeTerms(useWorkspace().can("food_items"));
   // `versions` is newest first: compare the previous one with the newest by default.
   const [toId, setToId] = useState(recipe.versions[0]?.id ?? "");
   const [fromId, setFromId] = useState(recipe.versions[1]?.id ?? "");
@@ -180,7 +183,9 @@ export function VersionCompare({ slug, recipe }: { slug: string; recipe: Recipe 
               </ul>
             )}
             {diff.unchanged.length > 0 && (
-              <p className="text-muted-foreground">{diff.unchanged.length} ingredient(s) unchanged.</p>
+              <p className="text-muted-foreground">
+                {diff.unchanged.length} {terms.linesLower} unchanged.
+              </p>
             )}
           </>
         )}

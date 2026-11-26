@@ -46,7 +46,7 @@ import {
   type Executor,
   type Transaction,
 } from "@knotworking/db";
-import { and, asc, count, desc, eq, inArray, isNull, lt, lte, not, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, lt, lte, ne, not, or, sql, type SQL } from "drizzle-orm";
 import { getTableConfig, type AnyPgTable } from "drizzle-orm/pg-core";
 import { notFound } from "../errors";
 import type { Mailer } from "../mailer";
@@ -724,6 +724,7 @@ function scope(workspaceId: string, userId: string, see: NotificationVisibility 
   if (!see.tasks) where.push(isNull(notifications.taskId));
   if (!see.documents) where.push(sql`(${notifications.data}->>'documentId') is null`);
   if (see.modules) {
+    if (!see.modules.includes("food_items")) where.push(ne(notifications.type, "recipe_allergen_drift"));
     if (!see.modules.includes("checklists")) {
       where.push(
         sql`not (${notifications.type} = 'site_check_due' and coalesce(${notifications.data}->>'checkKind', '') = 'checklist')`,
@@ -987,6 +988,7 @@ export async function sendNotificationEmails(
         !recipient?.enabled ||
         preference?.email === false ||
         (owner && !hasModuleLevel(access?.[owner], "read")) ||
+        (n.type === "recipe_allergen_drift" && !hasModuleLevel(access?.food_items, "read")) ||
         (n.type === "site_check_due" &&
           n.data.checkKind === "checklist" &&
           !hasModuleLevel(access?.checklists, "read"))

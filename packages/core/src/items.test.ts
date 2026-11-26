@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   allergenCodes,
   convertQuantity,
+  genericItemTypes,
+  unitsForItem,
   itemCreateSchema,
   itemUpdateSchema,
   sortAllergens,
@@ -14,6 +16,17 @@ describe("convertQuantity", () => {
     expect(convertQuantity(250, "ml", "l")).toBe(0.25);
     expect(convertQuantity(500, "mg", "g")).toBe(0.5);
     expect(convertQuantity(3, "each", "each")).toBe(3);
+  });
+
+  it("converts length, area and time without using mass conversion factors", () => {
+    expect(convertQuantity(2.5, "m", "mm")).toBe(2500);
+    expect(convertQuantity(40_000, "cm2", "m2")).toBe(4);
+    expect(convertQuantity(1.5, "h", "min")).toBe(90);
+    const bridge = { densityGPerMl: 1, unitWeightG: 100 };
+    expect(convertQuantity(1, "m2", "kg", bridge)).toBeNull();
+    expect(convertQuantity(1, "m", "m2", bridge)).toBeNull();
+    expect(convertQuantity(1, "h", "each", bridge)).toBeNull();
+    expect(unitsForItem({ unit: "cm", ...bridge })).toEqual(["mm", "cm", "m"]);
   });
 
   it("crosses dimensions only with the item's density or unit weight", () => {
@@ -44,6 +57,17 @@ describe("item schemas", () => {
       allergens: ["sesame", "cereals_gluten"],
     });
     expect(item).toMatchObject({ code: "FLR-1", description: null, allergens: ["cereals_gluten", "sesame"] });
+  });
+
+  it("accepts catalogue types without food fields", () => {
+    for (const type of genericItemTypes) {
+      expect(itemCreateSchema.parse({ code: "CAT", name: "Catalogue item", type, unit: "h" })).toEqual({
+        code: "CAT",
+        name: "Catalogue item",
+        type,
+        unit: "h",
+      });
+    }
   });
 
   it("refuses bad numbers, duplicate suppliers and empty updates", () => {

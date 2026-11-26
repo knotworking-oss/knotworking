@@ -26,6 +26,7 @@ export const moduleIds = [
   "maintenance",
   "checklists",
   "items",
+  "food_items",
   "recipes",
   "sops",
   "stock",
@@ -242,10 +243,9 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
   items: {
     id: "items",
     name: "Items and suppliers",
-    description:
-      "Master data for manufacturing: ingredients, packaging and products with units and allergens, and approved suppliers.",
+    description: "Catalogue of materials, products and services with units, costs and supplier links.",
     dependsOn: [],
-    enhancedBy: [],
+    enhancedBy: ["food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -257,13 +257,22 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
       "supplier_control_settings",
     ],
   },
+  food_items: {
+    id: "food_items",
+    name: "Food items",
+    description: "Allergen declarations, storage conditions and shelf life on items.",
+    dependsOn: ["items"],
+    enhancedBy: [],
+    defaultAccess: "none",
+    defaultActive: true,
+    syncEntities: ["food_item"],
+  },
   recipes: {
     id: "recipes",
     name: "Recipes",
-    description:
-      "Versioned recipes (bills of materials) with yields and scaling, allergen and cost roll-up, and approval before use.",
+    description: "Versioned bills of materials with yields, scaling, cost roll-up and approval before use.",
     dependsOn: ["items"],
-    enhancedBy: [],
+    enhancedBy: ["food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["recipe", "recipe_version", "recipe_line"],
@@ -285,7 +294,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Locations, lots with use-by and best-before dates, goods-in and an append-only movement ledger with traceability.",
     dependsOn: ["items"],
-    enhancedBy: [],
+    enhancedBy: ["food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["stock_location", "stock_lot", "stock_movement", "lot_release_rule"],
@@ -337,7 +346,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Batch schedule from approved recipe versions, material requirements against stock, and batch records that consume and produce lots.",
     dependsOn: ["recipes", "stock"],
-    enhancedBy: ["demand", "sales", "haccp", "labels", "specifications", "costing"],
+    enhancedBy: ["demand", "sales", "haccp", "labels", "specifications", "costing", "food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -365,7 +374,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
       "HACCP plan under document control, CCP monitoring logs with automatic out-of-limit flagging, corrective actions, and cleaning and calibration records.",
     // Cleaning and calibration are scheduled against areas and equipment of the asset register.
     dependsOn: ["assets"],
-    enhancedBy: ["items", "recipes", "stock", "production"],
+    enhancedBy: ["items", "recipes", "stock", "production", "food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -478,7 +487,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     description:
       "Prerequisite programmes: pest control, the glass and brittle plastics register, storage temperature logging, and pre-start and allergen changeover checks, with what is due across them.",
     dependsOn: ["assets"],
-    enhancedBy: ["maintenance", "checklists", "production"],
+    enhancedBy: ["maintenance", "checklists", "production", "food_items"],
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: [
@@ -502,7 +511,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Labels and nutrition",
     description:
       "Nutrition per 100 g on ingredients, rolled up through recipe versions; ingredient declarations in weight order with allergens emphasised (UK PPDS); and product labels approved per recipe version.",
-    dependsOn: ["recipes"],
+    dependsOn: ["recipes", "food_items"],
     enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
@@ -513,7 +522,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Specifications",
     description:
       "Controlled, versioned specifications for ingredients, packaging and products: limits, allergens, storage, shelf life, provenance and claims, agreed with the supplier or customer, approved, reviewed, and checked against the item, recipes, labels and open production.",
-    dependsOn: ["items"],
+    dependsOn: ["items", "food_items"],
     enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
@@ -537,7 +546,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     name: "Product development",
     description:
       "New product development: the brief, kitchen and factory trials, shelf-life studies and sensory panels, HACCP, artwork and customer sign-offs, and a launch checklist read from the recipe, specification and label.",
-    dependsOn: ["items", "recipes"],
+    dependsOn: ["items", "recipes", "food_items"],
     enhancedBy: [],
     defaultAccess: "none",
     defaultActive: true,
@@ -710,12 +719,29 @@ export const moduleOfEntity = (entity: SyncEntityType): ModuleId | null => entit
 export class ModuleConfigError extends Error {}
 
 /**
+ * Modules that once lived inside another and were split out, with the modules that now depend on
+ * them. A list written before the split names the dependant but not the new module; it is added
+ * for them (with a deprecation warning) rather than refusing to start. `food_items` came out of
+ * `items`: Labels, Specifications and Product development need it.
+ */
+const legacySplitModules: { id: ModuleId; neededBy: readonly ModuleId[] }[] = [
+  { id: "food_items", neededBy: ["labels", "specifications", "npd"] },
+];
+
+/**
  * Parses `KNOTWORKING_MODULES`. Unset or blank means every module that is on by default
  * (`defaultActive`; a flagged module such as `calendar` must be named); `all` means every module
  * including flagged ones; `none` means the platform alone. Unknown ids and missing dependencies are configuration errors (the API refuses to
  * start), so a typo can't silently switch a module off.
+ *
+ * One exception keeps lists written before a module was split out working: a list that names, say,
+ * `labels` but not `food_items` (which Labels needs since it left Items) gets `food_items` added,
+ * and `onWarning` is told to add it to the list (the API and MCP server log it at startup).
  */
-export function parseActiveModules(value: string | undefined | null): ModuleId[] {
+export function parseActiveModules(
+  value: string | undefined | null,
+  onWarning: (message: string) => void = () => {},
+): ModuleId[] {
   const raw = (value ?? "").trim();
   if (!raw) return moduleIds.filter((id) => modules[id].defaultActive);
   if (raw.toLowerCase() === "all") return [...moduleIds];
@@ -731,6 +757,15 @@ export function parseActiveModules(value: string | undefined | null): ModuleId[]
     );
   }
   const active = new Set(ids as ModuleId[]);
+  for (const legacy of legacySplitModules) {
+    if (active.has(legacy.id)) continue;
+    const named = legacy.neededBy.filter((id) => active.has(id));
+    if (!named.length) continue;
+    active.add(legacy.id);
+    onWarning(
+      `KNOTWORKING_MODULES: ${named.map((m) => `"${m}"`).join(", ")} ${named.length === 1 ? "needs" : "need"} "${legacy.id}", which is now its own module; it has been switched on. Add "${legacy.id}" to KNOTWORKING_MODULES: a later release will refuse to start without it.`,
+    );
+  }
   for (const id of active) {
     const missing = modules[id].dependsOn.filter((dep) => !active.has(dep));
     if (missing.length) {

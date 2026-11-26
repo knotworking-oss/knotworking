@@ -900,14 +900,23 @@ const ROUTES: Record<string, Classification> = {
   // Recipes module: an agent may read and draft; approving a version is a person's sign-off
   // (`forbidTokens` + `manage`).
   "GET /v1/workspaces/:slug/recipes": "token-ok",
+  "GET /v1/workspaces/:slug/boms": "token-ok",
   "GET /v1/workspaces/:slug/recipes/:id": "token-ok",
+  "GET /v1/workspaces/:slug/boms/:id": "token-ok",
   "GET /v1/workspaces/:slug/recipes/:id/versions/:versionId": "token-ok",
+  "GET /v1/workspaces/:slug/boms/:id/versions/:versionId": "token-ok",
   "POST /v1/workspaces/:slug/recipes": "token-ok",
+  "POST /v1/workspaces/:slug/boms": "token-ok",
   "PATCH /v1/workspaces/:slug/recipes/:id": "token-ok",
+  "PATCH /v1/workspaces/:slug/boms/:id": "token-ok",
   "PUT /v1/workspaces/:slug/recipes/:id/draft": "token-ok",
+  "PUT /v1/workspaces/:slug/boms/:id/draft": "token-ok",
   "DELETE /v1/workspaces/:slug/recipes/:id/draft": "token-ok",
+  "DELETE /v1/workspaces/:slug/boms/:id/draft": "token-ok",
   "POST /v1/workspaces/:slug/recipes/:id/draft/approve": "token-forbidden",
+  "POST /v1/workspaces/:slug/boms/:id/draft/approve": "token-forbidden",
   "DELETE /v1/workspaces/:slug/recipes/:id": "token-ok",
+  "DELETE /v1/workspaces/:slug/boms/:id": "token-ok",
   // SOPs module: an agent may read, draft and submit. Approving a version and acknowledging one are
   // a person's act (`forbidTokens`); the acknowledgement list is a manager's view.
   "GET /v1/workspaces/:slug/sops": "token-ok",
@@ -1094,6 +1103,7 @@ const PERSON_ONLY_ROUTES: Record<string, string> = {
   "POST /v1/workspaces/:slug/suppliers/:id/questionnaires/:questionnaireId/review":
     "Accept or reject supplier questionnaires",
   "POST /v1/workspaces/:slug/recipes/:id/draft/approve": "Approve recipe versions",
+  "POST /v1/workspaces/:slug/boms/:id/draft/approve": "Approve recipe versions",
   "POST /v1/workspaces/:slug/sops/:id/versions/:versionId/decision": "Approve or reject SOP versions",
   "POST /v1/workspaces/:slug/sops/:id/acknowledge": "Acknowledge SOPs",
   "POST /v1/workspaces/:slug/sops/:id/copies": "Issue and call in controlled SOP copies",

@@ -1,6 +1,7 @@
 import {
   costingBatchListStatuses,
   costingPeriods,
+  itemTypes,
   lotCostReasonLabels,
   lotCostSourceLabels,
 } from "@knotworking/core";
@@ -266,7 +267,7 @@ export function registerCostingTools({ define, slugOf, workspaceParam }: ToolCon
       annotations: READ,
       input: {
         workspace: workspaceParam,
-        itemType: z.enum(["ingredient", "packaging", "wip", "finished"]).optional(),
+        itemType: z.enum(itemTypes).optional(),
         status: z.enum(["available", "quarantine", "rejected"]).optional().describe("Lot QA status."),
         q: z.string().max(200).optional().describe("Item name or code, or lot code."),
         lots: z.boolean().optional().describe("Include every lot (default: per item only)."),

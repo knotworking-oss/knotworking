@@ -53,6 +53,7 @@ export const syncEntityTypes = [
   // Items module.
   "supplier",
   "item",
+  "food_item",
   "item_supplier",
   "supplier_risk_assessment",
   "supplier_questionnaire",

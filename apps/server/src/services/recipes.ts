@@ -1,6 +1,7 @@
 import {
   allergenDrift,
   convertQuantity,
+  isProducibleItem,
   rollUpAllergens,
   rollUpRecipe,
   scaleRecipe,
@@ -28,6 +29,7 @@ import {
 } from "@knotworking/db";
 import { and, asc, count, desc, eq, inArray, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { ApiError, badRequest, notFound } from "../errors";
+import { foodFieldsByItem, type FoodItem } from "./food-items";
 
 /**
  * Recipes module: versioned bills of materials.
@@ -41,15 +43,15 @@ import { ApiError, badRequest, notFound } from "../errors";
 type RecipeRow = typeof recipes.$inferSelect;
 type VersionRow = typeof recipeVersions.$inferSelect;
 type LineRow = typeof recipeLines.$inferSelect;
-type ItemRow = typeof items.$inferSelect;
+type ItemRow = typeof items.$inferSelect & { food?: FoodItem | undefined };
 
 const like = (q: string) => `%${q.replace(/[!%_]/g, (ch) => `!${ch}`)}%`;
 
 const factsOf = (item: ItemRow): RecipeItemFacts => ({
   code: item.code,
   unit: item.unit,
-  allergens: item.allergens,
-  mayContain: item.mayContain,
+  allergens: item.food?.allergens ?? [],
+  mayContain: item.food?.mayContain ?? [],
   standardCost: item.standardCost,
   densityGPerMl: item.densityGPerMl,
   unitWeightG: item.unitWeightG,
@@ -62,8 +64,8 @@ const itemSummary = (item: ItemRow) => ({
   type: item.type,
   status: item.status,
   unit: item.unit,
-  allergens: item.allergens,
-  mayContain: item.mayContain,
+  allergens: item.food?.allergens ?? [],
+  mayContain: item.food?.mayContain ?? [],
   standardCost: item.standardCost,
   densityGPerMl: item.densityGPerMl,
   unitWeightG: item.unitWeightG,
@@ -100,13 +102,15 @@ async function userNames(db: Executor, ids: (string | null)[]) {
 }
 
 /** Items by id, including archived and deleted ones: existing versions keep showing them. */
-async function itemsById(db: Executor, workspaceId: string, ids: string[]) {
+async function itemsById(db: Executor, workspaceId: string, ids: string[], withFood: boolean) {
   if (ids.length === 0) return new Map<string, ItemRow>();
   const rows = await db
     .select()
     .from(items)
     .where(and(eq(items.workspaceId, workspaceId), inArray(items.id, [...new Set(ids)])));
-  return new Map(rows.map((r) => [r.id, r]));
+  if (!withFood) return new Map(rows.map((row) => [row.id, row]));
+  const food = await foodFieldsByItem(db, workspaceId, ids);
+  return new Map(rows.map((row) => [row.id, { ...row, food: food.get(row.id) }]));
 }
 
 async function linesOf(db: Executor, versionIds: string[]) {
@@ -126,10 +130,16 @@ async function fullVersion(
   workspaceId: string,
   recipe: RecipeRow,
   version: VersionRow,
+  withFood: boolean,
   scaleQuery?: RecipeScaleQuery,
 ) {
   const lines = await linesOf(db, [version.id]);
-  const itemMap = await itemsById(db, workspaceId, [recipe.outputItemId, ...lines.map((l) => l.itemId)]);
+  const itemMap = await itemsById(
+    db,
+    workspaceId,
+    [recipe.outputItemId, ...lines.map((l) => l.itemId)],
+    withFood,
+  );
   const output = itemMap.get(recipe.outputItemId);
   if (!output) throw notFound("Output item");
   const rollLines = lines.map((l) => ({
@@ -158,6 +168,8 @@ async function fullVersion(
   const { workspaceId: _ws, deletedAt: _deleted, ...fields } = version;
   return {
     ...fields,
+    approvedAllergens: withFood ? fields.approvedAllergens : null,
+    foodItemsIncluded: withFood,
     approvedByName: version.approvedBy ? (people.get(version.approvedBy)?.name ?? null) : null,
     outputItem: itemSummary(output),
     lines: lines.map((l, i) => {
@@ -180,7 +192,9 @@ async function fullVersion(
     rollup,
     /** Approved versions only: how today's ingredient declarations differ from the roll-up recorded at approval. */
     allergenDrift:
-      version.status === "approved" ? allergenDrift(version.approvedAllergens, rollup.allergens) : null,
+      withFood && version.status === "approved"
+        ? allergenDrift(version.approvedAllergens, rollup.allergens)
+        : null,
     ...(scale
       ? {
           scale: {
@@ -240,6 +254,7 @@ export async function recipesWithAllergenDrift(db: Executor, workspaceId: string
     db,
     workspaceId,
     lines.map((l) => l.itemId),
+    true,
   );
   const flagged = [];
   for (const { version, recipe } of approved) {
@@ -265,7 +280,12 @@ export async function recipesWithAllergenDrift(db: Executor, workspaceId: string
   return flagged;
 }
 
-export async function listRecipes(db: Database, workspaceId: string, query: RecipeListQuery) {
+export async function listRecipes(
+  db: Database,
+  workspaceId: string,
+  query: RecipeListQuery,
+  withFood: boolean,
+) {
   const where: (SQL | undefined)[] = [eq(recipes.workspaceId, workspaceId), isNull(recipes.deletedAt)];
   if (query.allergenDrift !== undefined) {
     // Decided before paging, in the query: `total` and the pages count only the matching recipes.
@@ -321,10 +341,12 @@ export async function listRecipes(db: Database, workspaceId: string, query: Reci
     db,
     versions.map((v) => v.id),
   );
-  const itemMap = await itemsById(db, workspaceId, [
-    ...rows.map((r) => r.outputItemId),
-    ...lines.map((l) => l.itemId),
-  ]);
+  const itemMap = await itemsById(
+    db,
+    workspaceId,
+    [...rows.map((r) => r.outputItemId), ...lines.map((l) => l.itemId)],
+    withFood,
+  );
 
   const data = rows.map((row) => {
     const mine = versions.filter((v) => v.recipeId === row.id);
@@ -336,13 +358,14 @@ export async function listRecipes(db: Database, workspaceId: string, query: Reci
         .filter((l) => l.versionId === current?.id)
         .map((l) => ({ item: factsOf(itemMap.get(l.itemId)!) })),
     );
-    const hasAllergenDrift = !!approved && !!allergenDrift(approved.approvedAllergens, allergens);
+    const hasAllergenDrift = withFood && !!approved && !!allergenDrift(approved.approvedAllergens, allergens);
     return {
       ...serializeRecipe(row, itemMap.get(row.outputItemId)),
       approvedVersionNumber: approved?.versionNumber ?? null,
       hasDraft: !!draft,
       draftVersionNumber: draft?.versionNumber ?? null,
       allergens,
+      foodItemsIncluded: withFood,
       /** The approved version's ingredients now declare different allergens than when it was approved. */
       allergenDrift: hasAllergenDrift,
     };
@@ -350,7 +373,7 @@ export async function listRecipes(db: Database, workspaceId: string, query: Reci
   return { recipes: data, total: total?.n ?? 0, limit: query.limit, offset: query.offset };
 }
 
-export async function getRecipe(db: Database, workspaceId: string, id: string) {
+export async function getRecipe(db: Database, workspaceId: string, id: string, withFood: boolean) {
   const recipe = await findRecipe(db, workspaceId, id);
   const versions = await versionsOf(db, id);
   const people = await userNames(
@@ -359,7 +382,7 @@ export async function getRecipe(db: Database, workspaceId: string, id: string) {
   );
   const current = versions.find((v) => v.status === "approved") ?? versions.find((v) => v.status === "draft");
   const draft = versions.find((v) => v.status === "draft");
-  const [output] = await db.select().from(items).where(eq(items.id, recipe.outputItemId));
+  const output = (await itemsById(db, workspaceId, [recipe.outputItemId], withFood)).get(recipe.outputItemId);
   return {
     ...serializeRecipe(recipe, output),
     versions: versions.map((v) => ({
@@ -373,10 +396,12 @@ export async function getRecipe(db: Database, workspaceId: string, id: string) {
       createdAt: v.createdAt,
       updatedAt: v.updatedAt,
     })),
-    currentVersion: current ? await fullVersion(db, workspaceId, recipe, current) : null,
+    currentVersion: current ? await fullVersion(db, workspaceId, recipe, current, withFood) : null,
     /** The draft in full, when the current version is an approved one and a draft exists beside it. */
     draftVersion:
-      draft && current && draft.id !== current.id ? await fullVersion(db, workspaceId, recipe, draft) : null,
+      draft && current && draft.id !== current.id
+        ? await fullVersion(db, workspaceId, recipe, draft, withFood)
+        : null,
   };
 }
 
@@ -385,6 +410,7 @@ export async function getRecipeVersion(
   workspaceId: string,
   id: string,
   versionId: string,
+  withFood: boolean,
   scale?: RecipeScaleQuery,
 ) {
   const recipe = await findRecipe(db, workspaceId, id);
@@ -399,7 +425,7 @@ export async function getRecipeVersion(
       ),
     );
   if (!version) throw notFound("Recipe version");
-  return fullVersion(db, workspaceId, recipe, version, scale);
+  return fullVersion(db, workspaceId, recipe, version, withFood, scale);
 }
 
 // ─── Writing ─────────────────────────────────────────────────────────────────
@@ -455,15 +481,17 @@ async function validateDraftContent(
   for (const line of draft.lines) {
     const item = found.get(line.itemId);
     if (!item) throw badRequest(`Unknown item ${line.itemId}`);
+    if (item.type === "service")
+      throw badRequest(`${item.code} is a service and cannot be consumed in production`);
     if (item.id === output.id) {
-      throw badRequest(`${item.code} is what this recipe makes; it can't be an ingredient of itself`);
+      throw badRequest(`${item.code} is what this recipe makes; it can't be an input of itself`);
     }
     if (item.status === "archived") {
       throw badRequest(`${item.code} is archived; replace it or restore the item before saving`);
     }
     if (convertQuantity(line.quantity, line.unit, item.unit, item) === null) {
       throw badRequest(
-        `${item.code} is held in ${item.unit}; ${line.unit} can't be converted without a density or unit weight on the item`,
+        `${item.code} is held in ${item.unit}; ${line.unit} can't be converted to that unit with the item's conversion factors`,
       );
     }
   }
@@ -571,6 +599,7 @@ export async function createRecipe(
   workspaceId: string,
   actorId: string,
   input: RecipeCreateInput,
+  withFood: boolean,
 ) {
   const { draft, id, ...fields } = input;
   const recipeId = await db.transaction(async (tx) => {
@@ -578,9 +607,9 @@ export async function createRecipe(
     await assertCodeFree(tx, workspaceId, fields.code);
     const output = await liveItem(tx, workspaceId, fields.outputItemId);
     if (!output) throw badRequest("Unknown outputItemId");
-    if (output.type !== "wip" && output.type !== "finished") {
+    if (!isProducibleItem(output.type)) {
       throw badRequest(
-        `${output.code} is ${output.type}; a recipe makes a work-in-progress or finished item`,
+        `${output.code} is ${output.type}; choose a component, work-in-progress item or finished good as the output`,
       );
     }
     if (output.status === "archived") throw badRequest(`${output.code} is archived`);
@@ -593,7 +622,7 @@ export async function createRecipe(
     await recordChanges(tx, workspaceId, actorId, changes);
     return row!.id;
   });
-  return getRecipe(db, workspaceId, recipeId);
+  return getRecipe(db, workspaceId, recipeId, withFood);
 }
 
 export async function updateRecipe(
@@ -602,6 +631,7 @@ export async function updateRecipe(
   actorId: string,
   id: string,
   patch: RecipeUpdateInput,
+  withFood: boolean,
 ) {
   await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -610,7 +640,7 @@ export async function updateRecipe(
     const [row] = await tx.update(recipes).set(patch).where(eq(recipes.id, id)).returning();
     await recordChanges(tx, workspaceId, actorId, [recipeChange(row!)]);
   });
-  return getRecipe(db, workspaceId, id);
+  return getRecipe(db, workspaceId, id, withFood);
 }
 
 export async function saveRecipeDraft(
@@ -619,6 +649,7 @@ export async function saveRecipeDraft(
   actorId: string,
   id: string,
   input: RecipeDraftInput,
+  withFood: boolean,
 ) {
   const versionId = await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -627,7 +658,7 @@ export async function saveRecipeDraft(
     await recordChanges(tx, workspaceId, actorId, changes);
     return version.id;
   });
-  return getRecipeVersion(db, workspaceId, id, versionId);
+  return getRecipeVersion(db, workspaceId, id, versionId, withFood);
 }
 
 /** Deletes the draft and its lines. The version number is free for the next draft. */
@@ -667,8 +698,18 @@ export async function discardRecipeDraft(db: Database, workspaceId: string, acto
 /**
  * Approves the draft (BRCGS document control): it becomes the approved version, the previous one
  * is superseded, and who and when are recorded. The route needs `manage` and refuses API tokens.
+ *
+ * The ingredients' allergen roll-up is recorded as the version's baseline whether or not Food items
+ * is active or readable to the approver (`foodReadable` only decides what the response shows), so
+ * a version approved while it was off is still re-checked against declarations once it is back.
  */
-export async function approveRecipeDraft(db: Database, workspaceId: string, actorId: string, id: string) {
+export async function approveRecipeDraft(
+  db: Database,
+  workspaceId: string,
+  actorId: string,
+  id: string,
+  foodReadable: boolean,
+) {
   const versionId = await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
     const recipe = await findRecipe(tx, workspaceId, id);
@@ -689,17 +730,24 @@ export async function approveRecipeDraft(db: Database, workspaceId: string, acto
     const lines = await linesOf(tx, [draft.id]);
     if (lines.length === 0) throw badRequest("A recipe with no ingredients can't be approved");
     if (!(draft.yieldQuantity > 0)) throw badRequest("Set a yield above zero before approving");
-    const itemMap = await itemsById(tx, workspaceId, [recipe.outputItemId, ...lines.map((l) => l.itemId)]);
-    const output = itemMap.get(recipe.outputItemId);
-    if (!output || output.deletedAt) throw badRequest("The recipe's output item no longer exists");
-    for (const line of lines) {
-      const item = itemMap.get(line.itemId);
-      if (!item || item.deletedAt)
-        throw badRequest("An ingredient item no longer exists; edit the draft first");
-      if (item.status === "archived") {
-        throw badRequest(`${item.code} is archived; replace it in the draft before approving`);
-      }
+    const output = await liveItem(tx, workspaceId, recipe.outputItemId);
+    if (!output) throw badRequest("The recipe's output item no longer exists");
+    if (output.status !== "active" || !isProducibleItem(output.type)) {
+      throw badRequest(
+        `${output.code} must be an active component, work-in-progress item or finished good to approve this version`,
+      );
     }
+    await validateDraftContent(tx, workspaceId, output, {
+      yieldQuantity: draft.yieldQuantity,
+      yieldUnit: draft.yieldUnit,
+      lines,
+    });
+    const itemMap = await itemsById(
+      tx,
+      workspaceId,
+      lines.map((line) => line.itemId),
+      true,
+    );
 
     const changes: ChangeInput[] = [];
     const [previous] = await tx
@@ -728,7 +776,7 @@ export async function approveRecipeDraft(db: Database, workspaceId: string, acto
     await recordChanges(tx, workspaceId, actorId, changes);
     return approved!.id;
   });
-  return getRecipeVersion(db, workspaceId, id, versionId);
+  return getRecipeVersion(db, workspaceId, id, versionId, foodReadable);
 }
 
 /** Soft delete; a recipe that has ever been approved can only be archived (document control). */

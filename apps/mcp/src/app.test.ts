@@ -1,6 +1,6 @@
 import { newId } from "@knotworking/core";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMcpApp } from "./app";
 import { loadConfig, type McpConfig } from "./config";
 import { createFakeApi, READ_TOKEN, WRITE_TOKEN } from "./testing/fake-api";
@@ -20,6 +20,7 @@ const config = (over: Partial<McpConfig> = {}): McpConfig => ({
     "time",
     "calendar",
     "items",
+    "food_items",
     "recipes",
     "sops",
     "stock",
@@ -281,6 +282,21 @@ describe("modules", () => {
   it("reads KNOTWORKING_MODULES like the API does", () => {
     expect(loadConfig({ KNOTWORKING_MODULES: "docs" }).activeModules).toEqual(["docs"]);
     expect(() => loadConfig({ KNOTWORKING_MODULES: "time" })).toThrow(/needs "tasks"/);
+  });
+
+  it("starts with a list from before Food items left Items, and warns", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(loadConfig({ KNOTWORKING_MODULES: "items,recipes,labels" }).activeModules).toEqual([
+        "items",
+        "food_items",
+        "recipes",
+        "labels",
+      ]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('"labels" needs "food_items"'));
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

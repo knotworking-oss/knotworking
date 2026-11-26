@@ -35,7 +35,7 @@ describe("device adapters (3.5.4)", () => {
     marcus = (await signIn(ctx, "marcus@knotworking.dev")).cookie;
     const { members } = await ok(await call("GET", "/members"));
     const m = members.find((x: { email: string }) => x.email === "marcus@knotworking.dev");
-    for (const module of ["recipes", "items"])
+    for (const module of ["recipes", "items", "food_items"])
       await ok(await call("PUT", `/members/${m.userId}/module-access/${module}`, { level: "read" }));
     await ok(await call("PUT", `/members/${m.userId}/module-access/labels`, { level: "write" }));
     const item = async (body: object) => (await ok(await call("POST", "/items", body), 201)).id as string;

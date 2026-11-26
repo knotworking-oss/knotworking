@@ -185,6 +185,7 @@ export const purchasingRoutes = new Hono<WorkspaceEnv>()
             ledgerInput(c, c.req.valid("json")),
             undefined,
             stockCheck(c),
+            c.var.activeModules.includes("food_items"),
           ),
         ),
         201,

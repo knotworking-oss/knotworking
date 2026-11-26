@@ -177,6 +177,22 @@ describe("proposal reasons", () => {
     expect(clean.order[1]!.reason).toContain("Clean-down unavoidable");
     expect(clean.order[1]!.reason).toContain("contains no allergens");
   });
+
+  it("times the same clean-downs with allergens redacted, naming none", () => {
+    const milk = batch("milk", { contains: ["milk"] });
+    const free = batch("free");
+    const open = planLineDay(line(), MONDAY, null, [milk, free]);
+    const redacted = planLineDay(line(), MONDAY, null, [milk, free], { redactAllergens: true });
+    expect(redacted.steps.map((s) => [s.changeover.minutes, s.changeover.cleanDown])).toEqual(
+      open.steps.map((s) => [s.changeover.minutes, s.changeover.cleanDown]),
+    );
+    expect(redacted.steps[1]!.changeover).toMatchObject({ minutes: 30, cleanDown: true });
+    expect(redacted.steps[1]!.changeover.reason).not.toContain("Milk");
+    expect(open.steps[1]!.changeover.reason).toContain("Milk");
+    const proposal = proposeLineDaySequence(line(), MONDAY, null, [milk, free], { redactAllergens: true });
+    expect(proposal.order.map((s) => s.batchId)).toEqual(["free", "milk"]);
+    expect(proposal.order[0]!.reason).toBe("Starts the day: fewest allergens");
+  });
 });
 
 describe("daily demand projection", () => {

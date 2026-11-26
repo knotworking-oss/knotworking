@@ -80,6 +80,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpConfig {
     maxBodyBytes: Math.max(1024, Number(env.MCP_MAX_BODY_BYTES || 1_000_000)),
     maxBatch: intEnv("MCP_MAX_BATCH", env.MCP_MAX_BATCH, 10, 1),
     rateLimitPerMinute: intEnv("MCP_RATE_LIMIT_PER_MINUTE", env.MCP_RATE_LIMIT_PER_MINUTE, 120, 0),
-    activeModules: parseActiveModules(env.KNOTWORKING_MODULES),
+    activeModules: parseActiveModules(env.KNOTWORKING_MODULES, (message) => console.warn(message)),
   };
 }

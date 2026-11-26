@@ -1139,6 +1139,7 @@ export async function recordOutput(
   actorId: string,
   id: string,
   input: ProductionOutputInput,
+  foodItems = false,
 ) {
   return executeLedgerCommand(db, workspaceId, actorId, "recordOutput", input, { id, input }, async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -1188,6 +1189,7 @@ export async function recordOutput(
         expiresOn: input.expiresOn ?? null,
         expiryType: input.expiryType ?? null,
         status: "quarantine",
+        foodItems,
         statusNote: `Produced by batch ${batch.batchCode}; awaiting QA release`,
         notes: null,
         now,

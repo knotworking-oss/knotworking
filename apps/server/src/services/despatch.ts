@@ -10,6 +10,7 @@ import {
   type DespatchListQuery,
   type DespatchRecipientQuery,
   type DespatchVoidInput,
+  isDespatchableItem,
 } from "@knotworking/core";
 import {
   despatches,
@@ -133,8 +134,8 @@ async function draftLines(db: Executor, workspaceId: string, input: DespatchDraf
   for (const line of input.lines) {
     const { lot, item } = await findLot(db, workspaceId, line.lotId);
     const location = await findActiveLocation(db, workspaceId, line.locationId);
-    if (item.type !== "finished" || item.status !== "active")
-      throw new ApiError(409, "item_not_despatchable", "Choose an active finished product");
+    if (!isDespatchableItem(item.type) || item.status !== "active")
+      throw new ApiError(409, "item_not_despatchable", "Choose an active finished product or merchandise");
     lines.push({
       lotId: lot.id,
       locationId: location.id,
@@ -266,8 +267,12 @@ export async function confirmDespatch(
       for (const line of lines) {
         const { lot, item } = await findLot(tx, workspaceId, line.lotId);
         const location = await findActiveLocation(tx, workspaceId, line.locationId);
-        if (item.type !== "finished" || item.status !== "active")
-          throw new ApiError(409, "item_not_despatchable", "Only active finished products can be despatched");
+        if (!isDespatchableItem(item.type) || item.status !== "active")
+          throw new ApiError(
+            409,
+            "item_not_despatchable",
+            "Only active finished products and merchandise can be despatched",
+          );
         await assertNoIncidentHold(tx, workspaceId, lot.id);
         if (lot.status !== "available")
           throw new ApiError(409, "lot_not_released", `Lot ${lot.lotCode} is not released`);

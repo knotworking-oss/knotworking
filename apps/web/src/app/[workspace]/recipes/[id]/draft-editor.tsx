@@ -29,7 +29,9 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import type { RecipeVersion } from "@/lib/api";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
+import { useWorkspace } from "@/lib/workspace-store";
 import { ItemPicker, type PickedItem } from "./item-picker";
+import { recipeTerms } from "@/lib/recipe-terms";
 
 /** The content a draft starts from: the draft itself, a copy of the current version, or nothing. */
 export type DraftStart = Pick<
@@ -88,6 +90,8 @@ export function DraftEditor({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const terms = recipeTerms(useWorkspace().can("food_items"));
+  const lineName = terms.line;
   const output = start.outputItem;
   const [pending, setPending] = useState(false);
   const [yieldQuantity, setYieldQuantity] = useState(String(start.yieldQuantity || ""));
@@ -196,11 +200,11 @@ export function DraftEditor({
             </div>
 
             <Field>
-              <FieldLabel>Ingredients</FieldLabel>
+              <FieldLabel>{terms.lines}</FieldLabel>
               <div className="flex flex-col gap-2">
                 {lines.length === 0 && (
                   <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                    No ingredients yet.
+                    No {terms.linesLower} yet.
                   </p>
                 )}
                 {lines.map((line, index) => {
@@ -218,7 +222,7 @@ export function DraftEditor({
                       />
                       <Input
                         inputMode="decimal"
-                        aria-label={`Quantity of ingredient ${index + 1}`}
+                        aria-label={`Quantity of ${lineName} ${index + 1}`}
                         aria-invalid={line.quantity !== "" && !validQuantity(line.quantity)}
                         value={line.quantity}
                         onChange={(e) => update(line.key, { quantity: e.target.value })}
@@ -227,7 +231,7 @@ export function DraftEditor({
                         value={line.unit}
                         onValueChange={(v) => update(line.key, { unit: v as UnitCode })}
                       >
-                        <SelectTrigger aria-label={`Unit of ingredient ${index + 1}`}>
+                        <SelectTrigger aria-label={`Unit of ${lineName} ${index + 1}`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -265,7 +269,7 @@ export function DraftEditor({
                           type="button"
                           variant="ghost"
                           size="icon"
-                          aria-label="Remove ingredient"
+                          aria-label={`Remove ${lineName}`}
                           onClick={() => setLines((all) => all.filter((l) => l.key !== line.key))}
                         >
                           <Trash2 />
@@ -286,7 +290,7 @@ export function DraftEditor({
                       ])
                     }
                   >
-                    <Plus data-icon="inline-start" /> Add ingredient
+                    <Plus data-icon="inline-start" /> Add {lineName}
                   </Button>
                 </div>
               </div>

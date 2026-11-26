@@ -148,6 +148,8 @@ describe("specifications module", () => {
     await grant("items", "none");
     expect((await as(marcus.cookie).get("/specifications")).status).toBe(403);
     await grant("items", "read");
+    expect((await as(marcus.cookie).get("/specifications")).status).toBe(403);
+    await grant("food_items", "read");
     await ok(await as(marcus.cookie).get("/specifications"));
   });
 

@@ -17,7 +17,8 @@ const DRAFT = { readOnlyHint: false, destructiveHint: true, idempotentHint: fals
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
-const UNIT_HELP = "mg, g, kg (weight); ml, l (volume); each (count).";
+const UNIT_HELP =
+  "mg, g, kg (weight); ml, l (volume); each (count); mm, cm, m (length); mm2, cm2, m2 (area); s, min, h (time).";
 
 const PERSON_ONLY =
   "Sending an order (a commitment to buy), closing it short and cancelling it are a person's acts in the app; there are no tools for them unless an owner or admin allows it under Settings → API access (send_purchase_order, email_purchase_order, close_purchase_order and cancel_purchase_order then appear).";

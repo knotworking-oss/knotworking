@@ -7,6 +7,7 @@ import {
   biCanViewDashboard,
   type BiDashboardAccessFields,
   hasModuleLevel,
+  foodItemFieldNames,
   isAttachmentTargetType,
   isModuleId,
   moduleOfEntity,
@@ -82,6 +83,15 @@ export function redactChanges(viewer: Viewer, changes: SyncChange[]): SyncChange
         : [change];
     }
     if (change.action !== "upsert" || !change.data) return [change];
+    // Legacy item events and approval snapshots may carry Food items data.
+    if (!hasModuleLevel(viewer.modules?.food_items, "read")) {
+      if (change.entity === "item" || change.entity === "recipe_version") {
+        const data = { ...change.data };
+        const fields = change.entity === "item" ? foodItemFieldNames : ["approvedAllergens"];
+        for (const field of fields) delete data[field];
+        return [{ ...change, data }];
+      }
+    }
     // A dashboard the viewer may not open arrives as a tombstone (only its id), so one that was
     // unpublished, archived or narrowed to other people disappears from their copy.
     if (change.entity === "bi_dashboard") {

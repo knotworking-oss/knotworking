@@ -40,7 +40,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     throw new Error("BETTER_AUTH_SECRET must not be the public development secret in production");
   const pair = (id?: string, secretValue?: string) =>
     id && secretValue ? { clientId: id, clientSecret: secretValue } : undefined;
-  const activeModules = parseActiveModules(env.KNOTWORKING_MODULES);
+  const activeModules = parseActiveModules(env.KNOTWORKING_MODULES, (message) => console.warn(message));
   const xero = pair(env.XERO_CLIENT_ID?.trim(), env.XERO_CLIENT_SECRET?.trim());
   if (
     xero &&

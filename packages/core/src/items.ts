@@ -8,12 +8,12 @@ import { z } from "zod";
 
 // ─── Units ───────────────────────────────────────────────────────────────────
 
-export const unitDimensions = ["mass", "volume", "count"] as const;
+export const unitDimensions = ["mass", "volume", "count", "length", "area", "time"] as const;
 export type UnitDimension = (typeof unitDimensions)[number];
 
 /**
  * Units people enter quantities in. `toBase` converts to the dimension's base unit, which is
- * what quantities are stored in: grams, millilitres or each.
+ * what quantities are stored in.
  */
 export const units = {
   mg: { label: "mg", dimension: "mass", toBase: 0.001 },
@@ -22,11 +22,27 @@ export const units = {
   ml: { label: "ml", dimension: "volume", toBase: 1 },
   l: { label: "l", dimension: "volume", toBase: 1000 },
   each: { label: "each", dimension: "count", toBase: 1 },
+  mm: { label: "mm", dimension: "length", toBase: 1 },
+  cm: { label: "cm", dimension: "length", toBase: 10 },
+  m: { label: "m", dimension: "length", toBase: 1000 },
+  mm2: { label: "mm²", dimension: "area", toBase: 1 },
+  cm2: { label: "cm²", dimension: "area", toBase: 100 },
+  m2: { label: "m²", dimension: "area", toBase: 1_000_000 },
+  s: { label: "s", dimension: "time", toBase: 1 },
+  min: { label: "min", dimension: "time", toBase: 60 },
+  h: { label: "h", dimension: "time", toBase: 3600 },
 } as const satisfies Record<string, { label: string; dimension: UnitDimension; toBase: number }>;
 
 export type UnitCode = keyof typeof units;
 export const unitCodes = Object.keys(units) as [UnitCode, ...UnitCode[]];
-export const baseUnits: Record<UnitDimension, UnitCode> = { mass: "g", volume: "ml", count: "each" };
+export const baseUnits: Record<UnitDimension, UnitCode> = {
+  mass: "g",
+  volume: "ml",
+  count: "each",
+  length: "mm",
+  area: "mm2",
+  time: "s",
+};
 export const unitDimension = (unit: UnitCode): UnitDimension => units[unit].dimension;
 
 /** What an item needs to say for quantities to cross dimensions. */
@@ -52,10 +68,16 @@ export function convertQuantity(
   const b = units[to];
   const base = quantity * a.toBase;
   if (a.dimension === b.dimension) return base / b.toBase;
-  const gramsPer = (dimension: UnitDimension) =>
-    dimension === "mass" ? 1 : dimension === "volume" ? bridge.densityGPerMl : bridge.unitWeightG;
-  const fromFactor = gramsPer(a.dimension);
-  const toFactor = gramsPer(b.dimension);
+  const gramsPer = {
+    mass: 1,
+    volume: bridge.densityGPerMl,
+    count: bridge.unitWeightG,
+    length: null,
+    area: null,
+    time: null,
+  } satisfies Record<UnitDimension, number | null | undefined>;
+  const fromFactor = gramsPer[a.dimension];
+  const toFactor = gramsPer[b.dimension];
   if (!fromFactor || !toFactor) return null;
   return (base * fromFactor) / toFactor / b.toBase;
 }
@@ -107,10 +129,38 @@ export const sortAllergens = (codes: Iterable<AllergenCode>): AllergenCode[] => 
 
 // ─── Items ───────────────────────────────────────────────────────────────────
 
-export const itemTypes = ["ingredient", "packaging", "wip", "finished"] as const;
+export const foodItemTypes = ["ingredient"] as const;
+export const genericItemTypes = [
+  "raw_material",
+  "component",
+  "consumable",
+  "spare_part",
+  "merchandise",
+  "service",
+  "packaging",
+  "wip",
+  "finished",
+] as const;
+export const itemTypes = [...foodItemTypes, ...genericItemTypes] as const;
+export const producibleItemTypes = ["component", "wip", "finished"] as const;
+export const isProducibleItem = (type: ItemType) =>
+  (producibleItemTypes as readonly ItemType[]).includes(type);
 export type ItemType = (typeof itemTypes)[number];
+/** Item types that can be despatched to a customer: made goods and goods bought for resale. */
+export const despatchableItemTypes = ["finished", "merchandise"] as const satisfies readonly ItemType[];
+export const isDespatchableItem = (type: ItemType) =>
+  (despatchableItemTypes as readonly ItemType[]).includes(type);
+/** Item types that can go on a sales order or commitment. */
+export const sellableItemTypes = ["finished", "wip", "merchandise"] as const satisfies readonly ItemType[];
+export const isSellableItem = (type: ItemType) => (sellableItemTypes as readonly ItemType[]).includes(type);
 export const itemTypeLabels: Record<ItemType, string> = {
   ingredient: "Ingredient",
+  raw_material: "Raw material",
+  component: "Component",
+  consumable: "Consumable",
+  spare_part: "Spare part",
+  merchandise: "Merchandise",
+  service: "Service",
   packaging: "Packaging",
   wip: "Work in progress",
   finished: "Finished good",
@@ -148,6 +198,20 @@ export const itemSupplierLinkSchema = z.object({
   preferred: z.boolean().optional(),
 });
 
+const foodItemFields = {
+  allergens: allergenList,
+  mayContain: allergenList,
+  storage: z.enum(storageConditions),
+  shelfLifeDays: z.number().int().min(0).max(3650).nullable(),
+};
+export const foodItemFieldNames = Object.keys(foodItemFields) as (keyof typeof foodItemFields)[];
+export const foodItemPatchSchema = z.object(foodItemFields).partial();
+export type FoodItemPatch = z.infer<typeof foodItemPatchSchema>;
+
+export function hasFoodItemFields(input: FoodItemPatch) {
+  return foodItemFieldNames.some((key) => input[key] !== undefined);
+}
+
 const itemFields = {
   code: z.string().trim().min(1).max(40),
   name: z.string().trim().min(1).max(200),
@@ -156,10 +220,7 @@ const itemFields = {
   description: optionalText(2000),
   densityGPerMl: positive.max(100).nullable(),
   unitWeightG: positive.max(10_000_000).nullable(),
-  allergens: allergenList,
-  mayContain: allergenList,
-  storage: z.enum(storageConditions),
-  shelfLifeDays: z.number().int().min(0).max(3650).nullable(),
+  ...foodItemFields,
   standardCost: z.number().min(0).max(1_000_000_000).nullable(),
   /** Replaces the item's supplier links. */
   suppliers: z
@@ -178,10 +239,7 @@ export const itemCreateSchema = z.object({
   description: itemFields.description.optional(),
   densityGPerMl: itemFields.densityGPerMl.optional(),
   unitWeightG: itemFields.unitWeightG.optional(),
-  allergens: itemFields.allergens.optional(),
-  mayContain: itemFields.mayContain.optional(),
-  storage: itemFields.storage.optional(),
-  shelfLifeDays: itemFields.shelfLifeDays.optional(),
+  ...foodItemPatchSchema.shape,
   standardCost: itemFields.standardCost.optional(),
   suppliers: itemFields.suppliers.optional(),
 });

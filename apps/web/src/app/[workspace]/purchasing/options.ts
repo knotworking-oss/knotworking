@@ -5,7 +5,7 @@ import type { OrderOptions } from "./purchasing-forms";
 const purchasable = (type: ItemType) => (receivableItemTypes as readonly ItemType[]).includes(type);
 
 /**
- * What the order and receive forms pick from: active ingredients and packaging, suppliers and
+ * What the order and receive forms pick from: purchasable items, services, suppliers and
  * active stock locations, and whether stock lines can be used. Each list is empty when the viewer
  * can't read the module it comes from.
  */
@@ -19,20 +19,20 @@ export async function loadOrderOptions(slug: string): Promise<OrderOptions> {
     canItems ? getSuppliers(slug).then((r) => r.suppliers) : [],
     canStock ? getStockLocations(slug).then((r) => r.locations) : [],
   ]);
+  const catalogue = items.map((i) => ({
+    id: i.id,
+    code: i.code,
+    name: i.name,
+    type: i.type,
+    unit: i.unit,
+    standardCost: i.standardCost,
+    densityGPerMl: i.densityGPerMl,
+    unitWeightG: i.unitWeightG,
+    supplierIds: i.suppliers.map((s) => s.supplierId),
+  }));
   return {
-    items: items
-      .filter((i) => purchasable(i.type))
-      .map((i) => ({
-        id: i.id,
-        code: i.code,
-        name: i.name,
-        type: i.type,
-        unit: i.unit,
-        standardCost: i.standardCost,
-        densityGPerMl: i.densityGPerMl,
-        unitWeightG: i.unitWeightG,
-        supplierIds: i.suppliers.map((s) => s.supplierId),
-      })),
+    items: catalogue.filter((i) => purchasable(i.type)),
+    services: catalogue.filter((i) => i.type === "service"),
     suppliers: suppliers.map((s) => ({
       id: s.id,
       name: s.name,

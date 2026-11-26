@@ -744,14 +744,14 @@ async function findLineItem(db: Executor, workspaceId: string, id: string) {
 const lineBase = (quantity: number, unit: UnitCode, item: ItemRow) =>
   toBase(quantity, unit, item, { max: PURCHASE_MAX_BASE_QUANTITY });
 
-/** An item that may go on an order: an active ingredient or packaging item. */
+/** An item that may go on the stock line of an order. */
 async function findPurchasableItem(tx: Executor, workspaceId: string, itemId: string) {
   const item = await findItem(tx, workspaceId, itemId);
   if (!(receivableItemTypes as readonly string[]).includes(item.type)) {
     throw new ApiError(
       409,
       "item_not_purchasable",
-      `${item.name} is not an ingredient or packaging; only those are bought`,
+      `${item.name} cannot be bought into stock. Use a non-stock line when no inventory is received`,
     );
   }
   if (item.status !== "active") throw new ApiError(409, "item_archived", `${item.name} is archived`);
@@ -1477,6 +1477,7 @@ export async function receiveOrder(
   input: PurchaseReceiveInput,
   todayOn?: string,
   stock: StockCheck = stockAllowed,
+  foodItems = false,
 ) {
   const today = todayOn ?? (await workspaceToday(db, workspaceId));
   notInFuture(input.receivedOn, "receivedOn", today);
@@ -1574,7 +1575,7 @@ export async function receiveOrder(
         created.push({ receipt: receipt!, lotCode: null, item, line });
         continue;
       }
-      // Stock goods-in's item rule: active ingredients and packaging only.
+      // Stock goods-in's item rule also applies to linked purchase lines.
       if (isStock) assertItemReceivable(item!);
       const before = roundQuantity((running.get(line.id)?.received ?? 0) + (accepted.get(line.id) ?? 0));
       accepted.set(line.id, roundQuantity((accepted.get(line.id) ?? 0) + quantity));
@@ -1622,6 +1623,7 @@ export async function receiveOrder(
         expiryType: entry.expiryType ?? null,
         status: entry.status ?? "available",
         statusNote: "Received into quarantine",
+        foodItems,
         supplierId: order.supplierId,
         supplierLotCode: entry.supplierLotCode ?? null,
         now,
@@ -1751,7 +1753,7 @@ export async function getSuggestions(
     });
   }
   const itemById = new Map(itemRows.map((i) => [i.id, i]));
-  // Only active ingredients and packaging can be bought: WIP and finished goods in the shortfall
+  // Only active purchasable items go on a stock line. WIP and finished goods in the shortfall
   // are made in house, and archived items can't go on an order. They are listed apart.
   const reasonOf = (itemId: string) => {
     const item = itemById.get(itemId)!;

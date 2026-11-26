@@ -8,7 +8,7 @@ export const purchasingApi = () => browserApi().v1.workspaces[":slug"].purchasin
 
 export const NONE = "none";
 
-/** An ingredient or packaging item, as the order lines need it. */
+/** Catalogue details used when adding an order line. */
 export interface PurchasableItem {
   id: string;
   code: string;
@@ -37,6 +37,7 @@ export interface LocationOption {
 
 export interface OrderOptions {
   items: PurchasableItem[];
+  services: PurchasableItem[];
   suppliers: SupplierOption[];
   locations: LocationOption[];
   /**

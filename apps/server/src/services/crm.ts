@@ -365,8 +365,9 @@ export async function updateCrmLead(
 
 /**
  * Turns a qualified lead into a customer of the register (a new one, or an existing one it belongs
- * to). Its opportunities without a customer get this one. Creating a customer needs Customers write
- * access (the route checks it).
+ * to). Its opportunities without a customer get this one; one already for another customer, or with
+ * a quote for another, is refused (`409 lead_customer_conflict`, naming the deals). Creating a
+ * customer needs Customers write access (the route checks it).
  */
 export async function convertCrmLead(
   db: Database,
@@ -395,6 +396,42 @@ export async function convertCrmLead(
         const customer = await findCustomer(tx, workspaceId, input.customer.customerId);
         if (customer.status !== "active") throw conflict("Choose an active customer");
         customerId = customer.id;
+      }
+      // The lead's deals, and the quotes linked to them, must all be for this customer (a new one
+      // matches none that already has a customer): the deals are never retargeted silently.
+      const conflicting = await tx
+        .select({ reference: crmOpportunities.reference })
+        .from(crmOpportunities)
+        .leftJoin(
+          salesOrders,
+          and(eq(salesOrders.workspaceId, workspaceId), eq(salesOrders.id, crmOpportunities.salesQuoteId)),
+        )
+        .leftJoin(
+          serviceQuotes,
+          and(
+            eq(serviceQuotes.workspaceId, workspaceId),
+            eq(serviceQuotes.id, crmOpportunities.serviceQuoteId),
+          ),
+        )
+        .where(
+          and(
+            eq(crmOpportunities.workspaceId, workspaceId),
+            eq(crmOpportunities.leadId, id),
+            or(
+              ne(crmOpportunities.customerId, customerId),
+              ne(salesOrders.customerId, customerId),
+              ne(serviceQuotes.customerId, customerId),
+            ),
+          ),
+        )
+        .orderBy(asc(crmOpportunities.reference))
+        .limit(6);
+      if (conflicting.length) {
+        const shown = conflicting.slice(0, 5).map((o) => o.reference);
+        throw conflict(
+          `${conflicting.length > 5 ? `${shown.join(", ")} and more` : shown.join(", ")} of this lead ${conflicting.length === 1 ? "is" : "are"} for another customer or quoted to one. Convert the lead to that customer, or change their customer or quote first`,
+          "lead_customer_conflict",
+        );
       }
       const [saved] = await tx
         .update(crmLeads)

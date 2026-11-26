@@ -1030,6 +1030,41 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
     await body(await req("POST", `/crm/leads/${lead.id}/convert`, { ...convert, commandId: newId() }), 409);
   });
 
+  it("refuses converting a lead to a customer its deals and quotes aren't for", async () => {
+    const { body, req } = api;
+    const lead = await body(
+      await req("POST", "/crm/leads", { commandId: newId(), name: "Sam Hale", company: "Hale Cafe" }),
+      201,
+    );
+    const qualified = await body(
+      await req("PATCH", `/crm/leads/${lead.id}`, { expectedRevision: 1, status: "qualified" }),
+    );
+    // A deal of the lead already quoted for Keep Foods.
+    const deal = await make("Hale supply", { leadId: lead.id, salesQuoteId: (await salesQuote()).id });
+    const convert = (target: object) =>
+      req("POST", `/crm/leads/${lead.id}/convert`, {
+        commandId: newId(),
+        expectedRevision: qualified.revision,
+        customer: target,
+      });
+    for (const target of [
+      { mode: "existing", customerId: other.id },
+      { mode: "new", code: "HALE", name: "Hale Cafe", address: "8 Hill Road" },
+    ]) {
+      const refused = await body(await convert(target), 409);
+      expect(refused.error).toMatchObject({ code: "lead_customer_conflict" });
+      expect(refused.error.message).toContain(deal.reference);
+    }
+    expect(
+      await s.ctx.handle.db.select({ id: customers.id }).from(customers).where(eq(customers.code, "HALE")),
+    ).toEqual([]);
+    // Onto the customer its deal is for, it converts.
+    expect(await body(await convert({ mode: "existing", customerId: customer.id }))).toMatchObject({
+      status: "converted",
+      customerId: customer.id,
+    });
+  });
+
   it("treats ids from another workspace as missing", async () => {
     const { body, req } = api;
     const db = s.ctx.handle.db;

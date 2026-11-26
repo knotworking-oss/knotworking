@@ -280,7 +280,6 @@ async function billableShipments(
   ws: string,
   rows: Awaited<ReturnType<typeof shipments>>,
   currency: string,
-  useSalesPrices: boolean,
 ) {
   const [billed, direct] = await Promise.all([
     activeClaims(
@@ -301,7 +300,7 @@ async function billableShipments(
   for (const row of rows) {
     const quantity = roundQuantity(row.line.quantity - row.returned);
     if (quantity <= 0 || billed.has(row.line.id) || (row.orderLine && direct.has(row.orderLine.id))) continue;
-    const order = useSalesPrices ? row.orderLine : null;
+    const order = row.orderLine;
     const price = order ? shipmentUnitPrice(order) : 0;
     lines.push(
       sourceLine(
@@ -337,12 +336,17 @@ export async function despatchInvoiceSource(
   if (!despatch) throw notFound("Dispatch");
   if (despatch.status !== "confirmed")
     throw invoiceConflict("Confirm the dispatch before drafting an invoice");
+  const deliveries = await shipments(db, ws, { despatchId: id });
+  const standalone = deliveries.filter((row) => !row.fulfilment);
+  const billable = await billableShipments(db, ws, standalone, currency);
+  if (!billable.lines.length && deliveries.some((row) => row.fulfilment))
+    throw invoiceConflict("Draft an invoice for linked deliveries from the sales order.");
   return {
     customerId: despatch.customerId,
     customer: { name: despatch.customerName, address: despatch.customerAddress },
     currency,
     reference: despatch.reference,
-    ...(await billableShipments(db, ws, await shipments(db, ws, { despatchId: id }), currency, false)),
+    ...billable,
   };
 }
 
@@ -368,7 +372,7 @@ export async function salesInvoiceSource(
   if (useDespatch)
     return {
       ...identity,
-      ...(await billableShipments(db, ws, await shipments(db, ws, { orderId: id }), order.currency, true)),
+      ...(await billableShipments(db, ws, await shipments(db, ws, { orderId: id }), order.currency)),
     };
 
   const lines = await db

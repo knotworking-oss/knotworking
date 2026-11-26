@@ -935,14 +935,15 @@ describe("connected Xero accounting against a fake HTTP provider", () => {
     await ok(draft("despatch", first.id), 409);
     await ok(draft("sales", order.id), 409);
     const second = await ship(6);
-    const secondDraft = await ok(draft("despatch", second.id), 201);
-    await ok(decision(secondDraft), 400);
-    await ok(draft("sales", order.id), 409);
-    await ok(decision(secondDraft, "discard"));
-    expect(await ok(draft("sales", order.id), 201)).toMatchObject({
+    expect((await ok(draft("despatch", second.id), 409)).error.message).toContain("from the sales order");
+    const secondDraft = await ok(draft("sales", order.id), 201);
+    expect(secondDraft).toMatchObject({
+      currency: "GBP",
       net: "75.00",
-      lines: [{ sourceLineId: second.lines[0].id, quantity: "6000" }],
+      lines: [{ sourceLineId: second.lines[0].id, quantity: "6000", priceLocked: true }],
     });
+    await ok(decision(secondDraft, "discard"));
+    expect(await ok(draft("sales", order.id), 201)).toMatchObject({ net: "75.00" });
 
     await mapCustomer(customer.id);
     const posting = await prepareCustomer(invoice);

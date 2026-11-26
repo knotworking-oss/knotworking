@@ -100,7 +100,7 @@ async function recipient(
 async function saleItem(db: Executor, ws: string, id: string) {
   const item = await findItem(db, ws, id);
   if (item.status !== "active" || !isSellableItem(item.type))
-    throw conflict("Choose an active finished, WIP or merchandise item");
+    throw conflict("Choose an active finished, WIP, merchandise or spare part item");
   return item;
 }
 /**

@@ -81,7 +81,7 @@ async function checkStock(tx: Transaction, ws: string, row: Despatch) {
       throw new ApiError(
         409,
         "item_not_despatchable",
-        "Only active finished products and merchandise can be allocated",
+        "Only active finished products, merchandise and spare parts can be allocated",
       );
     await assertNoIncidentHold(tx, ws, lot.id);
     if (lot.status !== "available")

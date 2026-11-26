@@ -270,8 +270,8 @@ export function DespatchEditor({
             </div>
           </label>
           <p className="text-xs text-muted-foreground">
-            Only released, unexpired finished products are shown. Available stock and production reservations
-            are checked again when confirming.
+            Only released, unexpired finished goods, merchandise and spare parts are shown. Available stock
+            and production reservations are checked again when confirming.
           </p>
           {lotTotal > 50 && (
             <p className="text-xs text-muted-foreground">

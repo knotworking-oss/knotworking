@@ -1467,12 +1467,23 @@ async function openCard(
   return { card, batch };
 }
 
-/** A pending card becomes in progress with its first work. */
-async function markStarted(tx: Transaction, card: CardRow, now = new Date()): Promise<ChangeInput[]> {
-  if (card.status !== "pending") return [];
+/**
+ * Every change to a card's work (time, quantities, exceptions, records, voids) touches the card:
+ * its `updatedAt` moves and a sync change goes out, so open views refresh. A pending card becomes
+ * in progress with its first work (`started`).
+ */
+async function touchCard(
+  tx: Transaction,
+  card: CardRow,
+  { started = false, now = new Date() }: { started?: boolean; now?: Date } = {},
+): Promise<ChangeInput[]> {
   const [row] = await tx
     .update(jobCards)
-    .set({ status: "in_progress", startedAt: now })
+    .set(
+      started && card.status === "pending"
+        ? { status: "in_progress", startedAt: now, updatedAt: now }
+        : { updatedAt: now },
+    )
     .where(eq(jobCards.id, card.id))
     .returning();
   return [cardChange(row!)];
@@ -1507,7 +1518,7 @@ export async function startJobCardTimer(
       startedAt: now,
       note: input.note ?? null,
     });
-    await recordChanges(tx, workspaceId, actorId, await markStarted(tx, card, now));
+    await recordChanges(tx, workspaceId, actorId, await touchCard(tx, card, { started: true, now }));
   });
   return getJobCard(db, workspaceId, id);
 }
@@ -1544,6 +1555,7 @@ export async function stopJobCardTimer(db: Database, workspaceId: string, actorI
       .update(jobCardTimeLogs)
       .set(stoppedTimer(running.startedAt, new Date()))
       .where(eq(jobCardTimeLogs.id, running.id));
+    await recordChanges(tx, workspaceId, actorId, await touchCard(tx, card));
   });
   return getJobCard(db, workspaceId, id);
 }
@@ -1574,7 +1586,7 @@ export async function addJobCardTime(
       minutes: input.minutes,
       note: input.note ?? null,
     });
-    await recordChanges(tx, workspaceId, actorId, await markStarted(tx, card));
+    await recordChanges(tx, workspaceId, actorId, await touchCard(tx, card, { started: true }));
   });
   return getJobCard(db, workspaceId, id);
 }
@@ -1588,7 +1600,7 @@ export async function voidJobCardTime(
   reason: string,
 ) {
   await db.transaction(async (tx) => {
-    await openCard(tx, workspaceId, id, { batchRunning: false });
+    const { card } = await openCard(tx, workspaceId, id, { batchRunning: false });
     const [log] = await tx
       .select()
       .from(jobCardTimeLogs)
@@ -1600,6 +1612,7 @@ export async function voidJobCardTime(
       .update(jobCardTimeLogs)
       .set({ voidedAt: now, voidedBy: actorId, voidReason: reason, endedAt: log.endedAt ?? now })
       .where(eq(jobCardTimeLogs.id, logId));
+    await recordChanges(tx, workspaceId, actorId, await touchCard(tx, card, { now }));
   });
   return getJobCard(db, workspaceId, id);
 }
@@ -1662,7 +1675,7 @@ export async function recordJobCardQuantity(
         note: input.note ?? null,
         recordedBy: actorId,
       });
-      await recordChanges(tx, workspaceId, actorId, await markStarted(tx, card));
+      await recordChanges(tx, workspaceId, actorId, await touchCard(tx, card, { started: true }));
       return { id };
     },
   );
@@ -1714,6 +1727,7 @@ export async function voidJobCardQuantity(
       .update(jobCardQuantities)
       .set({ voidedAt: new Date(), voidedBy: actorId, voidReason: reason })
       .where(eq(jobCardQuantities.id, entryId));
+    await recordChanges(tx, workspaceId, actorId, await touchCard(tx, card));
   });
   return getJobCard(db, workspaceId, id);
 }
@@ -1726,7 +1740,7 @@ export async function raiseJobCardException(
   input: JobCardExceptionInput,
 ) {
   await db.transaction(async (tx) => {
-    await openCard(tx, workspaceId, id, { batchRunning: false });
+    const { card } = await openCard(tx, workspaceId, id, { batchRunning: false });
     await tx.insert(jobCardExceptions).values({
       workspaceId,
       jobCardId: id,
@@ -1734,6 +1748,7 @@ export async function raiseJobCardException(
       description: input.description,
       raisedBy: actorId,
     });
+    await recordChanges(tx, workspaceId, actorId, await touchCard(tx, card));
   });
   return getJobCard(db, workspaceId, id);
 }
@@ -1748,7 +1763,7 @@ export async function resolveJobCardException(
 ) {
   await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
-    await findCard(tx, workspaceId, id);
+    const card = await findCard(tx, workspaceId, id);
     const [row] = await tx
       .select()
       .from(jobCardExceptions)
@@ -1760,6 +1775,7 @@ export async function resolveJobCardException(
       .update(jobCardExceptions)
       .set({ status: "resolved", resolvedAt: new Date(), resolvedBy: actorId, resolution: input.resolution })
       .where(eq(jobCardExceptions.id, exceptionId));
+    await recordChanges(tx, workspaceId, actorId, await touchCard(tx, card));
   });
   return getJobCard(db, workspaceId, id);
 }
@@ -1840,7 +1856,7 @@ function cardHooks(
         .insert(jobCardRecords)
         .values(rows.map((r) => ({ workspaceId, jobCardId: cardId, productionRecordId: r.id })));
       await afterPost?.(tx, current!);
-      return markStarted(tx, current!);
+      return touchCard(tx, current!, { started: true });
     },
   };
 }

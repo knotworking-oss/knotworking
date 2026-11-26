@@ -37,6 +37,13 @@ describe("module read-model invalidation", () => {
     expect(shouldRefreshModulePage("/acme/quality/complaints", change("stock_lot"))).toBe(true);
     expect(shouldRefreshModulePage("/acme/production/daily-demand", change("demand_line"))).toBe(true);
   });
+  it("refreshes Routings views and the batch and cost pages that show job cards", () => {
+    expect(shouldRefreshModulePage("/acme/routings/job-cards/one", change("job_card"))).toBe(true);
+    expect(shouldRefreshModulePage("/acme/routings/job-cards", change("production_batch"))).toBe(true);
+    expect(shouldRefreshModulePage("/acme/production/batches/one", change("job_card"))).toBe(true);
+    expect(shouldRefreshModulePage("/acme/costing/batches/one", change("job_card"))).toBe(true);
+    expect(shouldRefreshModulePage("/acme/people", change("job_card"))).toBe(false);
+  });
   it("leaves unrelated screens and task views alone", () => {
     expect(shouldRefreshModulePage("/acme/tasks", change("task"))).toBe(false);
     expect(shouldRefreshModulePage("/acme/people", change("stock_movement"))).toBe(false);

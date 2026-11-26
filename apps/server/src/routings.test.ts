@@ -488,6 +488,29 @@ describe("routings and job cards", () => {
     });
   });
 
+  it("touches the card and emits a sync change on every piece of work recorded on it", async () => {
+    const { cards } = await startedBatch();
+    const cut = cards[0]!;
+    const cardId = cut.split("/").at(-1)!;
+    const { cursor } = await ok("GET", "/bootstrap");
+    const before = (await ok("GET", cut)).updatedAt as string;
+    await ok("POST", `${cut}/timer/start`, {}, 201);
+    await ok("POST", `${cut}/timer/stop`);
+    await ok("POST", `${cut}/time`, { minutes: 5 }, 201);
+    const quantity = await ok("POST", `${cut}/quantities`, { good: 1, unit: "each" }, 201);
+    const raised = await ok("POST", `${cut}/exceptions`, { kind: "delay", description: "Late steel" }, 201);
+    await ok("POST", `${cut}/exceptions/${raised.exceptions[0].id}/resolve`, { resolution: "Arrived" });
+    await ok("POST", `${cut}/quantities/${quantity.quantities[0].id}/void`, { reason: "Miscount" });
+    const after = await ok("GET", cut);
+    await ok("POST", `${cut}/time/${after.timeLogs[0].id}/void`, { reason: "Wrong card" });
+    const { changes } = await ok("GET", `/sync?after=${cursor}&limit=1000`);
+    const touched = changes.filter(
+      (c: { entity: string; entityId: string }) => c.entity === "job_card" && c.entityId === cardId,
+    );
+    expect(touched).toHaveLength(8);
+    expect(new Date((await ok("GET", cut)).updatedAt).getTime()).toBeGreaterThan(new Date(before).getTime());
+  });
+
   it("leaves batch production, HACCP records and lot traceability unchanged with Routings disabled", async () => {
     // A batch with job cards made while Routings was on.
     const pending = await ok(

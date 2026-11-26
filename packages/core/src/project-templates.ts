@@ -129,7 +129,6 @@ export const projectTemplates: Record<ProjectTemplateId, ProjectTemplate> = {
         detail: "Agree the billable amount and pass it to whoever raises invoices.",
       },
     ],
-    // Pending: an `invoicing` step replacing "billing" once the Invoicing module ships.
     moduleSteps: {
       client_services: [
         {
@@ -139,6 +138,16 @@ export const projectTemplates: Record<ProjectTemplateId, ProjectTemplate> = {
           daysFromStart: 2,
           detail: "Record the sign-off on the service quote, then use its billing draft.",
           link: { label: "Open Client services", path: "client-services" },
+        },
+      ],
+      invoicing: [
+        {
+          key: "invoice",
+          title: "Raise the invoice",
+          daysFromStart: 3,
+          detail:
+            "Draft the customer invoice from the signed-off quote (or manually), choose each line's tax rate, then issue it in Invoicing.",
+          link: { label: "Open Invoicing", path: "invoicing" },
         },
       ],
     },

@@ -185,4 +185,23 @@ describe("project templates", () => {
     expect(parses({ startDate: "9999-12-31" })).toBe(false);
     expect(parses({ startDate: "0000-12-31" })).toBe(false);
   });
+  it("adds the Invoicing step beside the Client services billing step", () => {
+    const both = planProjectTemplate("client_delivery", (m) => m === "client_services" || m === "invoicing");
+    expect(both.map((t) => [t.key, t.module])).toEqual([
+      ["scope", null],
+      ["milestones", null],
+      ["review", null],
+      ["sign_off", null],
+      ["billing", "client_services"],
+      ["invoice", "invoicing"],
+    ]);
+    expect(both.find((t) => t.key === "billing")?.link?.path).toBe("client-services");
+    expect(both.find((t) => t.key === "invoice")?.link?.path).toBe("invoicing");
+    const invoicingOnly = planProjectTemplate("client_delivery", (m) => m === "invoicing");
+    expect(invoicingOnly.find((t) => t.key === "billing")).toMatchObject({
+      module: null,
+      title: "Prepare billing",
+    });
+    expect(invoicingOnly.at(-1)).toMatchObject({ key: "invoice", module: "invoicing" });
+  });
 });

@@ -466,6 +466,7 @@ export const siteRoutes = new Hono<WorkspaceEnv>()
   .get(
     "/site/checklists/allergen-risk",
     requireModuleLevel("production", "read"),
+    requireModuleLevel("food_items", "read"),
     validate("query", changeoverRiskQuerySchema),
     async (c) =>
       c.json(await checklists.getChangeoverRisk(c.var.db, c.var.workspace.id, c.req.valid("query"))),
@@ -480,6 +481,7 @@ export const siteRoutes = new Hono<WorkspaceEnv>()
         query,
         "site",
         canRead(c, "production"),
+        canRead(c, "food_items"),
       ),
     );
   })
@@ -491,6 +493,7 @@ export const siteRoutes = new Hono<WorkspaceEnv>()
         c.req.valid("param").id,
         "site",
         canRead(c, "production"),
+        canRead(c, "food_items"),
       ),
     ),
   )
@@ -511,6 +514,7 @@ export const siteRoutes = new Hono<WorkspaceEnv>()
           input,
           "site",
           canRead(c, "production"),
+          canRead(c, "food_items"),
         ),
         201,
       );
@@ -532,6 +536,7 @@ export const siteRoutes = new Hono<WorkspaceEnv>()
           c.req.valid("json"),
           "site",
           canRead(c, "production"),
+          canRead(c, "food_items"),
         ),
         201,
       ),
@@ -553,6 +558,7 @@ export const siteRoutes = new Hono<WorkspaceEnv>()
           c.req.valid("param").id,
           c.req.valid("json"),
           canRead(c, "production"),
+          canRead(c, "food_items"),
         ),
       ),
   );

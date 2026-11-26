@@ -40,7 +40,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     throw new Error("BETTER_AUTH_SECRET must not be the public development secret in production");
   const pair = (id?: string, secretValue?: string) =>
     id && secretValue ? { clientId: id, clientSecret: secretValue } : undefined;
+  const activeModules = parseActiveModules(env.KNOTWORKING_MODULES, (message) => console.warn(message));
+  const xero = pair(env.XERO_CLIENT_ID?.trim(), env.XERO_CLIENT_SECRET?.trim());
+  if (
+    xero &&
+    activeModules.includes("accounting") &&
+    (secret === DEVELOPMENT_SECRET || secret.length < MIN_SECRET_LENGTH)
+  )
+    throw new Error("Xero requires a private BETTER_AUTH_SECRET of at least 32 characters");
   return {
+    xero,
     port: Number(env.PORT ?? 4000),
     hostname: env.API_HOST?.trim() || "127.0.0.1",
     appUrl,
@@ -85,7 +94,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     accountingDispatchIntervalMs: limitSetting(env, "ACCOUNTING_DISPATCH_INTERVAL_SECONDS", 300) * 1000,
     uploads: uploadConfig(env),
     /** Modules switched on in this environment. Throws on an unknown id or a missing dependency. */
-    activeModules: parseActiveModules(env.KNOTWORKING_MODULES),
+    activeModules,
   };
 }
 

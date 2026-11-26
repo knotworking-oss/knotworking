@@ -1,3 +1,4 @@
+import { foodFieldsByItem } from "./food-items";
 import { despatchReturns } from "@knotworking/db";
 import { assertNoIncidentHold } from "./incident-holds";
 import { executeLedgerCommand } from "./ledger-command";
@@ -71,7 +72,7 @@ import { forReader, gatherReleaseFacts, recordRelease } from "./lot-release";
  * - A balance is the sum of a lot's movements at a location. `stock_balances` holds that sum, kept
  *   by a trigger when a movement is inserted, so reads of stock on hand follow the stock held and not
  *   the length of the ledger. The ledger stays the truth (`reconcileStockBalances` checks the two).
- * - Quantities arrive as a number and a unit, are converted to the item's base unit (g, ml, each)
+ * - Quantities arrive as a number and a unit, are converted to the item's base unit
  *   and rounded to the ledger's 4 decimal places once, here at the boundary (`toBaseQuantity`).
  * - Anything that checks a balance and then writes takes the workspace lock first and re-reads the
  *   balance inside the transaction, so two withdrawals can't both spend the same stock.
@@ -653,6 +654,7 @@ export async function createLot(
     supplierLotCode?: string | null;
     notes?: string | null;
     now: Date;
+    foodItems?: boolean;
   },
 ) {
   let lotCode = input.lotCode;
@@ -667,9 +669,12 @@ export async function createLot(
   // No date given: the item's shelf life from receipt, as a best-before date.
   let expiresOn = input.expiresOn;
   let expiryType = input.expiryType;
-  if (!expiresOn && item.shelfLifeDays !== null) {
-    expiresOn = addDays(input.receivedOn, item.shelfLifeDays);
-    expiryType = "best_before";
+  if (!expiresOn && input.foodItems) {
+    const shelfLife = (await foodFieldsByItem(tx, workspaceId, [item.id])).get(item.id)?.shelfLifeDays;
+    if (shelfLife != null) {
+      expiresOn = addDays(input.receivedOn, shelfLife);
+      expiryType = "best_before";
+    }
   }
 
   const [lot] = await tx
@@ -695,7 +700,7 @@ export async function createLot(
 
 /**
  * Goods-in's item rule: an archived (or deleted) item is refused (`409 item_archived`); only
- * ingredients and packaging are received (`403 item_not_receivable`). Stock goods-in passes
+ * purchasable stock items are received (`403 item_not_receivable`). Stock goods-in passes
  * `canManage`: with it, an opening balance of WIP or finished goods may be received, with a reason.
  * Purchasing receipts leave it out: there is no such path against an order.
  */
@@ -706,19 +711,26 @@ export function assertItemReceivable(
   if (item.status !== "active" || item.deletedAt !== null) {
     throw new ApiError(409, "item_archived", `${item.name} is archived`);
   }
+  if (item.type === "service") {
+    throw new ApiError(
+      403,
+      "item_not_receivable",
+      `${item.name} is a service and cannot be received into stock`,
+    );
+  }
   if (!(receivableItemTypes as readonly string[]).includes(item.type)) {
     if (options.canManage === undefined) {
       throw new ApiError(
         403,
         "item_not_receivable",
-        `${item.name} is not an ingredient or packaging; it can't be received against a purchase order`,
+        `${item.name} can't be received into stock against a purchase order`,
       );
     }
     if (!options.canManage) {
       throw new ApiError(
         403,
         "item_not_receivable",
-        "Only ingredients and packaging are received through goods-in; an opening balance of other items needs manage access",
+        "Receiving an opening balance of a manufactured item needs manage access",
       );
     }
     if (!options.reason) throw badRequest("Give a reason for receiving this item outside production");
@@ -765,15 +777,15 @@ export async function assertSupplierCanDeliver(
  * Goods-in: creates the lot and its `receipt` movement in one transaction.
  *
  * BRCGS supplier approval: a suspended or rejected supplier is refused; a supplier whose approval
- * is pending may only deliver into quarantine. Only ingredients and packaging are received this
- * way; anything else (an opening balance of WIP or finished goods) needs `manage` and a reason.
+ * is pending may only deliver into quarantine. An opening balance of WIP or finished goods
+ * needs `manage` and a reason.
  */
 export async function receiveStock(
   db: Database,
   workspaceId: string,
   actorId: string,
   input: StockReceiptInput,
-  options: { canManage: boolean },
+  options: { canManage: boolean; foodItems?: boolean },
 ) {
   return executeLedgerCommand(
     db,
@@ -781,7 +793,7 @@ export async function receiveStock(
     actorId,
     "receiveStock",
     input,
-    { input, options },
+    { input, options: { canManage: options.canManage } },
     async (tx) => {
       await lockWorkspaceLog(tx, workspaceId);
       const item = await findItem(tx, workspaceId, input.itemId);
@@ -800,6 +812,7 @@ export async function receiveStock(
         expiryType: input.expiryType ?? null,
         status,
         statusNote: "Received into quarantine",
+        foodItems: options.foodItems ?? false,
         supplierId: input.supplierId ?? null,
         supplierLotCode: input.supplierLotCode ?? null,
         notes: input.notes ?? null,

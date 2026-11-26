@@ -12,6 +12,11 @@ import { withTimeZoneScope } from "../services/time-zone";
 export const workspaceAccess = createMiddleware<WorkspaceEnv>(async (c, next) => {
   const slug = c.req.param("slug");
   if (!slug) throw notFound("Workspace");
+  await withWorkspaceAccess(c, slug, next);
+});
+
+/** The fixed OAuth callback resolves its workspace from the one-time state. */
+export async function withWorkspaceAccess(c: Context<WorkspaceEnv>, slug: string, next: () => Promise<void>) {
   const [membership] = await c.var.db
     .select({
       id: workspaces.id,
@@ -56,7 +61,7 @@ export const workspaceAccess = createMiddleware<WorkspaceEnv>(async (c, next) =>
   });
   // The request's zone lookups (services' `workspaceTimeZone`) start from this one, not a SELECT each.
   await withTimeZoneScope(next, { workspaceId: row.id, timeZone });
-});
+}
 
 /**
  * Today's date in the workspace's time zone: the "today" every business decision on a workspace

@@ -1,3 +1,4 @@
+import { foodItemFields, selectFoodItems } from "./food-items";
 import {
   canApproveSpecification,
   diffSpecifications,
@@ -54,7 +55,7 @@ import { audience, memberAccess } from "./notifications";
 type SpecRow = typeof specifications.$inferSelect;
 type VersionRow = typeof specificationVersions.$inferSelect;
 type ParamRow = typeof specificationParameters.$inferSelect;
-type ItemRow = typeof items.$inferSelect;
+type ItemRow = typeof items.$inferSelect & { food?: ReturnType<typeof foodItemFields> | null };
 
 const like = (q: string) => `%${q.replace(/[!%_]/g, (ch) => `!${ch}`)}%`;
 
@@ -129,10 +130,7 @@ const itemSummary = (item: ItemRow) => ({
   type: item.type,
   status: item.status,
   unit: item.unit,
-  allergens: item.allergens,
-  mayContain: item.mayContain,
-  storage: item.storage,
-  shelfLifeDays: item.shelfLifeDays,
+  ...foodItemFields(item.food),
   deleted: item.deletedAt !== null,
 });
 
@@ -175,10 +173,9 @@ async function findSpec(db: Executor, workspaceId: string, id: string) {
 
 /** The item, including an archived or deleted one: a specification keeps showing it. */
 async function itemOf(db: Executor, workspaceId: string, itemId: string) {
-  const [row] = await db
-    .select()
-    .from(items)
-    .where(and(eq(items.id, itemId), eq(items.workspaceId, workspaceId)));
+  const [row] = await selectFoodItems(db).where(
+    and(eq(items.id, itemId), eq(items.workspaceId, workspaceId)),
+  );
   if (!row) throw notFound("Item");
   return row;
 }
@@ -238,10 +235,7 @@ function fullVersion(version: VersionRow, params: ParamRow[], names: Map<string,
 }
 
 const itemFacts = (item: ItemRow) => ({
-  allergens: item.allergens,
-  mayContain: item.mayContain,
-  storage: item.storage,
-  shelfLifeDays: item.shelfLifeDays,
+  ...foodItemFields(item.food),
 });
 
 // ─── Reads ───────────────────────────────────────────────────────────────────

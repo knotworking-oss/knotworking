@@ -152,6 +152,8 @@ describe("labels module", () => {
       expect((await as(marcus.cookie).get("/labelling/labels")).status).toBe(403);
       await grant("items", "read");
       await grant("recipes", "read");
+      expect((await as(marcus.cookie).get("/labelling/labels")).status).toBe(403);
+      await grant("food_items", "read");
       await grant("labels", "read");
       expect((await as(marcus.cookie).get("/labelling/labels")).status).toBe(200);
       const write = await as(marcus.cookie).send("PUT", `/labelling/items/${flour}`, {});

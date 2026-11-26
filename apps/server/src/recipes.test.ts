@@ -161,10 +161,10 @@ describe("recipes module", () => {
       expect((await dupe.json()).error.code).toBe("code_taken");
     });
 
-    it("only makes work-in-progress or finished items, and not archived or unknown ones", async () => {
+    it("rejects unsupported, archived and unknown output items", async () => {
       const bad = await as(ada).send("POST", "/recipes", { code: "B1", name: "B", outputItemId: flour });
       expect(bad.status).toBe(400);
-      expect((await bad.json()).error.message).toMatch(/work-in-progress or finished/);
+      expect((await bad.json()).error.message).toMatch(/component, work-in-progress item or finished good/);
       const unknown = await as(ada).send("POST", "/recipes", {
         code: "B2",
         name: "B",
@@ -198,7 +198,7 @@ describe("recipes module", () => {
       // Sugar has no density: litres of sugar can't be turned into kilograms.
       const res = await put(draftBody({ lines: [{ itemId: sugar, quantity: 1, unit: "l" }] }));
       expect(res.status).toBe(400);
-      expect(await message(res)).toMatch(/SUG.*density or unit weight/);
+      expect(await message(res)).toMatch(/SUG.*conversion factors/);
       // Milk has a density, so kilograms of milk are fine.
       expect((await put(draftBody({ lines: [{ itemId: milk, quantity: 1, unit: "kg" }] }))).status).toBe(200);
     });

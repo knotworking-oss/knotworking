@@ -1,6 +1,7 @@
 import {
   csvImportSchema,
   itemCreateSchema,
+  hasFoodItemFields,
   itemListQuerySchema,
   itemUpdateSchema,
   supplierApprovalSchema,
@@ -17,7 +18,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
 import { forbidTokens } from "../middleware/auth";
-import { requireModuleLevel } from "../middleware/modules";
+import { assertModule, canRead, requireModuleLevel } from "../middleware/modules";
 import {
   createItem,
   createSupplier,
@@ -55,32 +56,44 @@ const idParam = z.object({ id: z.uuid() });
  */
 export const itemRoutes = new Hono<WorkspaceEnv>()
   // ── Items ──
-  .get("/items", validate("query", itemListQuerySchema), async (c) =>
-    c.json(await listItems(c.var.db, c.var.workspace.id, c.req.valid("query"))),
-  )
+  .get("/items", validate("query", itemListQuerySchema), async (c) => {
+    const query = c.req.valid("query");
+    if (query.allergen !== undefined) assertModule(c, "food_items", "read");
+    return c.json(await listItems(c.var.db, c.var.workspace.id, query, canRead(c, "food_items")));
+  })
   // CSV import: `dryRun` checks and previews; otherwise every row is written, or none.
   .post("/items/import", validate("json", csvImportSchema), async (c) => {
     const input = c.req.valid("json");
-    const result = await importItemsCsv(c.var.db, c.var.workspace.id, c.var.user.id, input);
+    const result = await importItemsCsv(c.var.db, c.var.workspace.id, c.var.user.id, input, () =>
+      assertModule(c, "food_items", "write"),
+    );
     return c.json(result, input.dryRun ? 200 : 201);
   })
   .get("/items/:id", validate("param", idParam), async (c) =>
-    c.json(await getItem(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+    c.json(await getItem(c.var.db, c.var.workspace.id, c.req.valid("param").id, canRead(c, "food_items"))),
   )
-  .post("/items", validate("json", itemCreateSchema), async (c) =>
-    c.json(await createItem(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
-  )
-  .patch("/items/:id", validate("param", idParam), validate("json", itemUpdateSchema), async (c) =>
-    c.json(
+  .post("/items", validate("json", itemCreateSchema), async (c) => {
+    const input = c.req.valid("json");
+    if (hasFoodItemFields(input)) assertModule(c, "food_items", "write");
+    return c.json(
+      await createItem(c.var.db, c.var.workspace.id, c.var.user.id, input, canRead(c, "food_items")),
+      201,
+    );
+  })
+  .patch("/items/:id", validate("param", idParam), validate("json", itemUpdateSchema), async (c) => {
+    const patch = c.req.valid("json");
+    if (hasFoodItemFields(patch)) assertModule(c, "food_items", "write");
+    return c.json(
       await updateItem(
         c.var.db,
         c.var.workspace.id,
         c.var.user.id,
         c.req.valid("param").id,
-        c.req.valid("json"),
+        patch,
+        canRead(c, "food_items"),
       ),
-    ),
-  )
+    );
+  })
   .delete("/items/:id", validate("param", idParam), async (c) => {
     await deleteItem(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("param").id);
     return c.body(null, 204);

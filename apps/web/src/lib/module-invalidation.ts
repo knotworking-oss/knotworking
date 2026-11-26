@@ -12,6 +12,8 @@ const optionalReaders: Partial<Record<ModuleId, readonly ModuleId[]>> = {
   hse: ["site"],
   sops: ["training", "attendance"],
   training: ["attendance"],
+  // The batch page's Operations card and the batch cost's work-centre time.
+  routings: ["production", "costing"],
 };
 
 export function affectedModules(changes: readonly SyncChange[]): Set<ModuleId> {
@@ -43,6 +45,7 @@ const pages: Record<string, ModuleId> = {
   despatch: "despatch",
   sales: "sales",
   "client-services": "client_services",
+  crm: "crm",
   hse: "hse",
   demand: "demand",
   production: "production",
@@ -56,6 +59,7 @@ const pages: Record<string, ModuleId> = {
   training: "training",
   attendance: "attendance",
   sops: "sops",
+  routings: "routings",
 };
 
 /** Task/doc views already consume their live replica. Only refresh paginated module read models. */

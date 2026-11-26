@@ -1,5 +1,7 @@
 import {
   parseItemsCsv,
+  hasFoodItemFields,
+  type FoodItemPatch,
   parseSuppliersCsv,
   unitDimension,
   type CsvImportInput,
@@ -22,6 +24,7 @@ import {
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { chunks, importResult, invalidRows, type ImportChange } from "./csv-import";
 import { recordStandardCostChange } from "./costing-settings";
+import { foodItemFields, saveFoodItem, selectFoodItems } from "./food-items";
 import { itemChange, supplierChange } from "./items";
 
 /**
@@ -31,7 +34,7 @@ import { itemChange, supplierChange } from "./items";
  * edits.
  */
 
-type ItemRow = typeof items.$inferSelect;
+type ItemRow = typeof items.$inferSelect & ReturnType<typeof foodItemFields>;
 type SupplierRow = typeof suppliers.$inferSelect;
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -56,24 +59,23 @@ const itemColumn: Record<string, ItemCsvColumn> = {
 const itemFields = Object.keys(itemColumn) as (keyof typeof itemColumn & keyof ItemEntry)[];
 
 type ItemPlan =
-  | { action: "create"; entry: ItemEntry; values: typeof items.$inferInsert }
+  | { action: "create"; entry: ItemEntry; values: typeof items.$inferInsert & FoodItemPatch }
   | { action: "update"; entry: ItemEntry; current: ItemRow; patch: Partial<ItemRow> }
   | { action: "unchanged"; entry: ItemEntry };
 
 async function planItems(tx: Executor, workspaceId: string, entries: ItemEntry[]) {
   const existing = new Map<string, ItemRow>();
   for (const batch of chunks(entries.map((e) => e.code.toLowerCase()))) {
-    const rows = await tx
-      .select()
-      .from(items)
-      .where(
-        and(
-          eq(items.workspaceId, workspaceId),
-          isNull(items.deletedAt),
-          inArray(sql<string>`lower(${items.code})`, batch),
-        ),
-      );
-    for (const row of rows) existing.set(row.code.toLowerCase(), row);
+    const rows = await selectFoodItems(tx).where(
+      and(
+        eq(items.workspaceId, workspaceId),
+        isNull(items.deletedAt),
+        inArray(sql<string>`lower(${items.code})`, batch),
+      ),
+    );
+    for (const { food, ...row } of rows) {
+      existing.set(row.code.toLowerCase(), { ...row, ...foodItemFields(food) });
+    }
   }
 
   const errors: CsvImportRowError<ItemCsvColumn>[] = [];
@@ -125,13 +127,31 @@ async function applyItems(tx: Transaction, workspaceId: string, actorId: string,
   const changes: ChangeInput[] = [];
   const creates = plan.flatMap((p) => (p.action === "create" ? [p.values] : []));
   for (const batch of chunks(creates)) {
-    const rows = await tx.insert(items).values(batch).returning();
-    changes.push(...rows.map(itemChange));
+    const rows = await tx
+      .insert(items)
+      .values(batch.map(({ allergens, mayContain, storage, shelfLifeDays, ...values }) => values))
+      .returning();
+    const byCode = new Map(batch.map((entry) => [entry.code, entry]));
+    for (const row of rows) {
+      const { allergens, mayContain, storage, shelfLifeDays } = byCode.get(row.code)!;
+      changes.push(
+        itemChange(row),
+        ...(await saveFoodItem(tx, workspaceId, row.id, { allergens, mayContain, storage, shelfLifeDays })),
+      );
+    }
   }
   for (const p of plan) {
     if (p.action !== "update") continue;
-    const [row] = await tx.update(items).set(p.patch).where(eq(items.id, p.current.id)).returning();
-    changes.push(itemChange(row!));
+    const { allergens, mayContain, storage, shelfLifeDays, ...values } = p.patch;
+    const [row] = await tx
+      .update(items)
+      .set({ ...values, updatedAt: new Date() })
+      .where(eq(items.id, p.current.id))
+      .returning();
+    changes.push(
+      itemChange(row!),
+      ...(await saveFoodItem(tx, workspaceId, row!.id, { allergens, mayContain, storage, shelfLifeDays })),
+    );
     // A changed standard cost is kept in the item's cost history (costing) from today.
     const next = p.patch.standardCost;
     if (next !== undefined && next !== p.current.standardCost)
@@ -145,8 +165,10 @@ export async function importItemsCsv(
   workspaceId: string,
   actorId: string,
   input: CsvImportInput,
+  requireFoodWrite: () => void,
 ) {
   const parsed = parseItemsCsv(input.csv);
+  if (parsed.entries.some(hasFoodItemFields)) requireFoodWrite();
   const fileName = input.fileName ?? null;
 
   const check = async (tx: Executor) => {

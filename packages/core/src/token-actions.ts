@@ -179,7 +179,9 @@ export const personOnlyActions: readonly PersonOnlyAction[] = [
   personOnly("workforce_hr", "Prepare, approve and export payroll runs", "sign_off"),
   // Sign-offs and approvals.
   personOnly("purchase_requests", "Decide or withdraw purchase requests", "sign_off"),
+  personOnly("invoicing", "Approve or discard customer invoices and credit notes", "sign_off"),
   personOnly("client_services", "Sign client service quote and delivery decisions", "sign_off"),
+  personOnly("crm", "Hand off won opportunities to an order or delivery project", "sign_off"),
   personOnly("items", "Approve or suspend suppliers", "sign_off"),
   personOnly("items", "Assess supplier risk", "sign_off"),
   personOnly("items", "Accept or reject supplier questionnaires", "sign_off"),
@@ -285,6 +287,9 @@ export const personOnlyActions: readonly PersonOnlyAction[] = [
   personOnly("production", "Void downtime, reject and labour records", "correction"),
   personOnly("production", "Close packing runs", "sign_off"),
   personOnly("production", "Void packing checks", "correction"),
+  personOnly("routings", "Approve routing versions", "sign_off"),
+  personOnly("routings", "Void job card time and quantity records", "correction"),
+  personOnly("routings", "Resolve job card exceptions", "attestation"),
   personOnly("governance", "Assess compliance against a standard", "attestation"),
   personOnly("attendance", "Void clock events", "correction"),
   personOnly("training", "Void training records", "correction"),
@@ -300,6 +305,11 @@ export const personOnlyActions: readonly PersonOnlyAction[] = [
   personOnly("attendance", "Change attendance settings", "safety"),
   personOnly("purchasing", "Change invoice match tolerances", "safety"),
   personOnly("purchasing", "Change purchase order approval and over-delivery settings", "safety"),
+  personOnly(
+    "invoicing",
+    "Change invoicing settings: the seller tax registration number and second-approver rule",
+    "safety",
+  ),
   personOnly("costing", "Change standard costs and absorption rates", "safety"),
 ];
 

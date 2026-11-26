@@ -37,7 +37,9 @@ import { registerAuthenticityTools } from "./tools/authenticity";
 import { registerBiTools } from "./tools/bi";
 import { registerPurchaseRequestTools } from "./tools/purchase-requests";
 import { registerClientServiceTools } from "./tools/client-services";
+import { registerCrmTools } from "./tools/crm";
 import { registerAssetTools } from "./tools/assets";
+import { registerRoutingTools } from "./tools/routings";
 import { registerQualityTools } from "./tools/quality";
 import { registerRecipeTools } from "./tools/recipes";
 import { PRIORITY_NUMBER, READ, snapshotNote, workspaceParam } from "./tools/shared";
@@ -417,6 +419,7 @@ export function createKnotworkingServer(options: ToolsOptions): McpServer {
   registerDespatchTools({ define, slugOf, workspaceParam });
   registerDemandTools({ define, slugOf, workspaceParam });
   registerProductionTools({ define, slugOf, workspaceParam });
+  registerRoutingTools({ define, slugOf, workspaceParam });
   registerHaccpTools({ define, slugOf, workspaceParam });
   registerPeopleTools({ define, slugOf, workspaceParam });
   registerTrainingTools({ define, slugOf, workspaceParam });
@@ -426,6 +429,7 @@ export function createKnotworkingServer(options: ToolsOptions): McpServer {
   registerPurchasingTools({ define, slugOf, workspaceParam });
   registerPurchaseRequestTools({ define, slugOf, workspaceParam });
   registerClientServiceTools({ define, slugOf, workspaceParam });
+  registerCrmTools({ define, slugOf, workspaceParam });
   registerPurchaseInvoiceTools({ define, slugOf, workspaceParam });
   registerCostingTools({ define, slugOf, workspaceParam });
   registerSiteTools({ define, slugOf, workspaceParam });

@@ -5,10 +5,12 @@ import {
   allergenCodes,
   allergens,
   ITEM_CSV_TEMPLATE,
+  genericItemTypes,
   itemTypeLabels,
   itemTypes,
   storageConditions,
   storageLabels,
+  takesFoodDetails,
   unitCodes,
   units,
   type AllergenCode,
@@ -89,6 +91,7 @@ export function ItemsManager({
   const pathname = usePathname();
   const { can } = useWorkspace();
   const canWrite = can("items", "write");
+  const showFood = can("food_items");
   const canReadAuthenticity = can("quality");
   const [editing, setEditing] = useState<Item | "new" | null>(null);
   const [importing, setImporting] = useState(false);
@@ -147,7 +150,7 @@ export function ItemsManager({
           <SelectContent>
             <SelectGroup>
               <SelectItem value={ANY}>All types</SelectItem>
-              {itemTypes.map((t) => (
+              {(showFood || filters.type === "ingredient" ? itemTypes : genericItemTypes).map((t) => (
                 <SelectItem key={t} value={t}>
                   {itemTypeLabels[t]}
                 </SelectItem>
@@ -155,24 +158,26 @@ export function ItemsManager({
             </SelectGroup>
           </SelectContent>
         </Select>
-        <Select
-          value={filters.allergen ?? ANY}
-          onValueChange={(v) => applyFilters({ allergen: v === ANY ? undefined : (v as AllergenCode) })}
-        >
-          <SelectTrigger className="w-56" aria-label="Allergen">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value={ANY}>Any allergen</SelectItem>
-              {allergenCodes.map((a) => (
-                <SelectItem key={a} value={a}>
-                  {allergens[a]}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+        {showFood && (
+          <Select
+            value={filters.allergen ?? ANY}
+            onValueChange={(v) => applyFilters({ allergen: v === ANY ? undefined : (v as AllergenCode) })}
+          >
+            <SelectTrigger className="w-56" aria-label="Allergen">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value={ANY}>Any allergen</SelectItem>
+                {allergenCodes.map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {allergens[a]}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        )}
         <div className="flex items-center gap-2 pl-1">
           <Checkbox
             id="items-archived"
@@ -187,7 +192,7 @@ export function ItemsManager({
         <p className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
           {filters.q || filters.type || filters.allergen
             ? "No items match these filters."
-            : "No items yet. Add your ingredients, packaging and products to get started."}
+            : "No items yet. Add materials, products or services to get started."}
         </p>
       ) : (
         <Card className="overflow-x-auto py-0">
@@ -198,8 +203,8 @@ export function ItemsManager({
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Unit</TableHead>
-                <TableHead>Allergens</TableHead>
-                <TableHead>Storage</TableHead>
+                {showFood && <TableHead>Allergens</TableHead>}
+                {showFood && <TableHead>Storage</TableHead>}
                 <TableHead className="pr-4">Suppliers</TableHead>
               </TableRow>
             </TableHeader>
@@ -231,10 +236,16 @@ export function ItemsManager({
                   </TableCell>
                   <TableCell>{itemTypeLabels[item.type]}</TableCell>
                   <TableCell>{units[item.unit].label}</TableCell>
-                  <TableCell className="max-w-xs whitespace-normal">
-                    <AllergenBadges contains={item.allergens} mayContain={item.mayContain} empty="—" />
-                  </TableCell>
-                  <TableCell>{storageLabels[item.storage]}</TableCell>
+                  {showFood && (
+                    <TableCell className="max-w-xs whitespace-normal">
+                      <AllergenBadges
+                        contains={item.allergens ?? []}
+                        mayContain={item.mayContain ?? []}
+                        empty="—"
+                      />
+                    </TableCell>
+                  )}
+                  {showFood && <TableCell>{item.storage ? storageLabels[item.storage] : "—"}</TableCell>}
                   <TableCell className="pr-4 text-muted-foreground">
                     {canReadAuthenticity && (
                       <Link
@@ -288,6 +299,8 @@ const itemImportLabels = {
 
 /** Create and update items from a CSV file, matched by stock code. */
 function ItemsImportDialog({ slug, onClose }: { slug: string; onClose: () => void }) {
+  const foodWrite = useWorkspace().can("food_items", "write");
+  const genericExample = "code,name,type,unit\nBAR-01,Aluminium bar,raw_material,m";
   return (
     <CsvImportDialog
       id="items-csv"
@@ -295,17 +308,26 @@ function ItemsImportDialog({ slug, onClose }: { slug: string; onClose: () => voi
       description="One row per item. A stock code that already exists (in any case) updates that item; a new one creates it."
       columns={
         <>
-          Columns: <code>code</code> (stock code); <code>name</code>, <code>type</code> (ingredient,
-          packaging, wip, finished) and <code>unit</code> (kg, g, mg, l, ml, each) for new items; optional{" "}
-          <code>description</code>, <code>density</code> (g/ml), <code>unit weight</code> (g),{" "}
-          <code>allergens</code> (contains) and <code>may contain</code> (such as &quot;milk; eggs&quot;;
-          empty means none), <code>storage</code>, <code>shelf life</code> (days), <code>standard cost</code>,{" "}
-          <code>status</code>. A column you leave out keeps what items have.
+          Every row needs a <code>code</code>. New items also need a <code>name</code>, a <code>type</code>{" "}
+          and a <code>unit</code>. Optional columns include <code>description</code>, <code>density</code>,{" "}
+          <code>unit weight</code>, <code>standard cost</code> and <code>status</code>.
+          {foodWrite && (
+            <>
+              {" "}
+              Food columns include <code>allergens</code>, <code>may contain</code>, <code>storage</code> and{" "}
+              <code>shelf life</code>.
+            </>
+          )}{" "}
+          Omitted columns keep their existing values.
         </>
       }
-      template={ITEM_CSV_TEMPLATE}
+      template={foodWrite ? ITEM_CSV_TEMPLATE : genericExample}
       templateFileName="items-template.csv"
-      placeholder={"code,name,type,unit,allergens\nFLOUR-01,Plain flour,ingredient,kg,gluten"}
+      placeholder={
+        foodWrite
+          ? "code,name,type,unit,allergens\nFLOUR-01,Plain flour,ingredient,kg,gluten"
+          : genericExample
+      }
       noun="item"
       keyLabel="Stock code"
       columnLabels={itemImportLabels}
@@ -370,11 +392,17 @@ function ItemDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const { can } = useWorkspace();
+  const showFood = can("food_items");
+  const foodWriteAllowed = can("food_items", "write");
+  const typeChoices = showFood || item?.type === "ingredient" ? itemTypes : genericItemTypes;
   const [pending, setPending] = useState(false);
   const [code, setCode] = useState(item?.code ?? "");
   const [name, setName] = useState(item?.name ?? "");
-  const [type, setType] = useState<ItemType>(item?.type ?? "ingredient");
-  const [unit, setUnit] = useState<UnitCode>(item?.unit ?? "kg");
+  const [type, setType] = useState<ItemType>(item?.type ?? (showFood ? "ingredient" : "raw_material"));
+  // Allergens, storage and shelf life only for types that can hold food (not services or spare parts).
+  const foodWrite = foodWriteAllowed && takesFoodDetails(type);
+  const [unit, setUnit] = useState<UnitCode>(item?.unit ?? (showFood ? "kg" : "each"));
   const [storage, setStorage] = useState<StorageCondition>(item?.storage ?? "ambient");
   const [description, setDescription] = useState(item?.description ?? "");
   const [contains, setContains] = useState<AllergenCode[]>(item?.allergens ?? []);
@@ -396,11 +424,10 @@ function ItemDialog({
       name: name.trim(),
       type,
       unit,
-      storage,
       description: description.trim() || null,
-      allergens: contains,
-      mayContain,
-      shelfLifeDays: numberOrNull(shelfLife),
+      ...(foodWrite
+        ? { storage, allergens: contains, mayContain, shelfLifeDays: numberOrNull(shelfLife) }
+        : {}),
       standardCost: numberOrNull(cost),
       densityGPerMl: numberOrNull(density),
       unitWeightG: numberOrNull(unitWeight),
@@ -435,7 +462,9 @@ function ItemDialog({
           <DialogHeader>
             <DialogTitle>{item ? "Edit item" : "New item"}</DialogTitle>
             <DialogDescription>
-              Allergens declared here flow into recipes and labels, so keep them accurate.
+              {foodWriteAllowed
+                ? "Allergen declarations are used in recipes and on labels."
+                : "Set the catalogue details for this item."}
             </DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-4">
@@ -470,7 +499,7 @@ function ItemDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {itemTypes.map((t) => (
+                      {typeChoices.map((t) => (
                         <SelectItem key={t} value={t}>
                           {itemTypeLabels[t]}
                         </SelectItem>
@@ -496,23 +525,25 @@ function ItemDialog({
                   </SelectContent>
                 </Select>
               </Field>
-              <Field>
-                <FieldLabel id="item-storage-label">Storage</FieldLabel>
-                <Select value={storage} onValueChange={(v) => setStorage(v as StorageCondition)}>
-                  <SelectTrigger aria-labelledby="item-storage-label" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {storageConditions.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {storageLabels[s]}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
+              {foodWrite && (
+                <Field>
+                  <FieldLabel id="item-storage-label">Storage</FieldLabel>
+                  <Select value={storage} onValueChange={(v) => setStorage(v as StorageCondition)}>
+                    <SelectTrigger aria-labelledby="item-storage-label" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {storageConditions.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {storageLabels[s]}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
             </div>
             {item && (
               <FieldDescription>
@@ -521,32 +552,37 @@ function ItemDialog({
               </FieldDescription>
             )}
 
-            <AllergenPicker
-              legend="Contains"
-              idPrefix="item-contains"
-              value={contains}
-              onChange={setContains}
-            />
-            <AllergenPicker
-              legend="May contain (cross-contact)"
-              idPrefix="item-may"
-              value={mayContain}
-              onChange={setMayContain}
-            />
-
-            <div className="grid gap-4 sm:grid-cols-4">
-              <Field>
-                <FieldLabel htmlFor="item-shelf">Shelf life (days)</FieldLabel>
-                <Input
-                  id="item-shelf"
-                  type="number"
-                  min={0}
-                  max={3650}
-                  step={1}
-                  value={shelfLife}
-                  onChange={(e) => setShelfLife(e.target.value)}
+            {foodWrite && (
+              <>
+                <AllergenPicker
+                  legend="Contains"
+                  idPrefix="item-contains"
+                  value={contains}
+                  onChange={setContains}
                 />
-              </Field>
+                <AllergenPicker
+                  legend="May contain (cross-contact)"
+                  idPrefix="item-may"
+                  value={mayContain}
+                  onChange={setMayContain}
+                />
+              </>
+            )}
+            <div className="grid gap-4 sm:grid-cols-4">
+              {foodWrite && (
+                <Field>
+                  <FieldLabel htmlFor="item-shelf">Shelf life (days)</FieldLabel>
+                  <Input
+                    id="item-shelf"
+                    type="number"
+                    min={0}
+                    max={3650}
+                    step={1}
+                    value={shelfLife}
+                    onChange={(e) => setShelfLife(e.target.value)}
+                  />
+                </Field>
+              )}
               <Field>
                 <FieldLabel htmlFor="item-cost">
                   Cost per {units[unit].label} ({currency})
@@ -584,7 +620,8 @@ function ItemDialog({
               </Field>
             </div>
             <FieldDescription>
-              Density and weight each are optional. They let recipes convert between volume, count and weight.
+              Density and weight each are optional. They let quantities convert between volume, count and
+              weight.
             </FieldDescription>
 
             {suppliers.length > 0 && (

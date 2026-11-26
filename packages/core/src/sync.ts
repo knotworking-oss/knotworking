@@ -25,6 +25,11 @@ export const syncEntityTypes = [
   /** Enabled modules changed. Clients fetch a new snapshot under the new scope. */
   "workspace_modules",
   "service_quote",
+  // CRM: ids and revisions only; leads, opportunities and follow-ups are read through queries.
+  "crm_stage",
+  "crm_lead",
+  "crm_opportunity",
+  "crm_activity",
   "workspace_member",
   /** A member's level in one module (`member_module_access`). Clients refetch when their own changes. */
   "module_access",
@@ -53,6 +58,7 @@ export const syncEntityTypes = [
   // Items module.
   "supplier",
   "item",
+  "food_item",
   "item_supplier",
   "supplier_risk_assessment",
   "supplier_questionnaire",
@@ -102,6 +108,12 @@ export const syncEntityTypes = [
   "production_packing_check",
   "production_device",
   "production_device_reading",
+  // Routings module: work centres, routings and job card headers.
+  "work_centre",
+  "routing",
+  "routing_version",
+  "routing_operation",
+  "job_card",
   // Assets module: the shared register (metadata only).
   "asset",
   // Food safety records (HACCP) module.

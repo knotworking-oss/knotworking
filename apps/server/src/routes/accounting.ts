@@ -1,10 +1,12 @@
 import {
   accountingConnectionCreateSchema,
+  accountingCustomerPrepareSchema,
   accountingConnectionUpdateSchema,
   accountingInvoiceListSchema,
   accountingInvoicePrepareSchema,
   accountingMappingSchema,
   accountingQueueListSchema,
+  accountingAllocationSchema,
   accountingReadBackSchema,
   accountingRetrySchema,
   accountingPageSchema,
@@ -14,6 +16,7 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
+import { xeroRoutes } from "./xero";
 import { requireAdmin } from "../middleware/roles";
 import { assertModule, canRead, requireModuleLevel } from "../middleware/modules";
 import { validate } from "../validate";
@@ -34,10 +37,16 @@ import {
 import {
   getAccountingQueueItem,
   listAccountingQueue,
+  allocateAccountingQueueItem,
   readBackAccountingQueueItem,
   retryAccountingQueueItem,
   sendAccountingPostingNow,
 } from "../accounting/queue";
+import {
+  getPreparableCustomerDocument,
+  listPreparableCustomerDocuments,
+  prepareCustomerPosting,
+} from "../accounting/customer-documents";
 const id = z.object({ id: z.uuid() });
 const invoiceParam = z.object({ id: z.uuid(), invoiceId: z.uuid() });
 const postingParam = z.object({ id: z.uuid(), postingId: z.uuid() });
@@ -45,13 +54,16 @@ const manage = requireModuleLevel("accounting", "manage");
 /** Financial setup is administration by a signed-in person; no token or MCP configuration access. */
 export const accountingRoutes = new Hono<WorkspaceEnv>()
   .use("/accounting/*", requireAdmin, manage)
+  .route("/accounting/connections/:id/xero", xeroRoutes)
   .get("/accounting/connections", validate("query", accountingPageSchema), async (c) =>
     c.json({
       ...(await listAccountingConnections(c.var.db, c.var.workspace.id, c.req.valid("query").offset)),
       providers: accountingProviderCandidates,
+      xeroConfigured: !!c.var.xero,
       canMapSuppliers: canRead(c, "items"),
       canMapCustomers: canRead(c, "customers"),
       canPrepareInvoices: canRead(c, "purchasing"),
+      canPrepareCustomerDocuments: canRead(c, "invoicing"),
     }),
   )
   .post("/accounting/connections", validate("json", accountingConnectionCreateSchema), async (c) =>
@@ -167,6 +179,54 @@ export const accountingRoutes = new Hono<WorkspaceEnv>()
       );
     },
   )
+  .get(
+    "/accounting/connections/:id/customer-documents",
+    validate("param", id),
+    validate("query", accountingPageSchema),
+    async (c) => {
+      assertModule(c, "invoicing", "read");
+      return c.json(
+        await listPreparableCustomerDocuments(
+          c.var.db,
+          c.var.workspace.id,
+          c.req.valid("param").id,
+          c.req.valid("query").offset,
+        ),
+      );
+    },
+  )
+  .get(
+    "/accounting/connections/:id/customer-documents/:invoiceId",
+    validate("param", invoiceParam),
+    async (c) => {
+      assertModule(c, "invoicing", "read");
+      const { id: connectionId, invoiceId } = c.req.valid("param");
+      return c.json(
+        await getPreparableCustomerDocument(c.var.db, c.var.workspace.id, connectionId, invoiceId),
+      );
+    },
+  )
+  .post(
+    "/accounting/connections/:id/customer-documents/:invoiceId/prepare",
+    validate("param", invoiceParam),
+    validate("json", accountingCustomerPrepareSchema),
+    async (c) => {
+      assertModule(c, "invoicing", "read");
+      const { id: connectionId, invoiceId } = c.req.valid("param");
+      return c.json(
+        await prepareCustomerPosting(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          connectionId,
+          invoiceId,
+          c.req.valid("json"),
+          { ...c.var.workspace, adapters: c.var.accountingAdapters },
+        ),
+        201,
+      );
+    },
+  )
   // The finance review of a connection's outbox.
   .get(
     "/accounting/connections/:id/postings",
@@ -217,6 +277,25 @@ export const accountingRoutes = new Hono<WorkspaceEnv>()
           connectionId,
           postingId,
           c.var.user.id,
+          c.req.valid("json"),
+        ),
+      );
+    },
+  )
+  .post(
+    "/accounting/connections/:id/postings/:postingId/allocation",
+    validate("param", postingParam),
+    validate("json", accountingAllocationSchema),
+    async (c) => {
+      const { id: connectionId, postingId } = c.req.valid("param");
+      return c.json(
+        await allocateAccountingQueueItem(
+          c.var.db,
+          c.var.workspace,
+          connectionId,
+          postingId,
+          c.var.user.id,
+          c.var.accountingAdapters,
           c.req.valid("json"),
         ),
       );

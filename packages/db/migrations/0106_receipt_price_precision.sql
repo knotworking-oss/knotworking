@@ -1,0 +1,1 @@
+ALTER TABLE "purchase_receipts" ALTER COLUMN "unit_price" SET DATA TYPE numeric(24, 14);

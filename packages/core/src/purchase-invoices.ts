@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { roundQuantity, type UnitCode } from "./items";
 import type { ApprovedCreditTotals } from "./purchase-credit-notes";
-import { PRICE_DECIMALS, VALUE_DECIMALS } from "./purchasing";
+import { BASE_PRICE_DECIMALS, PRICE_DECIMALS, VALUE_DECIMALS } from "./purchasing";
 
 /**
  * Purchasing module: supplier invoices and the three-way match (order, delivery, invoice). No DOM
@@ -397,7 +397,8 @@ export function invoicePricePerBase(
   const returned = credits ? Math.min(credits.returnedQuantity, billedQuantity) : 0;
   if (returned >= billedQuantity) return { pricePerBase: null, unpriced: false };
   const invoiced = billed.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0) - (credits?.value ?? 0);
-  const round = (v: number) => roundQuantity(v, PRICE_DECIMALS);
+  // Per base unit, like the receipt's price: as many places, or small units lose value.
+  const round = (v: number) => roundQuantity(v, BASE_PRICE_DECIMALS);
   if (receiptPricePerBase !== null && billed.every((l) => (l.approvedMatch?.orderUnitPrice ?? 0) > 0)) {
     const ordered = billed.reduce((sum, l) => sum + l.quantity * l.approvedMatch!.orderUnitPrice!, 0);
     const keptOrdered = ordered - (returned * ordered) / billedQuantity;

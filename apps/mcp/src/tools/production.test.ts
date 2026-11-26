@@ -93,7 +93,10 @@ describe("production tools", () => {
     );
     const propose = tools.find((t) => t.name === "propose_batches_from_demand")!;
     expect(propose.annotations).toMatchObject({ readOnlyHint: true });
-    expect(names.join(" ")).not.toMatch(/complete|(?<![a-z])sign|start_batch|consum|record_output|cancel/);
+    // Routings' job-card tools (e.g. complete_job_card) finish one operation, not the batch.
+    expect(names.filter((n) => !n.includes("job_card")).join(" ")).not.toMatch(
+      /complete|(?<![a-z])sign|start_batch|consum|record_output|cancel/,
+    );
     const plan = tools.find((t) => t.name === "plan_production_batch")!;
     expect(plan.description).toMatch(/done by people in the app/);
     expect(plan.description).toMatch(/unless an owner or admin allows it under Settings → API access/);

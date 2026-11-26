@@ -142,6 +142,21 @@ describe("items module", () => {
     });
 
     it("creates an item with allergens (sorted, deduplicated) and suppliers", async () => {
+      expect((await as(marcus.cookie).get("/items?allergen=milk")).status).toBe(403);
+      const denied = await as(marcus.cookie).send("POST", "/items", {
+        code: "NO-FOOD",
+        name: "Permission check",
+        type: "ingredient",
+        unit: "kg",
+        allergens: ["milk"],
+      });
+      expect(denied.status).toBe(403);
+      const foodGrant = await ctx.req(`${WS}/members/${marcus.userId}/module-access/food_items`, {
+        method: "PUT",
+        cookie: ada,
+        json: { level: "write" },
+      });
+      expect(foodGrant.status).toBe(200);
       const res = await as(marcus.cookie).send("POST", "/items", {
         code: "FLR-001",
         name: "Strong white flour",
@@ -236,6 +251,13 @@ describe("items module", () => {
       expect((await list("")).total).toBe(2);
       expect((await list("status=all")).total).toBe(3);
       expect((await list("status=archived")).items.map((i) => i.code)).toEqual(["FLR-001"]);
+
+      // The sales pickers ask for sellable items only, so the total counts what they can list.
+      await as(ada).send("POST", "/items", { code: "CAKE-1", name: "Cake", type: "finished", unit: "each" });
+      const sellable = await list("sellable=true");
+      expect(sellable.items.map((i) => i.code)).toEqual(["CAKE-1"]);
+      expect(sellable.total).toBe(1);
+      expect((await list("sellable=false")).total).toBe(3);
     });
 
     it("writes the sync log, hidden from members without the module", async () => {

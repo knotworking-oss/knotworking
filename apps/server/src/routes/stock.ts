@@ -126,6 +126,7 @@ export const stockRoutes = new Hono<WorkspaceEnv>()
     c.json(
       await receiveStock(c.var.db, c.var.workspace.id, c.var.user.id, ledgerInput(c, c.req.valid("json")), {
         canManage: hasModuleLevel(c.var.workspace.modules.stock, "manage"),
+        foodItems: c.var.activeModules.includes("food_items"),
       }),
       201,
     ),

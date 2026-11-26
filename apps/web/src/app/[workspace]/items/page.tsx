@@ -1,7 +1,7 @@
 import { allergenCodes, itemTypes, type AllergenCode, type ItemType } from "@knotworking/core";
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
-import { getItems, getSuppliers } from "@/lib/api";
+import { canReadModule, getItems, getSuppliers } from "@/lib/api";
 import { ItemsManager } from "./items-manager";
 
 export const metadata: Metadata = { title: "Items" };
@@ -14,10 +14,13 @@ export default async function ItemsPage({
   searchParams: Promise<{ q?: string; type?: string; allergen?: string; status?: string }>;
 }) {
   const [{ workspace: slug }, search] = await Promise.all([params, searchParams]);
+  const showFood = await canReadModule(slug, "food_items");
   const filters = {
     q: search.q?.trim() || undefined,
     type: itemTypes.find((t) => t === search.type) as ItemType | undefined,
-    allergen: allergenCodes.find((a) => a === search.allergen) as AllergenCode | undefined,
+    allergen: showFood
+      ? (allergenCodes.find((a) => a === search.allergen) as AllergenCode | undefined)
+      : undefined,
     status: search.status === "all" ? ("all" as const) : ("active" as const),
   };
   const [page, { suppliers }] = await Promise.all([

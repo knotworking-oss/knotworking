@@ -701,6 +701,76 @@
       "when": 1795621243657,
       "tag": "0099_checklists",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1795631354913,
+      "tag": "0100_xero_oauth",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1795631365271,
+      "tag": "0105_food_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1795651186248,
+      "tag": "0106_receipt_price_precision",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1795651246248,
+      "tag": "0110_crm",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1795651306248,
+      "tag": "0120_invoicing",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1795651366248,
+      "tag": "0121_customer_posting_revisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1795651426248,
+      "tag": "0122_credit_allocation_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795651486248,
+      "tag": "0123_invoice_tax_numbers",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795651546248,
+      "tag": "0125_routings",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1795651606248,
+      "tag": "0126_invoicing_second_approver",
+      "breakpoints": true
     }
   ]
 }

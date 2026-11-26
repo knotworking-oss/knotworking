@@ -36,15 +36,15 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { AllergenBadges } from "@/components/item-badges";
 import { AllergenDriftAlert, AllergenMismatchAlert, RecipeVersionBadge } from "@/components/recipe-badges";
-import { formatLongDate } from "@/lib/format";
+import { formatLongDate, formatMoney } from "@/lib/format";
 import type { Recipe, RecipeVersion } from "@/lib/api";
 import { browserApi, errorMessage, unwrap, unwrapEmpty } from "@/lib/auth-client";
 import { useWorkspace } from "@/lib/workspace-store";
 import { DraftEditor, type DraftStart } from "./draft-editor";
-import { useWorkspaceTimeZone } from "@/lib/workspace-time";
+import { useWorkspaceCurrency, useWorkspaceTimeZone } from "@/lib/workspace-time";
 import { VersionCompare } from "./version-compare";
+import { recipeTerms } from "@/lib/recipe-terms";
 
-const money = (value: number) => value.toLocaleString("en-GB", { maximumFractionDigits: 4 });
 const BATCHES = "batches";
 
 /** A recipe: its current approved version, any draft beside it, the history, and the draft editor. */
@@ -52,6 +52,8 @@ export function RecipeDetail({ slug, recipe }: { slug: string; recipe: Recipe })
   const timeZone = useWorkspaceTimeZone();
   const router = useRouter();
   const { can } = useWorkspace();
+  const showFood = can("food_items");
+  const terms = recipeTerms(showFood);
   const canWrite = can("recipes", "write");
   const canManage = can("recipes", "manage");
   const [editing, setEditing] = useState<DraftStart | null>(null);
@@ -110,7 +112,7 @@ export function RecipeDetail({ slug, recipe }: { slug: string; recipe: Recipe })
         <div className="flex flex-col gap-1">
           <p className="text-sm text-muted-foreground">
             <Link href={`/${slug}/recipes`} className="hover:underline">
-              Recipes
+              {terms.title}
             </Link>{" "}
             / <span className="font-mono text-xs">{recipe.code}</span>
           </p>
@@ -139,7 +141,7 @@ export function RecipeDetail({ slug, recipe }: { slug: string; recipe: Recipe })
                         json: { status: recipe.status === "active" ? "archived" : "active" },
                       }),
                     ),
-                  recipe.status === "active" ? "Recipe archived" : "Recipe restored",
+                  recipe.status === "active" ? "Archived" : "Restored",
                 )
               }
             >
@@ -176,7 +178,7 @@ export function RecipeDetail({ slug, recipe }: { slug: string; recipe: Recipe })
         <VersionCard version={approved} title="Current version" />
       ) : (
         <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-          No approved version yet. A recipe can&apos;t be used until a draft is approved.
+          Approve a draft before using this version in production.
         </p>
       )}
 
@@ -325,6 +327,9 @@ function VersionCard({
   actions?: React.ReactNode;
 }) {
   const timeZone = useWorkspaceTimeZone();
+  const currency = useWorkspaceCurrency();
+  const showFood = useWorkspace().can("food_items");
+  const terms = recipeTerms(showFood);
   const [mode, setMode] = useState<string>(BATCHES);
   const [amount, setAmount] = useState("");
   const { rollup } = version;
@@ -366,26 +371,29 @@ function VersionCard({
           {version.changeNote && ` · ${version.changeNote}`}
         </p>
 
-        <AllergenDriftAlert drift={version.allergenDrift} />
-        <AllergenMismatchAlert mismatch={rollup.allergenMismatch} />
+        {showFood && (
+          <>
+            <AllergenDriftAlert drift={version.allergenDrift} />
+            <AllergenMismatchAlert mismatch={rollup.allergenMismatch} />
 
-        <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium">Allergens from the ingredients</h3>
-          <AllergenBadges
-            contains={rollup.allergens.contains}
-            mayContain={rollup.allergens.mayContain}
-            empty="None from the ingredients"
-          />
-        </div>
-
+            <div className="flex flex-col gap-1">
+              <h3 className="text-sm font-medium">Allergens from the ingredients</h3>
+              <AllergenBadges
+                contains={rollup.allergens.contains}
+                mayContain={rollup.allergens.mayContain}
+                empty="None from the ingredients"
+              />
+            </div>
+          </>
+        )}
         <div className="flex flex-wrap items-end gap-6 text-sm">
           <div>
             <p className="text-muted-foreground">Cost per batch</p>
-            <p className="text-lg font-semibold">{money(rollup.cost.batchCost)}</p>
+            <p className="text-lg font-semibold">{formatMoney(rollup.cost.batchCost, currency)}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Cost per {units[rollup.cost.outputUnit].label}</p>
-            <p className="text-lg font-semibold">{costPerUnit === null ? "—" : money(costPerUnit)}</p>
+            <p className="text-lg font-semibold">{formatMoney(costPerUnit, currency)}</p>
           </div>
           {!rollup.cost.costComplete && (
             <p className="text-label-orange">
@@ -433,7 +441,7 @@ function VersionCard({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Ingredient</TableHead>
+              <TableHead>{terms.lineTitle}</TableHead>
               <TableHead className="text-right">Quantity</TableHead>
               {scale && <TableHead className="text-right">Scaled</TableHead>}
               <TableHead>Note</TableHead>
@@ -464,7 +472,7 @@ function VersionCard({
             {version.lines.length === 0 && (
               <TableRow>
                 <TableCell colSpan={scale ? 4 : 3} className="text-center text-muted-foreground">
-                  No ingredients yet.
+                  No {terms.linesLower} yet.
                 </TableCell>
               </TableRow>
             )}

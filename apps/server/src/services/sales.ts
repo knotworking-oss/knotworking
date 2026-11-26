@@ -17,6 +17,7 @@ import {
   type SalesPriceInput,
   type SalesRecipientSnapshot,
   type SalesSaveInput,
+  isSellableItem,
 } from "@knotworking/core";
 import {
   salesOrders as orders,
@@ -36,9 +37,11 @@ import {
 } from "@knotworking/db";
 import { and, asc, count, desc, eq, gte, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { ApiError, badRequest, notFound } from "../errors";
+import { assertNoCrmLinkOnCustomerChange } from "./crm-quote-link";
 import { findCustomer } from "./customers";
 import { findDeliverySite } from "./customer-sites";
 import { findItem, toBase } from "./ports/stock";
+import { assertInvoiceFulfilmentUnclaimed, reservedSalesLines } from "./invoice-sources";
 import { executeLedgerCommand } from "./ledger-command";
 import { workspaceToday } from "./time-zone";
 
@@ -96,8 +99,8 @@ async function recipient(
 }
 async function saleItem(db: Executor, ws: string, id: string) {
   const item = await findItem(db, ws, id);
-  if (item.status !== "active" || !["finished", "wip"].includes(item.type))
-    throw conflict("Choose an active finished or WIP item");
+  if (item.status !== "active" || !isSellableItem(item.type))
+    throw conflict("Choose an active finished, WIP, merchandise or spare part item");
   return item;
 }
 /**
@@ -322,10 +325,35 @@ export async function saveSalesOrder(
             ? "Customer, delivery site and currency cannot change after confirmation; cancel the balance and create another order"
             : "Customer, delivery site and currency come from the quote this order was made from; cancel this draft and create a new order instead",
         );
+      if (row.kind === "quote" && input.document.customerId !== row.customerId)
+        await assertNoCrmLinkOnCustomerChange(tx, ws, "sales", id);
       const dest = amend ? row.recipient : await recipient(tx, ws, input.document);
       if (amend) await recipient(tx, ws, input.document); // revalidate active master data; retain historical recipient
       const existing = await orderLines(tx, ws, id);
       const resolved = await resolveLines(tx, ws, input.document, { existing, amend });
+      if (amend) {
+        const reserved = await reservedSalesLines(
+          tx,
+          ws,
+          existing.map((line) => line.id),
+        );
+        const replacements = new Map(resolved.map((line) => [line.id, line]));
+        for (const old of existing) {
+          if (!reserved.has(old.id)) continue;
+          const line = replacements.get(old.id);
+          if (
+            !line ||
+            line.quantity !== old.quantity ||
+            line.baseQuantity !== old.baseQuantity ||
+            line.unitPrice !== old.unitPrice ||
+            line.itemId !== old.itemId ||
+            line.unit !== old.unit
+          )
+            throw conflict(
+              "A reserved sales line cannot be repriced, resized or removed. Discard its invoice draft or amend the remaining balance with a new line.",
+            );
+        }
+      }
       // Live links to confirmed despatches; a link to a since-voided despatch no longer fixes the line.
       const allLinks = await tx
         .select({ lineId: fulfilments.orderLineId })
@@ -727,6 +755,7 @@ export async function linkSalesFulfilment(
         ),
       );
     if (linked) throw conflict("This despatch line is already assigned to an order");
+    await assertInvoiceFulfilmentUnclaimed(tx, ws, input.despatchLineId, line.id, false);
     const { totals } = await fulfilmentTotals(tx, ws, id);
     if (roundQuantity((totals.get(line.id)?.shipped ?? 0) + delivery.line.quantity) > line.baseQuantity)
       throw conflict("Delivery exceeds the remaining order quantity; amend the order first");
@@ -771,6 +800,7 @@ export async function unlinkSalesFulfilment(
         .where(and(eq(fulfilments.workspaceId, ws), eq(fulfilments.orderId, id), eq(fulfilments.id, linkId)));
       if (!link) throw notFound("Fulfilment link");
       if (link.voidedAt) throw conflict("This link is already corrected");
+      await assertInvoiceFulfilmentUnclaimed(tx, ws, link.despatchLineId, link.orderLineId, true);
       await tx
         .update(fulfilments)
         .set({ voidedAt: new Date(), voidedBy: actor, voidReason: input.reason })

@@ -19,25 +19,31 @@ import {
   FileText,
   FlaskConical,
   FolderKanban,
+  Funnel,
   GraduationCap,
   IdCard,
   Landmark,
+  ListTodo,
   LayoutDashboard,
   LayoutGrid,
   Network,
   Package,
+  Route,
   PackagePlus,
+  Settings2,
   ShieldCheck,
   ShoppingCart,
   Tag,
   TrendingUp,
   Truck,
   Users,
+  UserPlus,
   UsersRound,
   Warehouse,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
+import { recipeTerms } from "./recipe-terms";
 
 /**
  * Sidebar navigation
@@ -163,7 +169,7 @@ export const navAreas: readonly NavArea[] = [
   {
     id: "items",
     label: "Items & suppliers",
-    description: "Ingredients, packaging and products",
+    description: "Materials, products and services",
     icon: Package,
     group: "Operations",
     visible: needs("items"),
@@ -299,6 +305,26 @@ export const navAreas: readonly NavArea[] = [
     sections: [{ items: [{ label: "Service quotes", path: "client-services", icon: FileCheck }] }],
   },
   {
+    id: "crm",
+    label: "CRM",
+    description: "Leads, the opportunity pipeline and follow-ups",
+    icon: Funnel,
+    group: "Operations",
+    visible: needs("crm"),
+    keywords: ["leads", "opportunities", "pipeline", "deals", "prospects", "follow-ups"],
+    sections: [
+      {
+        items: [
+          { label: "Pipeline", path: "crm", icon: Funnel, exact: true },
+          { label: "Leads", path: "crm/leads", icon: UserPlus },
+          { label: "Opportunities", path: "crm/opportunities", icon: TrendingUp },
+          { label: "Follow-ups", path: "crm/follow-ups", icon: ListTodo },
+          { label: "Stages", path: "crm/stages", icon: Settings2, show: needs("crm", "manage") },
+        ],
+      },
+    ],
+  },
+  {
     id: "despatch",
     label: "Despatch",
     description: "Despatches, recipients and impact",
@@ -320,6 +346,16 @@ export const navAreas: readonly NavArea[] = [
         ],
       },
     ],
+  },
+  {
+    id: "invoicing",
+    label: "Invoicing",
+    description: "Customer invoices and credit notes",
+    icon: FileText,
+    group: "Operations",
+    visible: needs("invoicing"),
+    keywords: ["customer", "billing", "credit notes", "sales invoices"],
+    sections: [{ items: [{ label: "Customer invoices and credits", path: "invoicing", icon: FileText }] }],
   },
   {
     id: "purchasing",
@@ -405,6 +441,24 @@ export const navAreas: readonly NavArea[] = [
           { label: "Lines", path: "production/lines", icon: Factory },
           { label: "Performance", path: "production/performance", icon: TrendingUp },
           { label: "Devices", path: "production/devices", icon: Network },
+        ],
+      },
+    ],
+  },
+  {
+    id: "routings",
+    label: "Routings",
+    description: "Work centres, operations and job cards",
+    icon: Route,
+    group: "Operations",
+    visible: needs("routings"),
+    keywords: ["discrete manufacturing", "operations", "work centres", "job cards", "assembly"],
+    sections: [
+      {
+        items: [
+          { label: "Routings", path: "routings", icon: Route, exact: true },
+          { label: "Work centres", path: "routings/work-centres", icon: Factory },
+          { label: "Job cards", path: "routings/job-cards", icon: ClipboardList },
         ],
       },
     ],
@@ -723,12 +777,26 @@ export const getArea = (id: string | undefined | null): NavArea | undefined =>
   navAreas.find((a) => a.id === id);
 
 /** The areas the viewer can open, in menu order. */
-export const visibleAreas = (access: NavAccess): NavArea[] => navAreas.filter((a) => a.visible(access));
+export const visibleAreas = (access: NavAccess): NavArea[] =>
+  navAreas
+    .filter((a) => a.visible(access))
+    .map((area) =>
+      area.id === "recipes" ? { ...area, label: recipeTerms(access.can("food_items")).title } : area,
+    );
 
 /** An area's sections with the items the viewer can't see removed (and sections left empty dropped). */
 export function visibleSections(area: NavArea, access: NavAccess): NavSection[] {
   return area.sections
-    .map((s) => ({ ...s, items: s.items.filter((i) => !i.show || i.show(access)) }))
+    .map((section) => ({
+      ...section,
+      items: section.items
+        .filter((item) => !item.show || item.show(access))
+        .map((item) =>
+          area.id === "recipes" && item.path === "recipes"
+            ? { ...item, label: recipeTerms(access.can("food_items")).title }
+            : item,
+        ),
+    }))
     .filter((s) => s.items.length > 0);
 }
 

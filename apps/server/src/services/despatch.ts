@@ -10,6 +10,7 @@ import {
   type DespatchListQuery,
   type DespatchRecipientQuery,
   type DespatchVoidInput,
+  isDespatchableItem,
 } from "@knotworking/core";
 import {
   despatches,
@@ -26,6 +27,7 @@ import {
 import { and, asc, count, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { ApiError, badRequest, notFound } from "../errors";
 import { findCustomer } from "./customers";
+import { assertInvoiceAllowsDespatchCorrection } from "./invoice-sources";
 import { executeLedgerCommand } from "./ledger-command";
 import { onHandOf, reservedByLot, reservedByLotLocation } from "./reservations-core";
 import {
@@ -133,8 +135,12 @@ async function draftLines(db: Executor, workspaceId: string, input: DespatchDraf
   for (const line of input.lines) {
     const { lot, item } = await findLot(db, workspaceId, line.lotId);
     const location = await findActiveLocation(db, workspaceId, line.locationId);
-    if (item.type !== "finished" || item.status !== "active")
-      throw new ApiError(409, "item_not_despatchable", "Choose an active finished product");
+    if (!isDespatchableItem(item.type) || item.status !== "active")
+      throw new ApiError(
+        409,
+        "item_not_despatchable",
+        "Choose an active finished product, merchandise or spare part",
+      );
     lines.push({
       lotId: lot.id,
       locationId: location.id,
@@ -266,8 +272,12 @@ export async function confirmDespatch(
       for (const line of lines) {
         const { lot, item } = await findLot(tx, workspaceId, line.lotId);
         const location = await findActiveLocation(tx, workspaceId, line.locationId);
-        if (item.type !== "finished" || item.status !== "active")
-          throw new ApiError(409, "item_not_despatchable", "Only active finished products can be despatched");
+        if (!isDespatchableItem(item.type) || item.status !== "active")
+          throw new ApiError(
+            409,
+            "item_not_despatchable",
+            "Only active finished products, merchandise and spare parts can be despatched",
+          );
         await assertNoIncidentHold(tx, workspaceId, lot.id);
         if (lot.status !== "available")
           throw new ApiError(409, "lot_not_released", `Lot ${lot.lotCode} is not released`);
@@ -356,6 +366,12 @@ export async function voidDespatch(
       const row = await findDespatch(tx, workspaceId, id);
       if (row.status === "voided")
         throw new ApiError(409, "already_voided", "This despatch has already been voided");
+      const lines = row.status === "confirmed" ? await linesOf(tx, workspaceId, id) : [];
+      await assertInvoiceAllowsDespatchCorrection(
+        tx,
+        workspaceId,
+        lines.map((line) => line.id),
+      );
       const changes: ChangeInput[] = [];
       const [physicalReturn] = await tx
         .select({ id: despatchReturns.id })
@@ -389,28 +405,26 @@ export async function voidDespatch(
             sql`${despatchHandlingUnits.supersededAt} is null`,
           ),
         );
-      if (row.status === "confirmed") {
-        for (const line of await linesOf(tx, workspaceId, id)) {
-          await findActiveLocation(tx, workspaceId, line.locationId);
-          const [movement] = await insertMovements(tx, workspaceId, [
-            {
-              lotId: line.lotId,
-              itemId: line.itemId,
-              locationId: line.locationId,
-              quantity: line.quantity,
-              type: "despatch",
-              reference: row.reference,
-              reason: input.reason,
-              reversesMovementId: line.movementId!,
-              actorId,
-            },
-          ]);
-          await tx
-            .update(despatchLines)
-            .set({ reversalMovementId: movement!.id })
-            .where(eq(despatchLines.id, line.id));
-          changes.push(movementChange(movement!));
-        }
+      for (const line of lines) {
+        await findActiveLocation(tx, workspaceId, line.locationId);
+        const [movement] = await insertMovements(tx, workspaceId, [
+          {
+            lotId: line.lotId,
+            itemId: line.itemId,
+            locationId: line.locationId,
+            quantity: line.quantity,
+            type: "despatch",
+            reference: row.reference,
+            reason: input.reason,
+            reversesMovementId: line.movementId!,
+            actorId,
+          },
+        ]);
+        await tx
+          .update(despatchLines)
+          .set({ reversalMovementId: movement!.id })
+          .where(eq(despatchLines.id, line.id));
+        changes.push(movementChange(movement!));
       }
       const [voided] = await tx
         .update(despatches)

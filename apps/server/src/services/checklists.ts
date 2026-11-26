@@ -414,7 +414,7 @@ export async function getChangeoverRisk(db: Database, workspaceId: string, query
   });
 }
 
-async function describeChecks(db: Executor, rows: CheckRow[], withProduction: boolean) {
+async function describeChecks(db: Executor, rows: CheckRow[], withProduction: boolean, withFood: boolean) {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const batchIds = withProduction
@@ -451,7 +451,7 @@ async function describeChecks(db: Executor, rows: CheckRow[], withProduction: bo
   ]);
   const correctedBy = new Map(corrections.map((c) => [c.correctsCheckId!, c.id]));
   const batchById = new Map(batches.map((b) => [b.id, b]));
-  const allergensOf = await batchAllergens(db, batchIds);
+  const allergensOf = await batchAllergens(db, withFood ? batchIds : []);
   return rows.map((row) => {
     const correctedByCheckId = correctedBy.get(row.id) ?? null;
     const own = items.filter((i: CheckItemRow) => i.checkId === row.id);
@@ -459,7 +459,7 @@ async function describeChecks(db: Executor, rows: CheckRow[], withProduction: bo
       ...strip(row),
       /** Allergen changeovers only: what the batch before leaves behind. A warning, never a block. */
       allergenRisk:
-        withProduction && row.kind === "allergen_changeover"
+        withProduction && withFood && row.kind === "allergen_changeover"
           ? changeoverAllergenRisk({
               previous: row.previousBatchId ? (allergensOf.get(row.previousBatchId) ?? null) : null,
               next: row.nextBatchId ? (allergensOf.get(row.nextBatchId) ?? null) : null,
@@ -507,9 +507,10 @@ export async function getChecklistCheck(
   id: string,
   scope: ChecklistScope,
   withProduction = false,
+  withFood = false,
 ) {
   const row = await findCheck(db, workspaceId, id, scope);
-  return (await describeChecks(db, [row], withProduction))[0]!;
+  return (await describeChecks(db, [row], withProduction, withFood))[0]!;
 }
 
 /** Checks, newest first. */
@@ -519,6 +520,7 @@ export async function listChecklistChecks(
   query: ChecklistCheckListQuery,
   scope: ChecklistScope,
   withProduction = false,
+  withFood = false,
 ) {
   const where: (SQL | undefined)[] = [
     eq(siteChecklistChecks.workspaceId, workspaceId),
@@ -558,7 +560,7 @@ export async function listChecklistChecks(
       .from(siteChecklistChecks)
       .where(and(...where)),
   ]);
-  const p = page(await describeChecks(db, rows, withProduction), total?.n, query);
+  const p = page(await describeChecks(db, rows, withProduction, withFood), total?.n, query);
   return { checks: p.rows, total: p.total, limit: p.limit, offset: p.offset };
 }
 
@@ -589,6 +591,7 @@ export async function recordChecklistCheck(
   input: ChecklistCheckCreateInput,
   scope: ChecklistScope,
   withProduction = false,
+  withFood = false,
 ) {
   const id = await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -630,7 +633,7 @@ export async function recordChecklistCheck(
       })),
     });
   });
-  return getChecklistCheck(db, workspaceId, id, scope, withProduction);
+  return getChecklistCheck(db, workspaceId, id, scope, withProduction, withFood);
 }
 
 interface CheckToInsert {
@@ -719,6 +722,7 @@ export async function correctChecklistCheck(
   input: ChecklistCheckCorrectInput,
   scope: ChecklistScope,
   withProduction = false,
+  withFood = false,
 ) {
   const newId = await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -758,7 +762,7 @@ export async function correctChecklistCheck(
       correction: { originalId: id, reason: input.reason },
     });
   });
-  return getChecklistCheck(db, workspaceId, newId, scope, withProduction);
+  return getChecklistCheck(db, workspaceId, newId, scope, withProduction, withFood);
 }
 
 /**
@@ -774,6 +778,7 @@ export async function signOffChecklistCheck(
   id: string,
   input: CheckSignOffInput,
   withProduction = false,
+  withFood = false,
 ) {
   await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -823,7 +828,7 @@ export async function signOffChecklistCheck(
     if (!updated) throw new ApiError(409, "already_signed_off", "Someone else signed this check off first");
     await recordChanges(tx, workspaceId, actorId, [change("site_checklist_check", updated)]);
   });
-  return getChecklistCheck(db, workspaceId, id, "site", withProduction);
+  return getChecklistCheck(db, workspaceId, id, "site", withProduction, withFood);
 }
 
 export async function checklistDueItems(

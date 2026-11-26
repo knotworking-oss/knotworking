@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  addDaysToIsoDate,
   addMonthsToIsoDate,
   canApproveSopVersion,
   defaultSopReviewDueOn,
+  isIsoDateInRange,
   isoToday,
   sopCopyCloseSchema,
   sopCopyIssueSchema,
@@ -24,6 +26,13 @@ describe("review dates", () => {
     expect(defaultSopReviewDueOn("2026-11-30", 3)).toBe("2027-02-28");
     expect(addMonthsToIsoDate("2024-01-31", 1)).toBe("2024-02-29");
     expect(addMonthsToIsoDate("2026-08-31", 6)).toBe("2027-02-28");
+    // Years below 100 keep their century; past 9999 the year is written in the expanded form.
+    expect(addMonthsToIsoDate("0050-01-31", 1)).toBe("0050-02-28");
+    expect(addDaysToIsoDate("0050-06-15", 0)).toBe("0050-06-15");
+    expect(addDaysToIsoDate("0099-12-31", 1)).toBe("0100-01-01");
+    expect(addDaysToIsoDate("9998-12-31", 730)).toBe("+010000-12-30");
+    expect(isIsoDateInRange("+010000-12-30")).toBe(false);
+    expect(isIsoDateInRange("0050-06-15")).toBe(true);
   });
 
   it("classifies a review date as overdue, soon or ok", () => {

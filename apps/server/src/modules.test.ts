@@ -142,6 +142,7 @@ describe("member module access", () => {
       maintenance: "manage",
       checklists: "manage",
       items: "manage",
+      food_items: "manage",
       recipes: "manage",
       sops: "manage",
       stock: "manage",
@@ -150,6 +151,7 @@ describe("member module access", () => {
       sales: "manage",
       demand: "manage",
       production: "manage",
+      routings: "manage",
       haccp: "manage",
       people: "manage",
       training: "manage",
@@ -173,6 +175,8 @@ describe("member module access", () => {
       bi: "manage",
       purchase_requests: "manage",
       client_services: "manage",
+      crm: "manage",
+      invoicing: "manage",
     });
     // New modules are opt-in: members have nothing until an admin grants it.
     expect((await level(member.cookie)).items).toBe("none");
@@ -198,6 +202,7 @@ describe("member module access", () => {
       "maintenance",
       "checklists",
       "items",
+      "food_items",
       "recipes",
       "sops",
       "stock",
@@ -206,6 +211,7 @@ describe("member module access", () => {
       "sales",
       "demand",
       "production",
+      "routings",
       "haccp",
       "people",
       "training",
@@ -229,6 +235,8 @@ describe("member module access", () => {
       "bi",
       "purchase_requests",
       "client_services",
+      "crm",
+      "invoicing",
     ]);
     const row = list.members.find((m: { userId: string }) => m.userId === member.userId);
     expect(row.access.docs).toEqual({ grant: null, effective: "write" });
@@ -409,6 +417,7 @@ describe("member module access", () => {
       maintenance: "none",
       checklists: "none",
       items: "none",
+      food_items: "none",
       recipes: "none",
       sops: "none",
       stock: "none",
@@ -417,6 +426,7 @@ describe("member module access", () => {
       sales: "none",
       demand: "none",
       production: "none",
+      routings: "none",
       haccp: "none",
       people: "none",
       training: "none",
@@ -440,6 +450,8 @@ describe("member module access", () => {
       bi: "none",
       purchase_requests: "none",
       client_services: "none",
+      crm: "none",
+      invoicing: "none",
     });
     const headers = { authorization: `Bearer ${docsOnly}`, origin: "" };
     expect((await ctx.req("/v1/workspaces/acme/documents", { headers })).status).toBe(200);

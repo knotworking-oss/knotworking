@@ -8,7 +8,14 @@ import {
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { ApiError, notFound } from "../errors";
 import { findAccountingConnection } from "../services/accounting";
-import { confirmAccountingPosting, dispatchAccountingPosting, retryAccountingPosting } from "./outbox";
+import {
+  claimAccountingAllocation,
+  confirmAccountingPosting,
+  dispatchAccountingPosting,
+  recordAccountingAllocation,
+  releaseAccountingAllocation,
+  retryAccountingPosting,
+} from "./outbox";
 import type { AccountingAdapterRegistry, AccountingBinding } from "./registry";
 
 /**
@@ -51,7 +58,9 @@ const summary = (row: typeof postings.$inferSelect) => ({
   attempts: row.attempts,
   attemptId: row.attemptId,
   externalId: row.externalId,
+  allocation: row.allocation,
   sourceId: row.sourceId,
+  kind: row.payload.kind,
   reference: row.payload.reference,
   date: row.payload.date,
   currency: row.payload.currency,
@@ -88,13 +97,15 @@ export async function listAccountingQueue(
     .orderBy(query.state === "queued" ? asc(postings.createdAt) : desc(postings.updatedAt), asc(postings.id))
     .limit(51)
     .offset(query.offset);
-  const adapter = connection.disabled ? null : await registry.resolve(value).catch(() => null);
+  const adapter = await registry.resolve(value).catch(() => null);
   return {
     postings: rows.slice(0, 50).map(summary),
     hasMore: rows.length > 50,
     counts,
-    adapterInstalled: !!adapter,
+    adapterInstalled: !connection.disabled && !!adapter,
     canReadBack: !!adapter?.readBack,
+    canFindExisting: !!adapter?.findExisting,
+    canAllocate: !!adapter?.allocate,
   };
 }
 
@@ -122,6 +133,7 @@ export async function getAccountingQueueItem(db: Database, ws: string, connectio
       id: h.id,
       action: h.action,
       evidence: h.evidence,
+      supersededPayload: h.supersededPayload,
       attemptId: h.attemptId,
       createdAt: h.createdAt,
       actor: h.actor.startsWith("user:")
@@ -188,7 +200,7 @@ export async function readBackAccountingQueueItem(
   id: string,
   actorId: string,
   registry: AccountingAdapterRegistry,
-  input: { attemptId: string; externalId: string; reason: string },
+  input: { attemptId: string; externalId?: string; reason: string },
 ) {
   const { value } = await binding(db, ws, connectionId);
   const row = await findPosting(db, ws.id, connectionId, id);
@@ -196,11 +208,20 @@ export async function readBackAccountingQueueItem(
     throw new ApiError(409, "accounting_conflict", "Only the current uncertain attempt can be reconciled");
   const adapter = await registry.resolve(value);
   if (!adapter) throw notInstalled();
-  if (!adapter.readBack)
-    throw new ApiError(409, "read_back_unsupported", "This accounting adapter can't read transactions back");
-  const receipt = await adapter
-    .readBack({ postingKey: row.id, document: row.payload, externalId: input.externalId })
-    .catch(() => null);
+  const externalId = input.externalId;
+  const prepared = { postingKey: row.id, document: row.payload };
+  const request = externalId
+    ? adapter.readBack?.({ ...prepared, externalId })
+    : adapter.findExisting?.(prepared);
+  if (!request)
+    throw new ApiError(
+      409,
+      "read_back_unsupported",
+      externalId
+        ? "This accounting adapter can't read transactions back"
+        : "Enter the transaction ID to read it back",
+    );
+  const receipt = await request.catch(() => null);
   if (!receipt)
     throw new ApiError(
       409,
@@ -214,7 +235,69 @@ export async function readBackAccountingQueueItem(
     input.attemptId,
     `user:${actorId}`,
     receipt,
-    `Read back transaction ${input.externalId}: ${input.reason}`.slice(0, 4000),
+    `Read back transaction ${receipt.externalId}: ${input.reason}`.slice(0, 4000),
+  );
+  return getAccountingQueueItem(db, ws.id, connectionId, id);
+}
+
+/**
+ * Settles a posted credit's pending allocation. `allocate` reads the credit back and allocates it
+ * only if the allocation is not already there; `record` states how finance settled it in the ledger
+ * (for example, the invoice was paid first, so the credit stays on account or was refunded).
+ */
+export async function allocateAccountingQueueItem(
+  db: Database,
+  ws: { id: string; slug: string; currency: string },
+  connectionId: string,
+  id: string,
+  actorId: string,
+  registry: AccountingAdapterRegistry,
+  input: { action: "allocate" | "record"; reason: string },
+) {
+  const { connection, value } = await binding(db, ws, connectionId);
+  const row = await findPosting(db, ws.id, connectionId, id);
+  if (row.state !== "posted" || row.allocation !== "pending" || !row.externalId)
+    throw new ApiError(
+      409,
+      "accounting_conflict",
+      "Only a posted credit with a pending allocation can be settled",
+    );
+  const actor = `user:${actorId}`;
+  if (input.action === "record") {
+    await recordAccountingAllocation(db, ws.id, id, actor, "recorded", input.reason);
+    return getAccountingQueueItem(db, ws.id, connectionId, id);
+  }
+  if (connection.disabled)
+    throw new ApiError(409, "accounting_conflict", "Accounting connection is disabled");
+  const adapter = await registry.resolve(value);
+  if (!adapter) throw notInstalled();
+  if (!adapter.allocate)
+    throw new ApiError(409, "allocation_unsupported", "This accounting adapter can't allocate credits");
+  // Claimed under the workspace lock first, so two clicks don't both call the ledger.
+  const claimed = await claimAccountingAllocation(db, ws.id, id, actor);
+  const result = await adapter
+    .allocate({ postingKey: claimed.id, document: claimed.payload, externalId: claimed.externalId! })
+    .catch(async (error: unknown) => {
+      await releaseAccountingAllocation(
+        db,
+        ws.id,
+        id,
+        actor,
+        "The allocation request failed; nothing confirmed",
+      );
+      throw error;
+    });
+  if (!result.allocated) {
+    await releaseAccountingAllocation(db, ws.id, id, actor, result.evidence.slice(0, 4000));
+    throw new ApiError(409, "allocation_not_verified", result.evidence);
+  }
+  await recordAccountingAllocation(
+    db,
+    ws.id,
+    id,
+    actor,
+    "allocated",
+    `${result.evidence}: ${input.reason}`.slice(0, 4000),
   );
   return getAccountingQueueItem(db, ws.id, connectionId, id);
 }

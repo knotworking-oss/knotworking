@@ -154,7 +154,7 @@ export function registerItemTools({ define, slugOf, workspaceParam }: ToolContex
       resource: { name: "items", op: "list" },
       title: "List items",
       description:
-        "List stock items (ingredients, packaging, work in progress, finished goods) with their code, unit, allergens and storage. Filter by `type`, `query` (matches name or code), `allergen` (contains or may contain), `supplier` or `status` (default: active only). Paged: use `offset` while `hasMore` is true.",
+        "List catalogue items with their code and unit. Allergen and storage fields require Food items access. Filter by `type`, `query` (matches name or code), `allergen` (contains or may contain), `supplier` or `status` (default: active only). Paged: use `offset` while `hasMore` is true.",
       annotations: READ,
       input: {
         workspace: workspaceParam,
@@ -212,8 +212,8 @@ export function registerItemTools({ define, slugOf, workspaceParam }: ToolContex
       const found = await resolveItem(api, await slugOf(api, workspace), item);
       return {
         ...itemDetail(found),
-        allergenNames: found.allergens.map((code) => allergens[code]),
-        mayContainNames: found.mayContain.map((code) => allergens[code]),
+        ...(found.allergens && { allergenNames: found.allergens.map((code) => allergens[code]) }),
+        ...(found.mayContain && { mayContainNames: found.mayContain.map((code) => allergens[code]) }),
       };
     },
   );
@@ -224,7 +224,7 @@ export function registerItemTools({ define, slugOf, workspaceParam }: ToolContex
       module: "items",
       title: "Create item",
       description:
-        "Create a stock item. `code` must be unique in the workspace (search with list_items first). `unit` is how quantities of the item are entered (mg, g, kg = by weight; ml, l = by volume; each = by count) and its kind can't change later. Declare `allergens` accurately: they flow into recipes and labels.",
+        "Create a catalogue item for a material, product or service. `code` must be unique in the workspace (search with list_items first). `unit` is how quantities of the item are entered and its dimension can't change later. Allergens and other food fields require Food items write access.",
       annotations: CREATE,
       input: {
         workspace: workspaceParam,

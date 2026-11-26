@@ -7,6 +7,9 @@ import {
   type CcpLogReviewStatus,
   type CostingBatchListStatus,
   type CostingPeriod,
+  type CrmActivityListQuery,
+  type CrmLeadListQuery,
+  type CrmOpportunityListQuery,
   type DemandForecast,
   type DemandSource,
   type ItemType,
@@ -129,6 +132,39 @@ export const getServiceQuote = (slug: string, id: string) =>
   load((api) => unwrap(ws(api)["client-services"][":id"].$get({ param: { slug, id } })));
 
 export type ServiceQuote = Awaited<ReturnType<typeof getServiceQuote>>;
+
+export const getCrmPipeline = (slug: string, query: { ownerId?: string }) =>
+  load((api) => unwrap(ws(api).crm.pipeline.$get({ param: { slug }, query })));
+
+export const getCrmStages = (slug: string) =>
+  load((api) => unwrap(ws(api).crm.stages.$get({ param: { slug } })));
+
+export const getCrmLeads = (slug: string, query: Partial<CrmLeadListQuery>) =>
+  load((api) => unwrap(ws(api).crm.leads.$get({ param: { slug }, query })));
+
+export const getCrmLead = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).crm.leads[":id"].$get({ param: { slug, id } })));
+
+export const getCrmOpportunities = (
+  slug: string,
+  query: Pick<Partial<CrmOpportunityListQuery>, "status" | "before">,
+) => load((api) => unwrap(ws(api).crm.opportunities.$get({ param: { slug }, query })));
+
+export const getCrmOpportunity = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).crm.opportunities[":id"].$get({ param: { slug, id } })));
+
+export const getCrmFollowUps = (
+  slug: string,
+  query: Pick<Partial<CrmActivityListQuery>, "owner" | "status">,
+) => load((api) => unwrap(ws(api).crm.activities.$get({ param: { slug }, query })));
+
+export type CrmPipeline = Awaited<ReturnType<typeof getCrmPipeline>>;
+export type CrmStage = Awaited<ReturnType<typeof getCrmStages>>["stages"][number];
+export type CrmLeadSummary = Awaited<ReturnType<typeof getCrmLeads>>["leads"][number];
+export type CrmLead = Awaited<ReturnType<typeof getCrmLead>>;
+export type CrmOpportunity = Awaited<ReturnType<typeof getCrmOpportunity>>;
+export type CrmOpportunitySummary = Awaited<ReturnType<typeof getCrmOpportunities>>["opportunities"][number];
+export type CrmActivity = Awaited<ReturnType<typeof getCrmFollowUps>>["activities"][number];
 
 /**
  * The workspace's time zone (from the bootstrap): server components decide business dates in it
@@ -910,6 +946,51 @@ export const getCorrectiveActions = (slug: string, status: "open" | "closed" | "
     unwrap(ws(api).haccp["corrective-actions"].$get({ param: { slug }, query: { status, limit: "100" } })),
   );
 
+/** Routings module: work centres (see `workCentreListQuerySchema`). */
+export const getWorkCentres = (
+  slug: string,
+  query: { q?: string; status?: "active" | "archived" | "all" } = {},
+) => load((api) => unwrap(ws(api).routings["work-centres"].$get({ param: { slug }, query })));
+
+/** Routings module: one page of routings (see `routingListQuerySchema`). */
+export const getRoutings = (
+  slug: string,
+  query: { q?: string; status?: "active" | "archived" | "all"; recipeId?: string; offset?: string } = {},
+) => load((api) => unwrap(ws(api).routings.$get({ param: { slug }, query: { ...query, limit: "100" } })));
+
+/** A routing with every version and its operations. */
+export const getRouting = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).routings[":id"].$get({ param: { slug, id } })));
+
+/** Routings module: one page of job cards (see `jobCardListQuerySchema`). */
+export const getJobCards = (
+  slug: string,
+  query: { status?: string; batchId?: string; workCentreId?: string; offset?: string } = {},
+) =>
+  load((api) =>
+    unwrap(
+      ws(api).routings["job-cards"].$get({ param: { slug }, query: { ...query, limit: "50" } as never }),
+    ),
+  );
+
+/** A job card in full: sequence, time, quantities, exceptions and batch records. */
+export const getJobCard = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).routings["job-cards"][":id"].$get({ param: { slug, id } })));
+
+/** First-expired-first-out lots for a batch's outstanding materials (reserves nothing). */
+export const getProductionBatchPick = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).production.batches[":id"].pick.$get({ param: { slug, id } })));
+
+/** A production batch's job cards with the operations cost so far. */
+export const getBatchJobCards = (slug: string, batchId: string) =>
+  load((api) => unwrap(ws(api).routings.batches[":batchId"]["job-cards"].$get({ param: { slug, batchId } })));
+
+export type WorkCentre = Awaited<ReturnType<typeof getWorkCentres>>["workCentres"][number];
+export type Routing = Awaited<ReturnType<typeof getRouting>>;
+export type RoutingVersion = Routing["versions"][number];
+export type JobCard = Awaited<ReturnType<typeof getJobCard>>;
+export type BatchJobCards = Awaited<ReturnType<typeof getBatchJobCards>>;
+
 /** Assets module: one page of the asset register (see `assetListQuerySchema`). */
 export const getAssets = (
   slug: string,
@@ -1659,6 +1740,9 @@ export type HseEntryRow = Awaited<ReturnType<typeof getHseEntries>>["entries"][n
 export const getAccountingConnections = (slug: string, offset = "0") =>
   load((api) => unwrap(ws(api).accounting.connections.$get({ param: { slug }, query: { offset } })));
 
+export const getAccountingConnection = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).accounting.connections[":id"].$get({ param: { slug, id } })));
+
 export const getMyAbsences = (slug: string, offset = "0") =>
   load((api) => unwrap(ws(api).workforce.me.$get({ param: { slug }, query: { offset } })));
 export const getHrAbsences = (slug: string, offset = "0") =>
@@ -1696,3 +1780,11 @@ export const getDashboardData = (slug: string, id: string, params?: string) =>
   );
 export type DashboardSummary = Awaited<ReturnType<typeof getDashboards>>["dashboards"][number];
 export type DashboardDetail = Awaited<ReturnType<typeof getDashboard>>;
+
+export const getCustomerDocuments = (slug: string, offset: string) =>
+  load((api) => unwrap(ws(api).invoicing.$get({ param: { slug }, query: { offset } })));
+export const getCustomerDocument = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).invoicing[":id"].$get({ param: { slug, id } })));
+export type CustomerDocument = Awaited<ReturnType<typeof getCustomerDocument>>;
+export const getInvoicingSettings = (slug: string) =>
+  load((api) => unwrap(ws(api).invoicing.settings.$get({ param: { slug } })));

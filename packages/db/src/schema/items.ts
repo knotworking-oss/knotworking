@@ -3,10 +3,8 @@
  * See docs/modules.md and `@knotworking/core` items.ts.
  */
 import type {
-  AllergenCode,
   ItemStatus,
   ItemType,
-  StorageCondition,
   SupplierApprovalStatus,
   SupplierCategory,
   SupplierControl,
@@ -18,18 +16,7 @@ import type {
   UnitCode,
 } from "@knotworking/core";
 import { sql } from "drizzle-orm";
-import {
-  boolean,
-  date,
-  index,
-  integer,
-  jsonb,
-  numeric,
-  pgTable,
-  text,
-  uniqueIndex,
-  uuid,
-} from "drizzle-orm/pg-core";
+import { boolean, date, index, jsonb, numeric, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "../schema";
 import { pk, timestamps, ts, workspaceRef } from "./helpers";
 
@@ -80,9 +67,8 @@ export const suppliers = pgTable(
 );
 
 /**
- * Anything that is bought, made, stored or sold: ingredients, packaging, work in progress and
- * finished goods. Quantities elsewhere are always held in the base unit of the item's dimension
- * (g, ml or each); `unit` is how people enter and read them.
+ * Anything that is bought, made, stored or sold. Quantities in the stock ledger are held in
+ * the base unit of the item's dimension. `unit` is how people enter and read them.
  */
 export const items = pgTable(
   "items",
@@ -95,19 +81,12 @@ export const items = pgTable(
     type: text("type").$type<ItemType>().notNull(),
     status: text("status").$type<ItemStatus>().notNull().default("active"),
     description: text("description"),
-    /** Display and entry unit; its dimension (mass, volume, count) never changes once set. */
+    /** Display and entry unit; its dimension never changes once set. */
     unit: text("unit").$type<UnitCode>().notNull(),
     /** For converting between volume and mass (liquids measured by weight). */
     densityGPerMl: numeric("density_g_per_ml", { precision: 12, scale: 6, mode: "number" }),
     /** For converting between count and mass (an egg, a case). */
     unitWeightG: numeric("unit_weight_g", { precision: 14, scale: 4, mode: "number" }),
-    /** Allergens the item contains (UK FIC 14). */
-    allergens: jsonb("allergens").$type<AllergenCode[]>().notNull().default([]),
-    /** Precautionary "may contain" allergens (cross-contact). */
-    mayContain: jsonb("may_contain").$type<AllergenCode[]>().notNull().default([]),
-    storage: text("storage").$type<StorageCondition>().notNull().default("ambient"),
-    /** Shelf life from production or receipt, in days. */
-    shelfLifeDays: integer("shelf_life_days"),
     /** Standard cost per `unit`, in the workspace's currency. */
     standardCost: numeric("standard_cost", { precision: 14, scale: 4, mode: "number" }),
     ...timestamps(),

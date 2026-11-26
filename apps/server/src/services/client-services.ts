@@ -20,6 +20,7 @@ import {
 } from "@knotworking/db";
 import { and, desc, eq, isNull, lt, sum } from "drizzle-orm";
 import { ApiError, badRequest, notFound } from "../errors";
+import { assertNoCrmLinkOnCustomerChange } from "./crm-quote-link";
 import { findCustomer } from "./customers";
 import { executeLedgerCommand } from "./ledger-command";
 import { createProject } from "./projects";
@@ -188,6 +189,8 @@ export async function updateServiceQuote(
       const current = await loadQuote(tx, workspaceId, id);
       requireRevision(current, input.expectedRevision);
       if (current.status !== "draft") throw conflict("Only a draft quote can be edited");
+      if (input.customerId !== current.customerId)
+        await assertNoCrmLinkOnCustomerChange(tx, workspaceId, "service", id);
       const { commandId: _command, expectedRevision: _revision, ...fields } = input;
       const [quote] = await tx
         .update(serviceQuotes)

@@ -19,7 +19,7 @@ const REPLACE = { readOnlyHint: false, destructiveHint: true, idempotentHint: tr
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PERIOD_HELP = "A date (YYYY-MM-DD; read as the ISO week it falls in) or an ISO week such as 2026-W46.";
 const UNIT_HELP =
-  "mg, g, kg (weight); ml, l (volume); each (count); or one of the item's pack units such as case (see list_pack_units). Default: the item's own unit.";
+  "mg, g, kg (weight); ml, l (volume); each (count); mm, cm, m (length); mm2, cm2, m2 (area); s, min, h (time); or one of the item's pack units such as case (see list_pack_units). Default: the item's own unit.";
 
 /** An item reference as the API's filters take it: an id, or a stock code. */
 const itemFilter = (ref: string | undefined) =>

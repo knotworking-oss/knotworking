@@ -113,6 +113,7 @@ function CustomerForm({ slug, customer, close }: { slug: string; customer: Custo
       contactName: value("contactName") || null,
       email: value("email") || null,
       phone: value("phone") || null,
+      taxNumber: value("taxNumber") || null,
       status: value("status") as "active" | "archived",
     };
     try {
@@ -169,6 +170,13 @@ function CustomerForm({ slug, customer, close }: { slug: string; customer: Custo
               <Input name="phone" defaultValue={customer?.phone ?? ""} maxLength={80} />
             </label>
           </div>
+          <label className="space-y-1 text-sm">
+            Tax number
+            <Input name="taxNumber" defaultValue={customer?.taxNumber ?? ""} maxLength={40} />
+            <span className="block text-xs text-muted-foreground">
+              VAT or other tax registration number, printed on new invoices.
+            </span>
+          </label>
           <label className="space-y-1 text-sm">
             Status
             <select

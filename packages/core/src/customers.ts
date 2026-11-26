@@ -21,6 +21,7 @@ export const customerCreateSchema = z.object({
     .nullable()
     .optional(),
   phone: nullableText(80).optional(),
+  taxNumber: nullableText(40).optional(),
   status: z.enum(customerStatuses).default("active"),
 });
 export const customerUpdateSchema = customerCreateSchema

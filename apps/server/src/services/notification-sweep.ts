@@ -1,5 +1,6 @@
 import {
   addDaysToIsoDate,
+  hasModuleLevel,
   sopReminderDueOn,
   sopReminderRound,
   AUDIT_UPCOMING_DAYS,
@@ -48,6 +49,7 @@ import { generateProgrammeAudits } from "./quality-extras";
 import { reservationChange, releaseExpiredReservations } from "./reservations-core";
 import { findReservedLotProblems, reservedLotDrafts } from "./reservation-alerts";
 import { maintenanceDueItems } from "./maintenance";
+import { crmFollowUpDedupeKey, crmFollowUpsDue } from "./crm";
 import { getSiteDue } from "./site";
 import { workspaceTimeZone } from "./time-zone";
 import { getActiveWorkspaceModules } from "./workspace-modules";
@@ -110,6 +112,7 @@ const SWEPT_MODULES = [
   "sops",
   "attendance",
   "production",
+  "crm",
 ] as const satisfies readonly ModuleId[];
 
 /**
@@ -203,12 +206,13 @@ async function sweepWorkspace(
     if (active.has("haccp")) await sweepHaccp(ctx, active.has("production"));
     if (active.has("maintenance")) await sweepMaintenance(ctx);
     if (active.has("site")) await sweepSite(ctx, active.has("checklists"), active.has("production"));
-    if (active.has("recipes")) await sweepRecipes(ctx);
+    if (active.has("recipes") && active.has("food_items")) await sweepRecipes(ctx);
     if (active.has("quality")) await sweepQuality(ctx);
     if (active.has("labels")) await sweepLabels(ctx);
     if (active.has("sops")) await sweepSops(ctx, activeModules);
     if (active.has("attendance")) await sweepAttendance(ctx);
     if (active.has("production")) await sweepProduction(ctx);
+    if (active.has("crm")) await sweepCrm(ctx);
 
     const created = await insertNotifications(
       tx,
@@ -437,6 +441,34 @@ async function sweepMaintenance(ctx: Ctx) {
       },
       // Existing reminders share this key so an upgrade does not send them again.
       dedupeKey: `site:maintenance:${item.subjectId}:${occurrence(item)}`,
+    });
+  }
+}
+
+/** Open follow-ups falling due or overdue: to their owner, while they can read CRM. */
+async function sweepCrm(ctx: Ctx) {
+  const readers = audience(ctx.access, "crm", "read");
+  if (readers.length === 0) return;
+  for (const item of await crmFollowUpsDue(ctx.db, ctx.workspaceId, ctx.cutoff, ctx.today, readers)) {
+    if (!item.ownerId || !item.dueOn) continue;
+    const record = item.lead
+      ? { crmRecord: "lead" as const, subjectId: item.lead.id, label: item.lead.company || item.lead.name }
+      : {
+          crmRecord: "opportunity" as const,
+          subjectId: item.opportunity!.id,
+          label: item.opportunity!.title,
+        };
+    push(ctx, [item.ownerId], {
+      type: "crm_follow_up_due",
+      module: "crm",
+      data: {
+        title: `${item.subject} (${record.label})`,
+        subjectId: record.subjectId,
+        crmRecord: record.crmRecord,
+        dueOn: item.dueOn,
+        dueState: item.dueOn < ctx.today ? "overdue" : "due",
+      },
+      dedupeKey: crmFollowUpDedupeKey(item.id, item.dueOn),
     });
   }
 }
@@ -728,7 +760,9 @@ async function sweepAttendance(ctx: Ctx) {
  * notifies again; approving a new version clears the flag). Archived recipes are left out.
  */
 async function sweepRecipes(ctx: Ctx) {
-  const managers = audience(ctx.access, "recipes", "manage");
+  const managers = audience(ctx.access, "recipes", "manage").filter((id) =>
+    hasModuleLevel(ctx.access.get(id)?.food_items, "read"),
+  );
   if (managers.length === 0) return;
   for (const flagged of await recipesWithAllergenDrift(ctx.db, ctx.workspaceId)) {
     if (flagged.status !== "active") continue;

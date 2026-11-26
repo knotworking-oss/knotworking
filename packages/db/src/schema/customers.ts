@@ -14,6 +14,8 @@ export const customers = pgTable(
     contactName: text("contact_name"),
     email: text("email"),
     phone: text("phone"),
+    /** VAT or other tax registration number, printed on customer invoices. */
+    taxNumber: text("tax_number"),
     status: text("status").$type<"active" | "archived">().notNull().default("active"),
     ...timestamps(),
   },

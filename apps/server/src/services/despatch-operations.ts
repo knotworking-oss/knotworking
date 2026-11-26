@@ -13,6 +13,7 @@ import {
   type DespatchReturnVoidInput,
   type DespatchOperations,
   type DespatchReturnView,
+  isDespatchableItem,
 } from "@knotworking/core";
 import {
   despatches,
@@ -32,6 +33,7 @@ import {
 } from "@knotworking/db";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { ApiError, badRequest, notFound } from "../errors";
+import { assertInvoiceAllowsDespatchCorrection } from "./invoice-sources";
 import { executeLedgerCommand } from "./ledger-command";
 import { findDespatch, linesOf, getDespatch, despatchChange, recipient } from "./despatch";
 import {
@@ -75,8 +77,12 @@ async function checkStock(tx: Transaction, ws: string, row: Despatch) {
   for (const line of lines) {
     const { lot, item } = await findLot(tx, ws, line.lotId);
     const location = await findActiveLocation(tx, ws, line.locationId);
-    if (item.status !== "active" || item.type !== "finished")
-      throw new ApiError(409, "item_not_despatchable", "Only active finished products can be allocated");
+    if (item.status !== "active" || !isDespatchableItem(item.type))
+      throw new ApiError(
+        409,
+        "item_not_despatchable",
+        "Only active finished products, merchandise and spare parts can be allocated",
+      );
     await assertNoIncidentHold(tx, ws, lot.id);
     if (lot.status !== "available")
       throw new ApiError(409, "lot_not_released", `Lot ${lot.lotCode} is not released`);
@@ -393,6 +399,7 @@ export async function receiveDespatchReturn(
   actor: string,
   id: string,
   input: DespatchReturnInput,
+  foodItems = false,
 ) {
   return executeLedgerCommand(db, ws, actor, "despatch.return", input, { id, ...input }, async (tx) => {
     const row = await findDespatch(tx, ws, id);
@@ -441,6 +448,7 @@ export async function receiveDespatchReturn(
       receivedOn: input.receivedOn,
       expiresOn: original.expiresOn,
       expiryType: original.expiryType,
+      foodItems,
       status: "quarantine",
       statusNote: `Customer return from ${row.reference}; awaiting QA disposition`,
       notes: input.condition,
@@ -542,6 +550,7 @@ export async function voidDespatchReturn(
       if (!ret) throw notFound("Return receipt");
       if (ret.voidedAt)
         throw new ApiError(409, "return_voided", "This return receipt has already been corrected");
+      await assertInvoiceAllowsDespatchCorrection(tx, ws, [ret.lineId]);
       const { item } = await findLot(tx, ws, ret.lotId);
       const location = await findActiveLocation(tx, ws, ret.locationId);
       await assertAvailable(tx, ret.lotId, location, item, ret.quantity);

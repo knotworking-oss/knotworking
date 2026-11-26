@@ -41,19 +41,24 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   [/^\/items(\/|$)/, "items"],
   [/^\/suppliers(\/|$)/, "items"],
   // Recipes.
-  [/^\/recipes(\/|$)/, "recipes"],
+  [/^\/(?:recipes|boms)(\/|$)/, "recipes"],
   // SOPs.
   [/^\/sops(\/|$)/, "sops"],
   // Stock: locations, lots and the movement ledger.
   [/^\/stock(\/|$)/, "stock"],
   [/^\/customers(\/|$)/, "customers"],
+  [/^\/invoicing(\/|$)/, "invoicing"],
   [/^\/despatch(\/|$)/, "despatch"],
   [/^\/sales(\/|$)/, "sales"],
   [/^\/client-services(\/|$)/, "client_services"],
+  // CRM: leads, opportunities, pipeline stages and follow-ups.
+  [/^\/crm(\/|$)/, "crm"],
   [/^\/hse\/incidents(\/|$)/, "hse_incidents"],
   [/^\/hse(\/|$)/, "hse"],
   // Demand planning.
   [/^\/demand(\/|$)/, "demand"],
+  // Routings: work centres, routings and job cards (job cards of a batch included).
+  [/^\/routings(\/|$)/, "routings"],
   // Production: batches, batch records, material requirements and lot tracing.
   [/^\/production(\/|$)/, "production"],
   // Food safety records: HACCP plans, CCP logs, corrective actions, cleaning and calibration.

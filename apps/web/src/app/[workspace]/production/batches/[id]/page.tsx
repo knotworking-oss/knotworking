@@ -9,11 +9,13 @@ import {
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BatchCostPanel } from "@/components/batch-cost-panel";
+import { BatchJobCardsPanel } from "@/components/batch-job-cards-panel";
 import { HaccpBatchPanel } from "@/components/haccp-batch-panel";
 import { PageHeader } from "@/components/page-header";
 import {
   canReadModule,
   getBatchCost,
+  getBatchJobCards,
   getBatchPacking,
   getBatchPerformance,
   getHaccpBatchRecord,
@@ -38,18 +40,31 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function BatchPage({ params }: Props) {
   const { workspace: slug, id } = await params;
   const currency = await getWorkspaceCurrency(slug);
-  const [batch, { locations }, haccp, canCosting, { lines }, readiness, performance, packing] =
-    await Promise.all([
-      getProductionBatch(slug, id),
-      getStockLocations(slug),
-      // The haccp module's checks on this batch, for people who can read it.
-      canReadModule(slug, "haccp").then((can) => (can ? getHaccpBatchRecord(slug, id) : null)),
-      canReadModule(slug, "costing"),
-      getProductionLines(slug),
-      getProductionReadiness(slug, id),
-      getBatchPerformance(slug, id),
-      getBatchPacking(slug, id),
-    ]);
+  const [
+    batch,
+    { locations },
+    haccp,
+    canCosting,
+    { lines },
+    readiness,
+    performance,
+    packing,
+    jobCards,
+    foodItems,
+  ] = await Promise.all([
+    getProductionBatch(slug, id),
+    getStockLocations(slug),
+    // The haccp module's checks on this batch, for people who can read it.
+    canReadModule(slug, "haccp").then((can) => (can ? getHaccpBatchRecord(slug, id) : null)),
+    canReadModule(slug, "costing"),
+    getProductionLines(slug),
+    getProductionReadiness(slug, id),
+    getBatchPerformance(slug, id),
+    getBatchPacking(slug, id),
+    // Its operations (the routings module), for people who can read it.
+    canReadModule(slug, "routings").then((can) => (can ? getBatchJobCards(slug, id) : null)),
+    canReadModule(slug, "food_items"),
+  ]);
   // What the batch cost (the costing module), once something is on record, for people who can read it.
   const cost = canCosting && batch.records.length > 0 ? await getBatchCost(slug, id) : null;
   // A planned batch whose version was superseded can be moved to the current approved version.
@@ -85,7 +100,9 @@ export default async function BatchPage({ params }: Props) {
           currentVersion={
             current?.status === "approved" ? { id: current.id, versionNumber: current.versionNumber } : null
           }
+          outputCardId={jobCards?.jobCards.at(-1)?.id ?? null}
         />
+        {jobCards && <BatchJobCardsPanel slug={slug} data={jobCards} currency={currency} />}
         <BatchPackingPanel slug={slug} packing={packing} />
         <BatchPerformancePanel
           slug={slug}
@@ -95,7 +112,7 @@ export default async function BatchPage({ params }: Props) {
         />
         {cost && (
           <div className="mx-auto w-full max-w-6xl px-6 pb-8">
-            <BatchCostPanel slug={slug} currency={currency} cost={cost} compact />
+            <BatchCostPanel slug={slug} currency={currency} cost={cost} compact foodItems={foodItems} />
           </div>
         )}
         {haccp && <HaccpBatchPanel slug={slug} record={haccp} />}

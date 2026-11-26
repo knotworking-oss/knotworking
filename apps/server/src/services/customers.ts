@@ -80,14 +80,24 @@ export async function createCustomer(
 ) {
   return db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
-    await assertCodeFree(tx, workspaceId, input.code);
-    const [row] = await tx
-      .insert(customers)
-      .values({ ...input, workspaceId })
-      .returning();
-    await recordChanges(tx, workspaceId, actorId, [change(row!)]);
-    return view(row!);
+    return insertCustomer(tx, workspaceId, actorId, input);
   });
+}
+
+/** Adds a customer inside the caller's transaction, which must hold the workspace log lock. */
+export async function insertCustomer(
+  tx: Transaction,
+  workspaceId: string,
+  actorId: string,
+  input: CustomerCreateInput,
+) {
+  await assertCodeFree(tx, workspaceId, input.code);
+  const [row] = await tx
+    .insert(customers)
+    .values({ ...input, workspaceId })
+    .returning();
+  await recordChanges(tx, workspaceId, actorId, [change(row!)]);
+  return view(row!);
 }
 
 export async function updateCustomer(

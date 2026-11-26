@@ -62,7 +62,9 @@ describe("module manifest", () => {
 
 describe("parseActiveModules", () => {
   it("defaults to every module that is on by default, and `all` adds the flagged ones", () => {
-    const standard = moduleIds.filter((id) => id !== "calendar" && id !== "accounting" && id !== "bi");
+    const standard = moduleIds.filter(
+      (id) => id !== "calendar" && id !== "accounting" && id !== "bi" && id !== "invoicing",
+    );
     expect(parseActiveModules(undefined)).toEqual(standard);
     expect(parseActiveModules("  ")).toEqual(standard);
     expect(parseActiveModules("all")).toEqual([...moduleIds]);
@@ -103,6 +105,28 @@ describe("parseActiveModules", () => {
     expect(() => parseActiveModules("time")).toThrow(/needs "tasks"/);
     expect(() => parseActiveModules("stock")).toThrow(/needs "items"/);
     expect(() => parseActiveModules("tasks,demand")).toThrow(/needs "items"/);
+  });
+
+  it("adds Food items to a list written before it left Items, with a warning", () => {
+    const warnings: string[] = [];
+    const warn = (m: string) => warnings.push(m);
+    expect(parseActiveModules("items,recipes,labels", warn)).toEqual([
+      "items",
+      "food_items",
+      "recipes",
+      "labels",
+    ]);
+    expect(parseActiveModules("items,specifications", warn)).toContain("food_items");
+    expect(parseActiveModules("items,recipes,npd,labels", warn)).toContain("food_items");
+    expect(warnings).toHaveLength(3);
+    expect(warnings[0]).toContain('"labels" needs "food_items"');
+    expect(warnings[2]).toContain('"labels", "npd" need "food_items"');
+    // A list that names it, or needs nothing from it, is left alone and silent.
+    expect(parseActiveModules("items,food_items,recipes,labels", warn)).toContain("food_items");
+    expect(parseActiveModules("items,recipes", warn)).toEqual(["items", "recipes"]);
+    expect(warnings).toHaveLength(3);
+    // Food items still needs Items: a list without it is refused as before.
+    expect(() => parseActiveModules("recipes,labels", warn)).toThrow(/needs "items"/);
   });
 });
 
@@ -194,6 +218,7 @@ describe("resolveModuleAccess", () => {
       maintenance: "none",
       checklists: "none",
       items: "none",
+      food_items: "none",
       recipes: "none",
       sops: "none",
       stock: "none",
@@ -202,6 +227,7 @@ describe("resolveModuleAccess", () => {
       sales: "none",
       demand: "none",
       production: "none",
+      routings: "none",
       haccp: "none",
       people: "none",
       training: "none",
@@ -225,6 +251,8 @@ describe("resolveModuleAccess", () => {
       bi: "none",
       purchase_requests: "none",
       client_services: "none",
+      crm: "none",
+      invoicing: "none",
     });
   });
 

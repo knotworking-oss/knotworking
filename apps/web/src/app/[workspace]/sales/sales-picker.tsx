@@ -1,9 +1,19 @@
 "use client";
+import { itemTypeLabels, sellableItemTypes, type UnitCode } from "@knotworking/core";
 import { useState } from "react";
 import { Button } from "@knotworking/ui/components/button";
 import { Input } from "@knotworking/ui/components/input";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
-/** Search is bounded and shows the total: a large register is never silently an incomplete picker. */
+/** The item types a sales line takes, from `sellableItemTypes`. */
+const sellableTypesText = sellableItemTypes.map((t) => itemTypeLabels[t].toLowerCase()).join(", ");
+
+type Row = { id: string; code: string; name: string; unit?: UnitCode };
+
+/**
+ * Search is bounded and shows the total: a large register is never silently an incomplete picker.
+ * Items are searched among the sellable types only, so the total counts what can be listed; the
+ * chosen item comes back with its unit, for lines to default to.
+ */
 export function SalesPicker({
   slug,
   kind,
@@ -16,11 +26,11 @@ export function SalesPicker({
   kind: "customers" | "items";
   value: string;
   label?: string;
-  onChange: (id: string, label: string) => void;
+  onChange: (id: string, label: string, row?: Row) => void;
   disabled?: boolean;
 }) {
   const [q, setQ] = useState("");
-  const [rows, setRows] = useState<{ id: string; code: string; name: string }[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -37,9 +47,9 @@ export function SalesPicker({
         setTotal(r.total);
       } else {
         const r = await unwrap(
-          api.items.$get({ param: { slug }, query: { q, status: "active", limit: "50" } }),
+          api.items.$get({ param: { slug }, query: { q, status: "active", sellable: "true", limit: "50" } }),
         );
-        setRows(r.items.filter((i) => ["finished", "wip"].includes(i.type)));
+        setRows(r.items);
         setTotal(r.total);
       }
     } catch (e) {
@@ -75,7 +85,7 @@ export function SalesPicker({
         disabled={disabled}
         onChange={(e) => {
           const r = rows.find((r) => r.id === e.target.value);
-          onChange(e.target.value, r ? `${r.code} · ${r.name}` : (label ?? ""));
+          onChange(e.target.value, r ? `${r.code} · ${r.name}` : (label ?? ""), r);
         }}
         className="h-9 w-full rounded-md border bg-background px-3"
       >
@@ -90,7 +100,7 @@ export function SalesPicker({
       {total !== null && (
         <p className="text-xs text-muted-foreground">
           {total} matches. Showing up to 50; refine your search
-          {kind === "items" ? ". Only finished and WIP products can be sold" : ""}.
+          {kind === "items" ? `. Only these item types can be sold: ${sellableTypesText}` : ""}.
         </p>
       )}
       {error && (

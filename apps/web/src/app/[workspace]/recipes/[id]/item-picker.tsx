@@ -41,7 +41,7 @@ export function ItemPicker({
             query: { ...(query.trim() ? { q: query.trim() } : {}), status: "active", limit: "20" },
           }),
         );
-        if (!stale) setResults(page.items);
+        if (!stale) setResults(page.items.filter((item) => item.type !== "service" && item.id !== excludeId));
       } catch {
         if (!stale) setResults([]);
       } finally {
@@ -52,7 +52,7 @@ export function ItemPicker({
       stale = true;
       clearTimeout(timer);
     };
-  }, [open, query, slug]);
+  }, [open, query, slug, excludeId]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -71,22 +71,20 @@ export function ItemPicker({
           onChange={(e) => setQuery(e.target.value)}
         />
         <ul className="mt-2 flex max-h-60 flex-col overflow-y-auto" aria-busy={loading}>
-          {results
-            .filter((item) => item.id !== excludeId)
-            .map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
-                  onClick={() => {
-                    onChange(item);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="font-mono text-xs">{item.code}</span> · {item.name}
-                </button>
-              </li>
-            ))}
+          {results.map((item) => (
+            <li key={item.id}>
+              <button
+                type="button"
+                className="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                onClick={() => {
+                  onChange(item);
+                  setOpen(false);
+                }}
+              >
+                <span className="font-mono text-xs">{item.code}</span> · {item.name}
+              </button>
+            </li>
+          ))}
           {!loading && results.length === 0 && (
             <li className="px-2 py-3 text-center text-sm text-muted-foreground">No items found.</li>
           )}

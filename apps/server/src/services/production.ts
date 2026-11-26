@@ -878,6 +878,11 @@ export async function planBatches(
   });
 }
 
+/** A check a module building on production makes before a planned batch is resized or re-versioned. */
+export interface BatchPlanHooks {
+  beforeReplan?: (tx: Transaction, batch: BatchRow) => Promise<void>;
+}
+
 /**
  * Changes a batch. Rescheduling, resizing, recoding or moving to the current approved version
  * only while it is planned; the output location and notes until it is closed.
@@ -888,6 +893,7 @@ export async function updateBatch(
   actorId: string,
   id: string,
   patch: ProductionBatchUpdateInput,
+  hooks: BatchPlanHooks = {},
 ) {
   return db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -921,6 +927,11 @@ export async function updateBatch(
       const output = await findItem(tx, workspaceId, batch.outputItemId);
       set.plannedQuantity = plannedBase(version!, output, patch)!;
     }
+    if (
+      set.recipeVersionId !== undefined ||
+      (set.plannedQuantity !== undefined && set.plannedQuantity !== batch.plannedQuantity)
+    )
+      await hooks.beforeReplan?.(tx, batch);
     if (patch.plannedOn !== undefined) set.plannedOn = patch.plannedOn;
     if (patch.batchCode !== undefined) {
       await assertBatchCodeFree(tx, workspaceId, patch.batchCode, id);
@@ -1004,6 +1015,26 @@ export async function startBatch(db: Database, workspaceId: string, actorId: str
 // ─── Batch records ───────────────────────────────────────────────────────────
 
 /**
+ * Lets a module that builds on production (Routings' job cards) take part in a batch record's
+ * transaction: check before anything is posted, and link the records it posted (its own sync
+ * changes returned). Without hooks a record behaves exactly as before.
+ */
+export interface BatchRecordHooks {
+  /** The ledger command's operation name (a different route must not replay this one's result). */
+  operation?: string;
+  /** Extra payload for the command's hash, so the same command id can't cross routes. */
+  scope?: string;
+  beforePost?: (tx: Transaction, batch: BatchRow) => Promise<void>;
+  onPosted?: (tx: Transaction, batch: BatchRow, rows: RecordRow[]) => Promise<ChangeInput[]>;
+}
+
+/** Checks a module building on production makes when a batch is completed or cancelled. */
+export interface BatchCloseHooks {
+  beforeComplete?: (tx: Transaction, batch: BatchRow) => Promise<void>;
+  afterCancel?: (tx: Transaction, batch: BatchRow) => Promise<ChangeInput[]>;
+}
+
+/**
  * Posts consumption: for each line, a `consumption` movement out of the lot and a record linking
  * it to the batch. Only ingredients of the batch's version, only released lots, never past a
  * use-by date, never more than is at the location (re-read under the workspace lock).
@@ -1014,18 +1045,20 @@ export async function recordConsumption(
   actorId: string,
   id: string,
   input: ProductionConsumptionInput,
+  hooks: BatchRecordHooks = {},
 ) {
   return executeLedgerCommand(
     db,
     workspaceId,
     actorId,
-    "recordConsumption",
+    hooks.operation ?? "recordConsumption",
     input,
-    { id, input },
+    hooks.scope ? { id, input, scope: hooks.scope } : { id, input },
     async (tx) => {
       await lockWorkspaceLog(tx, workspaceId);
       const batch = await findBatch(tx, workspaceId, id);
       assertStatus(batch, ["in_progress"], "record consumption (start it first)");
+      await hooks.beforePost?.(tx, batch);
       const ingredients = new Set(
         (
           await tx
@@ -1106,10 +1139,12 @@ export async function recordConsumption(
           ...(await fulfilForConsumption(tx, workspaceId, actorId, batch.id, lotId, quantity, locationId)),
         );
       }
+      const linked = (await hooks.onPosted?.(tx, batch, rows)) ?? [];
       await recordChanges(tx, workspaceId, actorId, [
         ...posted.map(movementChange),
         ...rows.map(recordChange),
         ...fulfilled,
+        ...linked,
       ]);
       return getBatch(tx, workspaceId, id);
     },
@@ -1139,11 +1174,16 @@ export async function recordOutput(
   actorId: string,
   id: string,
   input: ProductionOutputInput,
+  foodItems = false,
+  hooks: BatchRecordHooks = {},
 ) {
-  return executeLedgerCommand(db, workspaceId, actorId, "recordOutput", input, { id, input }, async (tx) => {
+  const operation = hooks.operation ?? "recordOutput";
+  const payload = hooks.scope ? { id, input, scope: hooks.scope } : { id, input };
+  return executeLedgerCommand(db, workspaceId, actorId, operation, input, payload, async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
     const batch = await findBatch(tx, workspaceId, id);
     assertStatus(batch, ["in_progress"], "record output (start it first)");
+    await hooks.beforePost?.(tx, batch);
     const item = await findItem(tx, workspaceId, batch.outputItemId);
     const quantity = toBase(input.quantity, input.unit, item);
     const locationId = input.locationId ?? batch.outputLocationId;
@@ -1188,6 +1228,7 @@ export async function recordOutput(
         expiresOn: input.expiresOn ?? null,
         expiryType: input.expiryType ?? null,
         status: "quarantine",
+        foodItems,
         statusNote: `Produced by batch ${batch.batchCode}; awaiting QA release`,
         notes: null,
         now,
@@ -1226,6 +1267,7 @@ export async function recordOutput(
       .returning();
     await inheritIncidentHolds(tx, workspaceId, batch.id, lot.id, actorId);
     changes.push(movementChange(posted[0]!), recordChange(row!));
+    changes.push(...((await hooks.onPosted?.(tx, batch, [row!])) ?? []));
     await recordChanges(tx, workspaceId, actorId, changes);
     return getBatch(tx, workspaceId, id);
   });
@@ -1326,11 +1368,13 @@ export async function completeBatch(
   actorId: string,
   id: string,
   input: ProductionBatchCompleteInput,
+  hooks: BatchCloseHooks = {},
 ) {
   return db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
     const batch = await findBatch(tx, workspaceId, id);
     assertStatus(batch, ["in_progress"], "be completed");
+    await hooks.beforeComplete?.(tx, batch);
     const [produced] = await tx
       .select({ total: sql<string>`coalesce(sum(${productionRecords.quantity}), 0)` })
       .from(productionRecords)
@@ -1364,7 +1408,7 @@ export async function cancelBatch(
   actorId: string,
   id: string,
   reason: string,
-  options: { canManage: boolean },
+  options: { canManage: boolean } & BatchCloseHooks,
 ) {
   return db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -1404,12 +1448,10 @@ export async function cancelBatch(
       cancelledBy: actorId,
       cancelReason: reason,
     });
-    await recordChanges(
-      tx,
-      workspaceId,
-      actorId,
-      await releaseBatchReservations(tx, workspaceId, actorId, id, "cancelled"),
-    );
+    await recordChanges(tx, workspaceId, actorId, [
+      ...(await releaseBatchReservations(tx, workspaceId, actorId, id, "cancelled")),
+      ...((await options.afterCancel?.(tx, batch)) ?? []),
+    ]);
     return getBatch(tx, workspaceId, id);
   });
 }

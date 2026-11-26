@@ -104,8 +104,8 @@ const supplierLabel = (s: SupplierOption) =>
   `${s.name}${s.approvalStatus === "approved" ? "" : ` · ${supplierApprovalLabels[s.approvalStatus]}`}`;
 
 /**
- * A new draft order, or an edit of a draft or sent order. Stock lines are ingredients and
- * packaging, priced by default at the item's standard cost in the line's unit; they are offered
+ * A new draft order, or an edit of a draft or sent order. Stock lines use the item's
+ * standard cost in the line's unit by default; they are offered
  * only when the viewer can use stock. Non-stock lines (services, subscriptions, goods not kept in
  * stock) have a description, a free-text unit, a price and a nominal code. Once sent, the supplier is fixed
  * and lines with receipts can't be removed or change item; lines on a supplier invoice can't be
@@ -338,8 +338,7 @@ export function OrderDialog({
           <Alert>
             <TriangleAlert />
             <AlertDescription>
-              Stock lines are ingredients and packaging: add them on the Items page first. Services and other
-              purchases go on non-stock lines.
+              Add purchasable stock items on the Items page. Use a non-stock line for services.
             </AlertDescription>
           </Alert>
         )}
@@ -349,6 +348,7 @@ export function OrderDialog({
               <NonStockLine
                 key={line.key}
                 line={line}
+                services={options.services}
                 index={index}
                 removable={!(line.locked || line.invoiced || lines.length === 1)}
                 onChange={(patch) => update(line.key, patch)}
@@ -519,12 +519,14 @@ export function OrderDialog({
  */
 function NonStockLine({
   line,
+  services,
   index,
   removable,
   onChange,
   onRemove,
 }: {
   line: LineDraft;
+  services: PurchasableItem[];
   index: number;
   removable: boolean;
   onChange: (patch: Partial<LineDraft>) => void;
@@ -532,6 +534,42 @@ function NonStockLine({
 }) {
   return (
     <div className="flex flex-col gap-2 rounded-lg border p-3">
+      {services.length > 0 && (!line.itemId || services.some((item) => item.id === line.itemId)) && (
+        <Field>
+          <FieldLabel id={`${line.key}-service-label`}>Catalogue service</FieldLabel>
+          <Select
+            value={line.itemId || NONE}
+            disabled={line.locked || line.invoiced}
+            onValueChange={(id) => {
+              const service = services.find((item) => item.id === id);
+              onChange(
+                service
+                  ? {
+                      itemId: service.id,
+                      description: service.name,
+                      unitText: units[service.unit].label,
+                      ...(line.priceTouched ? {} : { price: defaultPrice(service, service.unit) }),
+                    }
+                  : { itemId: "" },
+              );
+            }}
+          >
+            <SelectTrigger aria-labelledby={`${line.key}-service-label`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value={NONE}>Free-text line</SelectItem>
+                {services.map((service) => (
+                  <SelectItem key={service.id} value={service.id}>
+                    {service.code} · {service.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem_7rem_auto] sm:items-end">
         <Field>
           <FieldLabel htmlFor={`${line.key}-desc`}>Non-stock line {index + 1}</FieldLabel>

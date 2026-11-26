@@ -75,7 +75,15 @@ export const stockMovementTypeLabels: Record<StockMovementType, string> = {
 };
 
 /** Item types that arrive through goods-in. WIP and finished goods come from production. */
-export const receivableItemTypes = ["ingredient", "packaging"] as const;
+export const receivableItemTypes = [
+  "ingredient",
+  "packaging",
+  "raw_material",
+  "component",
+  "consumable",
+  "spare_part",
+  "merchandise",
+] as const;
 
 // ─── Quantities ──────────────────────────────────────────────────────────────
 

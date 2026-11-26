@@ -117,6 +117,7 @@ describe("Section 3.2 acceptance exercise", () => {
     marcus = { userId: m.userId, cookie: (await signIn(ctx, m.email)).cookie };
     // Marcus is the second manager: specifications (four eyes) and stock (release exceptions).
     await grant("items", "read");
+    await grant("food_items", "read");
     await grant("specifications", "manage");
     await grant("stock", "manage");
 

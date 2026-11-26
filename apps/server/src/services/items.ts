@@ -1,5 +1,6 @@
 import {
   moduleIds,
+  sellableItemTypes,
   unitDimension,
   type ItemCreateInput,
   type ModuleId,
@@ -12,6 +13,7 @@ import {
 } from "@knotworking/core";
 import {
   demandLines,
+  foodItems,
   items,
   itemSuppliers,
   lockWorkspaceLog,
@@ -39,6 +41,7 @@ import {
 import { and, asc, count, eq, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import { ApiError, badRequest, notFound } from "../errors";
 import { recordStandardCostChange } from "./costing-settings";
+import { foodFieldsByItem, foodItemFields, saveFoodItem } from "./food-items";
 import { checkSupplierControls } from "./supplier-controls";
 import { workspaceToday } from "./time-zone";
 
@@ -401,9 +404,10 @@ async function supplierLinks(db: Executor, itemIds: string[]) {
   return byItem;
 }
 
-export async function listItems(db: Database, workspaceId: string, query: ItemListQuery) {
+export async function listItems(db: Database, workspaceId: string, query: ItemListQuery, withFood = false) {
   const where: (SQL | undefined)[] = [eq(items.workspaceId, workspaceId), isNull(items.deletedAt)];
   if (query.type) where.push(eq(items.type, query.type));
+  if (query.sellable === "true") where.push(inArray(items.type, [...sellableItemTypes]));
   if (query.status !== "all") where.push(eq(items.status, query.status));
   if (query.q) {
     where.push(
@@ -415,7 +419,9 @@ export async function listItems(db: Database, workspaceId: string, query: ItemLi
   }
   if (query.allergen) {
     const needle = JSON.stringify([query.allergen]);
-    where.push(or(sql`${items.allergens} @> ${needle}::jsonb`, sql`${items.mayContain} @> ${needle}::jsonb`));
+    where.push(sql`exists (select 1 from ${foodItems}
+      where ${foodItems.itemId} = ${items.id} and ${foodItems.workspaceId} = ${items.workspaceId}
+      and (${foodItems.allergens} @> ${needle}::jsonb or ${foodItems.mayContain} @> ${needle}::jsonb))`);
   }
   if (query.supplierId) {
     where.push(
@@ -436,12 +442,16 @@ export async function listItems(db: Database, workspaceId: string, query: ItemLi
       .from(items)
       .where(and(...where)),
   ]);
-  const links = await supplierLinks(
-    db,
-    rows.map((r) => r.id),
-  );
+  const ids = rows.map((r) => r.id);
+  const [links, food] = await Promise.all([
+    supplierLinks(db, ids),
+    withFood ? foodFieldsByItem(db, workspaceId, ids) : undefined,
+  ]);
   return {
-    items: rows.map((row) => serializeItem(row, links.get(row.id) ?? [])),
+    items: rows.map((row) => ({
+      ...serializeItem(row, links.get(row.id) ?? []),
+      ...(food ? foodItemFields(food.get(row.id)) : {}),
+    })),
     total: total?.n ?? 0,
     limit: query.limit,
     offset: query.offset,
@@ -457,9 +467,16 @@ async function findItem(db: Executor, workspaceId: string, id: string) {
   return row;
 }
 
-export async function getItem(db: Executor, workspaceId: string, id: string) {
+export async function getItem(db: Executor, workspaceId: string, id: string, withFood = false) {
   const row = await findItem(db, workspaceId, id);
-  return serializeItem(row, (await supplierLinks(db, [id])).get(id) ?? []);
+  const [links, food] = await Promise.all([
+    supplierLinks(db, [id]),
+    withFood ? foodFieldsByItem(db, workspaceId, [id]) : undefined,
+  ]);
+  return {
+    ...serializeItem(row, links.get(id) ?? []),
+    ...(food ? foodItemFields(food.get(id)) : {}),
+  };
 }
 
 async function assertItemCodeFree(tx: Transaction, workspaceId: string, code: string, exceptId?: string) {
@@ -543,8 +560,15 @@ export const itemChange = (row: ItemRow): ChangeInput => {
   return { entity: "item", entityId: row.id, action: "upsert", data };
 };
 
-export async function createItem(db: Database, workspaceId: string, actorId: string, input: ItemCreateInput) {
-  const { suppliers: links, id, ...fields } = input;
+export async function createItem(
+  db: Database,
+  workspaceId: string,
+  actorId: string,
+  input: ItemCreateInput,
+  withFood = false,
+) {
+  const { suppliers: links, id, allergens, mayContain, storage, shelfLifeDays, ...fields } = input;
+  const food = { allergens, mayContain, storage, shelfLifeDays };
   return db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
     await assertItemCodeFree(tx, workspaceId, fields.code);
@@ -553,8 +577,9 @@ export async function createItem(db: Database, workspaceId: string, actorId: str
       .values({ ...fields, ...(id ? { id } : {}), workspaceId })
       .returning();
     const linkChanges = links ? await setItemSuppliers(tx, workspaceId, row!.id, links) : [];
-    await recordChanges(tx, workspaceId, actorId, [itemChange(row!), ...linkChanges]);
-    return getItem(tx, workspaceId, row!.id);
+    const foodChanges = await saveFoodItem(tx, workspaceId, row!.id, food);
+    await recordChanges(tx, workspaceId, actorId, [itemChange(row!), ...foodChanges, ...linkChanges]);
+    return getItem(tx, workspaceId, row!.id, withFood);
   });
 }
 
@@ -564,8 +589,10 @@ export async function updateItem(
   actorId: string,
   id: string,
   patch: ItemUpdateInput,
+  withFood = false,
 ) {
-  const { suppliers: links, ...fields } = patch;
+  const { suppliers: links, allergens, mayContain, storage, shelfLifeDays, ...fields } = patch;
+  const food = { allergens, mayContain, storage, shelfLifeDays };
   return db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
     const current = await findItem(tx, workspaceId, id);
@@ -588,8 +615,14 @@ export async function updateItem(
       fields.standardCost !== undefined && fields.standardCost !== current.standardCost
         ? await recordStandardCostChange(tx, workspaceId, actorId, current, fields.standardCost)
         : [];
-    await recordChanges(tx, workspaceId, actorId, [itemChange(row!), ...linkChanges, ...costChanges]);
-    return getItem(tx, workspaceId, id);
+    const foodChanges = await saveFoodItem(tx, workspaceId, id, food);
+    await recordChanges(tx, workspaceId, actorId, [
+      itemChange(row!),
+      ...foodChanges,
+      ...linkChanges,
+      ...costChanges,
+    ]);
+    return getItem(tx, workspaceId, id, withFood);
   });
 }
 
@@ -618,6 +651,7 @@ export async function deleteItem(db: Database, workspaceId: string, actorId: str
       .returning({ id: itemSuppliers.id });
     await recordChanges(tx, workspaceId, actorId, [
       { entity: "item", entityId: id, action: "delete" },
+      { entity: "food_item", entityId: id, action: "delete" },
       ...links.map((l): ChangeInput => ({ entity: "item_supplier", entityId: l.id, action: "delete" })),
     ]);
   });

@@ -42,6 +42,7 @@ import { RecipeVersionBadge } from "@/components/recipe-badges";
 import type { Item, RecipeRow } from "@/lib/api";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 import { useWorkspace } from "@/lib/workspace-store";
+import { recipeTerms } from "@/lib/recipe-terms";
 
 type StatusFilter = "active" | "archived" | "all";
 interface Filters {
@@ -66,7 +67,12 @@ export function RecipesManager({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const canWrite = useWorkspace().can("recipes", "write");
+  const { can } = useWorkspace();
+  const canWrite = can("recipes", "write");
+  const showFood = can("food_items");
+  const terms = recipeTerms(showFood);
+  const name = terms.singular;
+  const plural = terms.plural;
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState(filters.q ?? "");
 
@@ -83,12 +89,12 @@ export function RecipesManager({
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">Recipes</h2>
+          <h2 className="text-xl font-semibold tracking-tight">{terms.title}</h2>
           <p className="text-sm text-muted-foreground">{total} shown</p>
         </div>
         {canWrite && (
           <Button onClick={() => setCreating(true)}>
-            <Plus data-icon="inline-start" /> New recipe
+            <Plus data-icon="inline-start" /> New {name}
           </Button>
         )}
       </div>
@@ -103,7 +109,7 @@ export function RecipesManager({
         <Input
           className="w-64"
           placeholder="Search name or code"
-          aria-label="Search recipes"
+          aria-label={`Search ${plural}`}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -119,21 +125,23 @@ export function RecipesManager({
             </SelectGroup>
           </SelectContent>
         </Select>
-        <Button
-          type="button"
-          variant={filters.drift ? "secondary" : "outline"}
-          aria-pressed={!!filters.drift}
-          onClick={() => applyFilters({ drift: !filters.drift })}
-        >
-          Allergens changed
-        </Button>
+        {showFood && (
+          <Button
+            type="button"
+            variant={filters.drift ? "secondary" : "outline"}
+            aria-pressed={!!filters.drift}
+            onClick={() => applyFilters({ drift: !filters.drift })}
+          >
+            Allergens changed
+          </Button>
+        )}
       </form>
 
       {recipes.length === 0 ? (
         <p className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
           {filters.q || filters.drift || filters.status !== "active"
-            ? "No recipes match these filters."
-            : "No recipes yet. Create one for a finished or work-in-progress item."}
+            ? `No ${plural} match these filters.`
+            : `Create a ${name} for a component, work-in-progress item or finished good.`}
         </p>
       ) : (
         <Card className="overflow-x-auto py-0">
@@ -145,7 +153,7 @@ export function RecipesManager({
                 <TableHead>Makes</TableHead>
                 <TableHead>Current version</TableHead>
                 <TableHead>Draft</TableHead>
-                <TableHead className="pr-4">Allergens</TableHead>
+                {showFood && <TableHead className="pr-4">Allergens</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -192,13 +200,15 @@ export function RecipesManager({
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="max-w-xs pr-4 whitespace-normal">
-                    <AllergenBadges
-                      contains={recipe.allergens.contains}
-                      mayContain={recipe.allergens.mayContain}
-                      empty="—"
-                    />
-                  </TableCell>
+                  {showFood && (
+                    <TableCell className="max-w-xs pr-4 whitespace-normal">
+                      <AllergenBadges
+                        contains={recipe.allergens.contains}
+                        mayContain={recipe.allergens.mayContain}
+                        empty="—"
+                      />
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -207,17 +217,24 @@ export function RecipesManager({
       )}
 
       {creating && (
-        <NewRecipeDialog slug={slug} outputItems={outputItems} onClose={() => setCreating(false)} />
+        <NewRecipeDialog
+          showFood={showFood}
+          slug={slug}
+          outputItems={outputItems}
+          onClose={() => setCreating(false)}
+        />
       )}
     </div>
   );
 }
 
 function NewRecipeDialog({
+  showFood,
   slug,
   outputItems,
   onClose,
 }: {
+  showFood: boolean;
   slug: string;
   outputItems: Item[];
   onClose: () => void;
@@ -257,10 +274,9 @@ function NewRecipeDialog({
       <DialogContent className="sm:max-w-lg">
         <form onSubmit={(e) => void create(e)}>
           <DialogHeader>
-            <DialogTitle>New recipe</DialogTitle>
+            <DialogTitle>New {recipeTerms(showFood).singular}</DialogTitle>
             <DialogDescription>
-              Pick the work-in-progress or finished item one batch makes. You add the ingredients in a draft,
-              which a manager approves before it is used.
+              Pick the item one batch makes. A manager approves the draft before production can use it.
             </DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-4">
@@ -320,7 +336,7 @@ function NewRecipeDialog({
               </Button>
             </DialogClose>
             <Button type="submit" disabled={pending || !outputItemId}>
-              {pending && <Spinner data-icon="inline-start" />} Create recipe
+              {pending && <Spinner data-icon="inline-start" />} Create {recipeTerms(showFood).singular}
             </Button>
           </DialogFooter>
         </form>

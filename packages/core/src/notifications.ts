@@ -29,6 +29,7 @@ export const notificationTypes = [
   "sop_ack_reminder",
   "sop_ack_overdue",
   "missed_clock_out",
+  "crm_follow_up_due",
   // Exceptions, created in the write transaction.
   "reading_out_of_limit",
   "readings_awaiting_review",
@@ -43,6 +44,7 @@ export const notificationTypes = [
   "purchase_order_approval_needed",
   "purchase_request_submitted",
   "purchase_request_decided",
+  "crm_follow_up_assigned",
 ] as const;
 export type NotificationType = (typeof notificationTypes)[number];
 
@@ -241,6 +243,16 @@ export const notificationTypeInfo: Record<
     description: "An approver decided a purchase request you submitted",
     module: "purchase_requests",
   },
+  crm_follow_up_assigned: {
+    label: "CRM follow-up assigned",
+    description: "Someone gives you a follow-up on a lead or opportunity",
+    module: "crm",
+  },
+  crm_follow_up_due: {
+    label: "CRM follow-up due",
+    description: "A follow-up you own on a lead or opportunity falls due",
+    module: "crm",
+  },
 };
 
 export const notificationListQuerySchema = z.object({
@@ -313,6 +325,8 @@ export interface NotificationData {
   uses?: number;
   /** `missed_clock_out`: the copy for the person who missed it (they can't fix their own record). */
   ownRecord?: boolean;
+  /** CRM follow-ups: what `subjectId` is (the lead or opportunity the follow-up is on). */
+  crmRecord?: "lead" | "opportunity";
   /** `reserved_lot_problem`: what is wrong with the reserved lot (`snippet` words it). */
   reservationProblem?: "quarantine" | "rejected" | "short";
 }
@@ -371,6 +385,11 @@ export function notificationPath(n: {
     case "purchase_request_submitted":
     case "purchase_request_decided":
       return n.data.subjectId ? `/purchase-requests/${n.data.subjectId}` : "/purchase-requests";
+    case "crm_follow_up_assigned":
+    case "crm_follow_up_due":
+      return n.data.subjectId && n.data.crmRecord
+        ? `/crm/${n.data.crmRecord === "lead" ? "leads" : "opportunities"}/${n.data.subjectId}`
+        : "/crm/follow-ups";
     case "reading_out_of_limit":
       return n.module === "site" ? "/site/storage" : "/haccp/deviations";
     case "readings_awaiting_review":
@@ -470,6 +489,10 @@ export function describeNotification(type: string, actor: string, data: Notifica
       return `${data.count ?? "Some"} ${data.count === 1 ? "person has" : "people have"} not acknowledged ${title}${data.versionNumber ? ` v${data.versionNumber}` : ""}`;
     case "reserved_lot_problem":
       return `Reserved stock at risk: ${title}${data.snippet ? ` (${data.snippet})` : ""}`;
+    case "crm_follow_up_assigned":
+      return `${actor} gave you a follow-up: ${title}${when}`;
+    case "crm_follow_up_due":
+      return `Follow-up ${title} ${state}${when}`;
     default:
       return title;
   }

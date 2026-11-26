@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { Badge } from "@knotworking/ui/components/badge";
 import { Button } from "@knotworking/ui/components/button";
 import { Field, FieldDescription, FieldLabel } from "@knotworking/ui/components/field";
@@ -21,12 +22,12 @@ const tabs: { state: State; label: string; help: string }[] = [
   {
     state: "unknown",
     label: "Needs checking",
-    help: "The send may or may not have reached the accounting system. Find the transaction there and check it here; Knotworking never resends these.",
+    help: "The send may have reached the accounting system. Check for the original transaction before taking further action.",
   },
   {
     state: "failed",
     label: "Rejected",
-    help: "The accounting system refused these without recording anything. Fix the cause, then retry.",
+    help: "These invoices were rejected before any entry was recorded. Fix the cause, then retry.",
   },
   {
     state: "posted",
@@ -40,11 +41,35 @@ const actionLabels: Record<string, string> = {
   reconciled: "Confirmed in accounting system",
   rejected: "Rejected, nothing recorded",
   unknown: "Outcome uncertain",
+  deferred: "Not sent yet, back in the queue",
   retry_requested: "Retry requested",
+  reprepared: "Prepared again after rejection",
+  allocation_pending: "Credit posted, allocation not verified",
+  allocation_started: "Allocation started",
+  allocation_not_verified: "Allocation not confirmed, still pending",
+  allocation_verified: "Allocation confirmed in accounting system",
+  allocation_recorded: "Allocation settled in accounting system",
+};
+const allocationLabels: Record<string, string> = {
+  pending: "Allocation to the original invoice is pending.",
+  allocated: "Allocated to the original invoice.",
+  recorded: "Allocation recorded as settled in the accounting system.",
 };
 
 /** The finance review of one connection's outbox: queued, uncertain, rejected and posted invoices. */
-export function AccountingQueue({ slug, connectionId }: { slug: string; connectionId: string }) {
+export function AccountingQueue({
+  slug,
+  connectionId,
+  canReadPurchasing,
+  canReadInvoicing,
+  onChecked,
+}: {
+  slug: string;
+  connectionId: string;
+  canReadPurchasing: boolean;
+  canReadInvoicing: boolean;
+  onChecked: () => void;
+}) {
   const [state, setState] = useState<State>("queued");
   const [offset, setOffset] = useState(0);
   const [list, setList] = useState<List | null>(null);
@@ -94,7 +119,13 @@ export function AccountingQueue({ slug, connectionId }: { slug: string; connecti
   }
   const params = (postingId: string) => ({ slug, id: connectionId, postingId });
   const sendNow = (postingId: string) =>
-    run(async () => settle(await unwrap(postings()[":postingId"].send.$post({ param: params(postingId) }))));
+    run(async () => {
+      try {
+        await settle(await unwrap(postings()[":postingId"].send.$post({ param: params(postingId) })));
+      } finally {
+        onChecked();
+      }
+    });
   function retry(e: FormEvent) {
     e.preventDefault();
     const p = item!.posting;
@@ -109,19 +140,33 @@ export function AccountingQueue({ slug, connectionId }: { slug: string; connecti
       ),
     );
   }
-  function readBack(e: FormEvent) {
-    e.preventDefault();
+  function settleAllocation(action: "allocate" | "record") {
     const p = item!.posting;
     void run(async () =>
       settle(
         await unwrap(
-          postings()[":postingId"]["read-back"].$post({
-            param: params(p.id),
-            json: { attemptId: p.attemptId!, externalId, reason },
-          }),
+          postings()[":postingId"].allocation.$post({ param: params(p.id), json: { action, reason } }),
         ),
       ),
     );
+  }
+  function readBack(e: FormEvent) {
+    e.preventDefault();
+    const p = item!.posting;
+    void run(async () => {
+      try {
+        await settle(
+          await unwrap(
+            postings()[":postingId"]["read-back"].$post({
+              param: params(p.id),
+              json: { attemptId: p.attemptId!, externalId: externalId.trim() || undefined, reason },
+            }),
+          ),
+        );
+      } finally {
+        onChecked();
+      }
+    });
   }
 
   const tab = tabs.find((t) => t.state === state)!;
@@ -131,8 +176,8 @@ export function AccountingQueue({ slug, connectionId }: { slug: string; connecti
       <h4 className="font-medium">Accounting queue</h4>
       <p className="mt-1 text-sm text-muted-foreground">
         {list?.adapterInstalled
-          ? "An adapter is installed for this connection. Queued invoices are sent automatically."
-          : "No accounting adapter is installed for this connection on this server, so nothing is sent yet."}
+          ? "This connection can send queued invoices."
+          : "Queued invoices are on hold until this connection can send."}
       </p>
       {error && (
         <p role="alert" className="mt-2 text-sm text-destructive">
@@ -163,7 +208,7 @@ export function AccountingQueue({ slug, connectionId }: { slug: string; connecti
           <table className="w-full text-left text-sm">
             <thead>
               <tr>
-                <th className="p-2">Invoice</th>
+                <th className="p-2">Document</th>
                 <th className="p-2">Date</th>
                 <th className="p-2 text-right">Gross</th>
                 <th className="p-2">Attempts</th>
@@ -230,9 +275,29 @@ export function AccountingQueue({ slug, connectionId }: { slug: string; connecti
             </h5>
             <Badge variant="secondary">{tabs.find((t) => t.state === p.state)?.label ?? p.state}</Badge>
           </div>
+          <p className="mt-1 text-muted-foreground">
+            Net {p.payload.net} · Tax {p.payload.tax} · Gross {p.payload.gross} {p.currency}
+          </p>
+          {canReadPurchasing && p.payload.kind === "purchase_invoice" && (
+            <Link className="underline" href={`/${slug}/purchasing/invoices/${p.payload.sourceId}`}>
+              Open source purchase invoice
+            </Link>
+          )}
+          {canReadInvoicing && p.payload.kind !== "purchase_invoice" && (
+            <Link className="underline" href={`/${slug}/invoicing/${p.payload.sourceId}`}>
+              Open source {p.payload.kind === "customer_invoice" ? "invoice" : "credit note"}
+            </Link>
+          )}
+          {p.payload.kind === "customer_credit_note" && (
+            <p className="mt-1 text-muted-foreground">
+              Original Xero invoice {p.payload.originalInvoice.reference} ·{" "}
+              {p.payload.originalInvoice.externalId}
+            </p>
+          )}
           {p.externalId && (
             <p className="mt-1 text-muted-foreground">Accounting transaction {p.externalId}</p>
           )}
+          {p.allocation && <p className="mt-1 text-muted-foreground">{allocationLabels[p.allocation]}</p>}
           <ol className="mt-3 flex flex-col gap-2">
             {item.history.map((h) => (
               <li key={h.id}>
@@ -268,6 +333,44 @@ export function AccountingQueue({ slug, connectionId }: { slug: string; connecti
               </div>
             </form>
           )}
+          {p.state === "posted" && p.allocation === "pending" && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                settleAllocation("allocate");
+              }}
+              className="mt-3 flex flex-col gap-3 border-t pt-3"
+            >
+              <Field>
+                <FieldLabel htmlFor="allocation-reason">Review note</FieldLabel>
+                <Input
+                  id="allocation-reason"
+                  required
+                  maxLength={2000}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+                <FieldDescription>
+                  The credit is posted. Allocating reads it back first and allocates only if the allocation is
+                  not already there. If the original invoice was paid or settled another way, record what
+                  finance did in the accounting system instead.
+                </FieldDescription>
+              </Field>
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={pending || !list?.canAllocate}>
+                  Allocate to original invoice
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pending || !reason.trim()}
+                  onClick={() => settleAllocation("record")}
+                >
+                  Record as settled
+                </Button>
+              </div>
+            </form>
+          )}
           {p.state === "unknown" &&
             (list?.canReadBack ? (
               <form onSubmit={readBack} className="mt-3 flex flex-col gap-3 border-t pt-3">
@@ -275,18 +378,18 @@ export function AccountingQueue({ slug, connectionId }: { slug: string; connecti
                   <FieldLabel htmlFor="external-id">Transaction ID in the accounting system</FieldLabel>
                   <Input
                     id="external-id"
-                    required
+                    required={!list.canFindExisting}
                     maxLength={200}
                     value={externalId}
                     onChange={(e) => setExternalId(e.target.value)}
                   />
                   <FieldDescription>
-                    Knotworking reads it back and checks it matches this invoice exactly before marking it
-                    posted.
+                    {list.canFindExisting && "Leave blank to search Xero for the original bill. "}
+                    Matching the transaction confirms the posting.
                   </FieldDescription>
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor="read-back-reason">Where you found it</FieldLabel>
+                  <FieldLabel htmlFor="read-back-reason">Review note</FieldLabel>
                   <Input
                     id="read-back-reason"
                     required
@@ -297,7 +400,9 @@ export function AccountingQueue({ slug, connectionId }: { slug: string; connecti
                 </Field>
                 <div>
                   <Button type="submit" disabled={pending}>
-                    Check and confirm
+                    {list.canFindExisting && !externalId.trim()
+                      ? "Find and verify in Xero"
+                      : "Check and confirm"}
                   </Button>
                 </div>
               </form>

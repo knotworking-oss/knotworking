@@ -220,6 +220,7 @@ function sourceLine(
     tax: (0).toFixed(currencyDigits(currency)),
     priceLocked: net !== undefined,
     pricePending: net === undefined,
+    taxPending: true,
     sourceLineId,
   };
 }

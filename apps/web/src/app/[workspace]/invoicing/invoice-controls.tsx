@@ -43,7 +43,7 @@ export function InvoiceEditor({
       doc?.lines.map((line) => ({
         ...line,
         unitPrice: line.pricePending ? "" : line.unitPrice,
-        taxRate: String(line.taxRate),
+        taxRate: line.taxPending ? "" : String(line.taxRate),
       })) ?? [blank()],
   );
   const [commandId] = useState(newId);

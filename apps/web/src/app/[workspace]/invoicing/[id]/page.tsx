@@ -120,7 +120,7 @@ export default async function Page({ params }: { params: Promise<{ workspace: st
                     <td className="p-3">{line.pricePending ? "Review price" : line.unitPrice}</td>
                     <td className="p-3">{line.net}</td>
                     <td className="p-3">
-                      {line.tax} ({line.taxRate}%)
+                      {line.tax} ({line.taxPending ? "choose tax rate" : `${line.taxRate}%`})
                     </td>
                   </tr>
                 ))}

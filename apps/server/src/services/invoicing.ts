@@ -320,6 +320,7 @@ export async function editCustomerDocument(
         return {
           ...line,
           pricePending: false,
+          taxPending: false,
           taxRate: price.taxRate,
           unitPrice: line.priceLocked ? line.unitPrice : price.unitPrice,
         };
@@ -355,6 +356,8 @@ export async function decideCustomerDocument(
     if (input.action === "issue") {
       if (document.lines.some((line) => line.pricePending))
         throw badRequest("Review the price for each dispatch line");
+      if (document.lines.some((line) => line.taxPending))
+        throw badRequest("Choose the tax rate for each line drafted from a source, even if it is 0%");
       if (document.date > (await workspaceToday(tx, ws)))
         throw badRequest("The issue date cannot be in the future");
       if (Number(document.gross) <= 0)

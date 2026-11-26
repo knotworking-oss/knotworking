@@ -90,6 +90,8 @@ export type InvoiceLine = InvoiceManualLine & {
   tax: string;
   priceLocked: boolean;
   pricePending?: boolean;
+  /** A line drafted from a source starts at 0% tax until a person chooses its rate. */
+  taxPending?: boolean;
   /** Shipment, sales line or original invoice line which produced this line. */
   sourceLineId: string | null;
 };

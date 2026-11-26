@@ -878,6 +878,11 @@ export async function planBatches(
   });
 }
 
+/** A check a module building on production makes before a planned batch is resized or re-versioned. */
+export interface BatchPlanHooks {
+  beforeReplan?: (tx: Transaction, batch: BatchRow) => Promise<void>;
+}
+
 /**
  * Changes a batch. Rescheduling, resizing, recoding or moving to the current approved version
  * only while it is planned; the output location and notes until it is closed.
@@ -888,6 +893,7 @@ export async function updateBatch(
   actorId: string,
   id: string,
   patch: ProductionBatchUpdateInput,
+  hooks: BatchPlanHooks = {},
 ) {
   return db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -921,6 +927,11 @@ export async function updateBatch(
       const output = await findItem(tx, workspaceId, batch.outputItemId);
       set.plannedQuantity = plannedBase(version!, output, patch)!;
     }
+    if (
+      set.recipeVersionId !== undefined ||
+      (set.plannedQuantity !== undefined && set.plannedQuantity !== batch.plannedQuantity)
+    )
+      await hooks.beforeReplan?.(tx, batch);
     if (patch.plannedOn !== undefined) set.plannedOn = patch.plannedOn;
     if (patch.batchCode !== undefined) {
       await assertBatchCodeFree(tx, workspaceId, patch.batchCode, id);

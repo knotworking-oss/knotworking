@@ -445,6 +445,27 @@ describe("routings and job cards", () => {
     expect((await ok("POST", `/production/batches/${early.id}/complete`, {})).status).toBe("completed");
   });
 
+  it("refuses resizing a planned batch whose job cards froze its size, until they are cancelled", async () => {
+    const batch = await ok(
+      "POST",
+      "/production/batches",
+      { recipeId: frameRecipe, plannedOn: today, batches: 1, outputLocationId: store },
+      201,
+    );
+    await ok("POST", `/routings/batches/${batch.id}/job-cards`, undefined, 201);
+    await refused("PATCH", `/production/batches/${batch.id}`, { batches: 10 }, 409, "job_cards_exist");
+    // Changes that leave the size and version alone are fine.
+    await ok("PATCH", `/production/batches/${batch.id}`, { batches: 1, notes: "Rush order" });
+    await ok("DELETE", `/routings/batches/${batch.id}/job-cards`);
+    const resized = await ok("PATCH", `/production/batches/${batch.id}`, { batches: 10 });
+    expect(resized.plannedQuantity).toBe(10);
+    const remade = await ok("POST", `/routings/batches/${batch.id}/job-cards`, undefined, 201);
+    expect(remade.jobCards[0]).toMatchObject({
+      plannedQuantity: { base: 10 },
+      expected: { setupMinutes: 15, runMinutes: 100 },
+    });
+  });
+
   it("leaves batch production, HACCP records and lot traceability unchanged with Routings disabled", async () => {
     // A batch with job cards made while Routings was on.
     const pending = await ok(

@@ -1328,6 +1328,20 @@ async function assertOutputWithinGood(tx: Executor, batch: BatchRow, last: CardR
 }
 
 /**
+ * Production's resize check while Routings is active: a planned batch's job cards froze its size
+ * and recipe version (expected minutes and cost), so it keeps them until its cards are cancelled.
+ */
+export async function refuseReplanWithCards(tx: Executor, batch: BatchRow) {
+  if ((await liveCardsOfBatch(tx, batch.id)).length) {
+    throw new ApiError(
+      409,
+      "job_cards_exist",
+      `Batch ${batch.batchCode} has job cards made for its current size and version; cancel the job cards first`,
+    );
+  }
+}
+
+/**
  * Production's direct-output check while Routings is active: a batch with job cards takes its
  * output from the last operation's card (`POST /routings/job-cards/:id/output`), which keeps it
  * within what that operation passed as good.

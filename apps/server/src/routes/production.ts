@@ -54,7 +54,12 @@ import { forbidTokens } from "../middleware/auth";
 import { canRead, requireModuleLevel } from "../middleware/modules";
 import { personOrToken } from "../middleware/token-actions";
 import { getBatchDeviationWarning } from "../services/haccp";
-import { assertJobCardsComplete, cancelOpenJobCards, refuseDirectOutput } from "../services/ports/routings";
+import {
+  assertJobCardsComplete,
+  cancelOpenJobCards,
+  refuseDirectOutput,
+  refuseReplanWithCards,
+} from "../services/ports/routings";
 import {
   cancelBatch,
   completeBatch,
@@ -318,6 +323,7 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json"),
+          c.var.activeModules.includes("routings") ? { beforeReplan: refuseReplanWithCards } : {},
         ),
       ),
   )

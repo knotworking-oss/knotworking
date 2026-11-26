@@ -39,7 +39,7 @@ export default async function CrmFollowUpsPage({
         <div className="mx-auto max-w-3xl space-y-4 p-4 md:p-6">
           <div className="flex flex-wrap gap-2">
             {link({ owner: "mine" }, "Mine", owner === "mine")}
-            {link({ owner: "all" }, "Everyone's", owner === "all")}
+            {link({ owner: "all" }, "Everyone", owner === "all")}
             <span className="mx-2 border-l" />
             {link({ status: "open" }, "Open", status === "open")}
             {link({ status: "done" }, "Done", status === "done")}

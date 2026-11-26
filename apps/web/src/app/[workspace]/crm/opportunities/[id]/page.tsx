@@ -3,6 +3,7 @@ import { Badge } from "@knotworking/ui/components/badge";
 import { Card } from "@knotworking/ui/components/card";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { formatLongDate } from "@/lib/format";
 import { getBootstrap, getCrmOpportunity, getCrmStages } from "@/lib/api";
 import { printDateTime } from "@/lib/print";
 import {
@@ -107,7 +108,7 @@ export default async function CrmOpportunityPage({
               </div>
               <div>
                 <dt className="text-muted-foreground">Expected close</dt>
-                <dd>{o.expectedCloseDate ?? "Not set"}</dd>
+                <dd>{o.expectedCloseDate ? formatLongDate(o.expectedCloseDate) : "Not set"}</dd>
               </div>
               {o.closedReason && (
                 <div className="sm:col-span-2">

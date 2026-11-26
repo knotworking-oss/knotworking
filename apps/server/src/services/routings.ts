@@ -1193,6 +1193,7 @@ export async function getJobCard(db: Executor, workspaceId: string, id: string) 
  * Makes a batch's job cards from its bill's routing: one per operation of the approved version,
  * with expected minutes scaled to the batch (setup once, run per yield) and the work centre's
  * current rate. A planned or in-progress batch only, and only once (cancel the cards to remake them).
+ * Every operation's work centre must still be active.
  */
 export async function createJobCards(db: Database, workspaceId: string, actorId: string, batchId: string) {
   await db.transaction(async (tx) => {
@@ -1230,6 +1231,13 @@ export async function createJobCards(db: Database, workspaceId: string, actorId:
       throw new ApiError(409, "routing_not_approved", `Routing ${routing.code} has no approved version`);
     }
     const ops = await operationsOf(tx, [version.id]);
+    // A centre archived since the version was approved takes no new cards: restore it, or revise
+    // the routing onto a live centre.
+    await assertWorkCentresUsable(
+      tx,
+      workspaceId,
+      ops.map((o) => o.workCentreId),
+    );
     const centres = await workCentresById(
       tx,
       ops.map((o) => o.workCentreId),

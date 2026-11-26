@@ -488,6 +488,32 @@ describe("routings and job cards", () => {
     });
   });
 
+  it("makes no job cards on a work centre archived since the routing was approved", async () => {
+    const [weld] = (await ok("GET", "/routings/work-centres?q=RT-WELD")).workCentres;
+    const batch = await ok(
+      "POST",
+      "/production/batches",
+      { recipeId: frameRecipe, plannedOn: today, batches: 1, outputLocationId: store },
+      201,
+    );
+    await ok("PATCH", `/routings/work-centres/${weld.id}`, { status: "archived" });
+    try {
+      await refused(
+        "POST",
+        `/routings/batches/${batch.id}/job-cards`,
+        undefined,
+        409,
+        "work_centre_archived",
+      );
+      expect((await ok("GET", `/routings/batches/${batch.id}/job-cards`)).jobCards).toEqual([]);
+    } finally {
+      await ok("PATCH", `/routings/work-centres/${weld.id}`, { status: "active" });
+    }
+    expect(
+      (await ok("POST", `/routings/batches/${batch.id}/job-cards`, undefined, 201)).jobCards,
+    ).toHaveLength(3);
+  });
+
   it("touches the card and emits a sync change on every piece of work recorded on it", async () => {
     const { cards } = await startedBatch();
     const cut = cards[0]!;

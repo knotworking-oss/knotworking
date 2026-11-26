@@ -219,6 +219,7 @@ export const accountingRoutes = new Hono<WorkspaceEnv>()
           connectionId,
           invoiceId,
           c.req.valid("json"),
+          { ...c.var.workspace, adapters: c.var.accountingAdapters },
         ),
         201,
       );

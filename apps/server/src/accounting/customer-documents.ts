@@ -16,6 +16,7 @@ import {
 import { findCustomerDocument } from "../services/invoicing";
 import { executeLedgerCommand } from "../services/ledger-command";
 import { enqueueAccountingPostingTx } from "./outbox";
+import type { AccountingAdapterRegistry } from "./registry";
 import { providerDocumentIssues } from "./provider-rules";
 
 type Document = typeof documents.$inferSelect;
@@ -183,7 +184,25 @@ export async function prepareCustomerPosting(
   connectionId: string,
   id: string,
   input: AccountingCustomerPrepareInput,
+  destination: { slug: string; currency: string; adapters: AccountingAdapterRegistry },
 ) {
+  // Read destination metadata outside the workspace lock. The revision check below prevents
+  // using it after a connection or mapping change, and the send path checks Xero again.
+  const configured = await findAccountingConnection(db, ws, connectionId);
+  const adapter =
+    input.lines.length && !configured.disabled && configured.revision === input.expectedRevision
+      ? await destination.adapters
+          .resolve({
+            workspaceId: ws,
+            workspaceSlug: destination.slug,
+            currency: destination.currency,
+            connectionId,
+            provider: configured.provider,
+            companyId: configured.companyId,
+          })
+          .catch(() => null)
+      : null;
+  const destinationCoding = await adapter?.customerCoding?.().catch(() => null);
   return executeLedgerCommand(
     db,
     ws,
@@ -253,13 +272,19 @@ export async function prepareCustomerPosting(
         if (!customerReference) throw conflict("Review the customer's Xero contact mapping first");
         const coding = new Map(input.lines.map((line) => [line.id, line]));
         if (coding.size !== document.lines.length) throw badRequest("Code every invoice line once");
-        const lines = document.lines.map((line) => {
+        const lines = document.lines.map((line, index) => {
           const code = coding.get(line.id);
           if (!code) throw badRequest("Code every invoice line once");
           const accountReference = maps.account.get(code.accountKey);
           const taxReference = maps.tax.get(code.taxKey);
           if (!accountReference || !taxReference)
             throw conflict("Review the revenue account and tax mappings before preparing this invoice");
+          if (destinationCoding && !destinationCoding.revenueAccounts.has(accountReference))
+            throw conflict(`Line ${index + 1} needs an active Xero revenue account`);
+          if (destinationCoding && destinationCoding.taxRates.get(taxReference) !== line.taxRate)
+            throw conflict(
+              `Line ${index + 1} needs an active Xero revenue tax type with an effective rate of ${line.taxRate}%`,
+            );
           return {
             accountReference,
             taxReference,

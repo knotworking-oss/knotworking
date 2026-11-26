@@ -715,6 +715,13 @@
       "when": 1795649916217,
       "tag": "0120_invoicing",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1795649916218,
+      "tag": "0121_customer_posting_revisions",
+      "breakpoints": true
     }
   ]
 }

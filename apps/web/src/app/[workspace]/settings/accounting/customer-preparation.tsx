@@ -161,7 +161,7 @@ export function CustomerPreparation({
               Original invoice {detail.original.number} · Xero ID {detail.original.externalId}
             </p>
           )}
-          {detail.posting ? (
+          {detail.posting && detail.posting.state !== "failed" ? (
             <p className="capitalize">
               Posting {detail.posting.state}
               {detail.posting.externalId && ` · ${detail.posting.externalId}`}
@@ -174,6 +174,9 @@ export function CustomerPreparation({
             </ul>
           ) : (
             <form key={commandId} onSubmit={prepare} className="space-y-3">
+              {detail.posting?.state === "failed" && (
+                <p>Xero rejected this posting. Review the coding and queue it again.</p>
+              )}
               <fieldset className="space-y-2" disabled={pending}>
                 {detail.document.lines.map((line, index) => (
                   <div key={line.id} className="space-y-2 rounded-md border p-2">

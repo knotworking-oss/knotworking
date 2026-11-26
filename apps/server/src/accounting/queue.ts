@@ -124,6 +124,7 @@ export async function getAccountingQueueItem(db: Database, ws: string, connectio
       id: h.id,
       action: h.action,
       evidence: h.evidence,
+      supersededPayload: h.supersededPayload,
       attemptId: h.attemptId,
       createdAt: h.createdAt,
       actor: h.actor.startsWith("user:")

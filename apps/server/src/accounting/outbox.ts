@@ -42,6 +42,7 @@ async function event(
   actor: string,
   action: string,
   evidence: string,
+  supersededPayload?: typeof postings.$inferSelect.payload,
 ) {
   await tx.insert(events).values({
     workspaceId: ws,
@@ -50,6 +51,7 @@ async function event(
     actor: actorSchema.parse(actor),
     action,
     evidence: evidenceSchema.parse(evidence),
+    supersededPayload,
   });
 }
 
@@ -95,6 +97,32 @@ export async function enqueueAccountingPostingTx(
       ),
     );
   if (previous) {
+    if (previous.state === "failed" && payload.kind !== "purchase_invoice") {
+      const changed = previous.payloadHash !== payloadHash;
+      const [updated] = await tx
+        .update(postings)
+        .set({
+          state: "queued",
+          payload,
+          payloadHash,
+          idempotencyKey: changed ? newId() : previous.idempotencyKey,
+          attemptId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(postings.id, previous.id))
+        .returning();
+      await event(
+        tx,
+        ws,
+        previous.id,
+        previous.attemptId,
+        actor,
+        "reprepared",
+        evidence,
+        changed ? previous.payload : undefined,
+      );
+      return updated!;
+    }
     if (previous.payloadHash !== payloadHash)
       throw conflict(
         "This source already has a different posting. Reconcile it; do not repost an edited invoice.",
@@ -296,7 +324,12 @@ export async function dispatchAccountingPosting(
   // Do not store exception strings: SDK errors can include credentials and company data.
   let result: Awaited<ReturnType<AccountingAdapter["post"]>>;
   try {
-    result = await adapter.post({ postingKey: row.id, attemptId: row.attemptId!, document: row.payload });
+    result = await adapter.post({
+      postingKey: row.id,
+      ...(row.idempotencyKey ? { idempotencyKey: row.idempotencyKey } : {}),
+      attemptId: row.attemptId!,
+      document: row.payload,
+    });
   } catch {
     return recordAccountingOutcome(
       db,

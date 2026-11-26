@@ -633,6 +633,27 @@ export function createXeroAdapter(options: {
     }
   }
   return {
+    async customerCoding() {
+      const request = session();
+      if (!(await verifyOrganisation(request))) return null;
+      const { Accounts } = await lookup("/Accounts", request, (data) => chart.parse(data));
+      const { TaxRates } = await lookup("/TaxRates", request, (data) => taxRates.parse(data));
+      return {
+        revenueAccounts: new Set(
+          Accounts.flatMap((account) =>
+            account.Status === "ACTIVE" && account.Class === "REVENUE" && account.Code ? [account.Code] : [],
+          ),
+        ),
+        taxRates: new Map(
+          TaxRates.flatMap((tax) => {
+            const rate = tax.EffectiveRate ?? (tax.TaxType === "NONE" ? 0 : undefined);
+            return tax.Status === "ACTIVE" && tax.CanApplyToRevenue !== false && rate !== undefined
+              ? [[tax.TaxType, rate] as const]
+              : [];
+          }),
+        ),
+      };
+    },
     provider: "xero",
     connectionId: binding.connectionId,
     companyId: binding.companyId,
@@ -699,7 +720,7 @@ export function createXeroAdapter(options: {
           // A 401 is retried once, after a refresh, under the same Idempotency-Key.
           response = await request(`/${type.collection}?summarizeErrors=false`, {
             method: "PUT",
-            headers: { "Idempotency-Key": input.postingKey },
+            headers: { "Idempotency-Key": input.idempotencyKey ?? input.postingKey },
             body: JSON.stringify({ [type.collection]: [invoice] }),
           });
         } catch (error) {

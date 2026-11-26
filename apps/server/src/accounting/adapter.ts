@@ -12,7 +12,12 @@ export interface AccountingAdapter {
     readonly postingKinds: readonly AccountingPosting["kind"][];
     readonly currencies: readonly string[];
   };
-  post(input: { postingKey: string; attemptId: string; document: AccountingPosting }): Promise<
+  post(input: {
+    postingKey: string;
+    idempotencyKey?: string;
+    attemptId: string;
+    document: AccountingPosting;
+  }): Promise<
     | { outcome: "posted"; receipt: AccountingReceipt }
     // Only return rejected if the destination definitively performed NO write.
     | { outcome: "rejected"; evidence: string }

@@ -59,6 +59,7 @@ import { mountFakeChecklists } from "./fake-checklists";
 import { mountFakeCrm } from "./fake-crm";
 import { mountFakeSite } from "./fake-site";
 import { mountFakeAssets } from "./fake-assets";
+import { mountFakeRoutings } from "./fake-routings";
 import { mountFakeLabels } from "./fake-labels";
 
 /**
@@ -1067,6 +1068,7 @@ export function createFakeApi() {
     demand: demandModule,
   });
   const haccpModule = mountFakeHaccp(app, ws, { batches: productionModule.batches });
+  const routingsModule = mountFakeRoutings(app, ws);
   const peopleModule = mountFakePeople(app, ws);
   const trainingModule = mountFakeTraining(app, ws, peopleModule);
   mountFakeAttendance(app, ws);
@@ -1146,6 +1148,7 @@ export function createFakeApi() {
     costingModule,
     siteModule,
     assetsModule,
+    routingsModule,
     labelsModule,
     fetch: fetchImpl,
   };

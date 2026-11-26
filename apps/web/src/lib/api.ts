@@ -946,6 +946,51 @@ export const getCorrectiveActions = (slug: string, status: "open" | "closed" | "
     unwrap(ws(api).haccp["corrective-actions"].$get({ param: { slug }, query: { status, limit: "100" } })),
   );
 
+/** Routings module: work centres (see `workCentreListQuerySchema`). */
+export const getWorkCentres = (
+  slug: string,
+  query: { q?: string; status?: "active" | "archived" | "all" } = {},
+) => load((api) => unwrap(ws(api).routings["work-centres"].$get({ param: { slug }, query })));
+
+/** Routings module: one page of routings (see `routingListQuerySchema`). */
+export const getRoutings = (
+  slug: string,
+  query: { q?: string; status?: "active" | "archived" | "all"; recipeId?: string; offset?: string } = {},
+) => load((api) => unwrap(ws(api).routings.$get({ param: { slug }, query: { ...query, limit: "100" } })));
+
+/** A routing with every version and its operations. */
+export const getRouting = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).routings[":id"].$get({ param: { slug, id } })));
+
+/** Routings module: one page of job cards (see `jobCardListQuerySchema`). */
+export const getJobCards = (
+  slug: string,
+  query: { status?: string; batchId?: string; workCentreId?: string; offset?: string } = {},
+) =>
+  load((api) =>
+    unwrap(
+      ws(api).routings["job-cards"].$get({ param: { slug }, query: { ...query, limit: "50" } as never }),
+    ),
+  );
+
+/** A job card in full: sequence, time, quantities, exceptions and batch records. */
+export const getJobCard = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).routings["job-cards"][":id"].$get({ param: { slug, id } })));
+
+/** First-expired-first-out lots for a batch's outstanding materials (reserves nothing). */
+export const getProductionBatchPick = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).production.batches[":id"].pick.$get({ param: { slug, id } })));
+
+/** A production batch's job cards with the operations cost so far. */
+export const getBatchJobCards = (slug: string, batchId: string) =>
+  load((api) => unwrap(ws(api).routings.batches[":batchId"]["job-cards"].$get({ param: { slug, batchId } })));
+
+export type WorkCentre = Awaited<ReturnType<typeof getWorkCentres>>["workCentres"][number];
+export type Routing = Awaited<ReturnType<typeof getRouting>>;
+export type RoutingVersion = Routing["versions"][number];
+export type JobCard = Awaited<ReturnType<typeof getJobCard>>;
+export type BatchJobCards = Awaited<ReturnType<typeof getBatchJobCards>>;
+
 /** Assets module: one page of the asset register (see `assetListQuerySchema`). */
 export const getAssets = (
   slug: string,

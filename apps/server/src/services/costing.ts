@@ -60,6 +60,7 @@ import { badRequest } from "../errors";
 import { absorptionRateEntries, standardCostHistory } from "./costing-settings";
 import { workspaceTimeZone } from "./time-zone";
 import { findBatch } from "./ports/production";
+import { batchOperationsCost } from "./ports/routings";
 import { approvedCreditLines } from "./purchase-credit-notes";
 import { approvedInvoiceLines } from "./ports/purchase-invoices";
 import { findLot, itemSummary, num } from "./ports/stock";
@@ -488,18 +489,29 @@ async function batchHeaders(db: Executor, rows: BatchRow[], timeZone: string) {
  * standard. Any batch with records can be costed; until it is completed the figures are
  * provisional.
  */
-export async function getBatchCost(db: Executor, workspaceId: string, id: string) {
+export async function getBatchCost(
+  db: Executor,
+  workspaceId: string,
+  id: string,
+  options: { operations?: boolean } = {},
+) {
   const row = await findBatch(db, workspaceId, id);
   const loaded = await loadGraph(db, workspaceId, [id]);
   const output = loaded.items.get(row.outputItemId)!;
   const header = await batchHeaders(db, [row], await workspaceTimeZone(db, workspaceId));
   const cost = loaded.engine.batchCost(id);
   const rates = await absorptionRateEntries(db, workspaceId);
+  const conversion = batchConversion(row, loaded, rates, cost.produced);
+  /** Work-centre time on its job cards (Routings, when the caller can read it); `null` without. */
+  const operations = options.operations ? await batchOperationsCost(db, workspaceId, id) : null;
   return {
     batch: header(row, output),
     ...batchCostView(cost, loaded),
     /** Labour and overhead absorbed (rates in force on its completion date): apart from the materials above. */
-    conversion: batchConversion(row, loaded, rates, cost.produced),
+    conversion,
+    operations,
+    /** Materials, absorbed conversion and work-centre time together. */
+    totalCost: Math.round((cost.actualCost + conversion.total + (operations?.actualCost ?? 0)) * 100) / 100,
   };
 }
 

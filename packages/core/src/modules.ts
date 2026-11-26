@@ -35,6 +35,7 @@ export const moduleIds = [
   "sales",
   "demand",
   "production",
+  "routings",
   "haccp",
   "people",
   "training",
@@ -391,6 +392,18 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
       "production_device",
       "production_device_reading",
     ],
+  },
+  routings: {
+    id: "routings",
+    name: "Routings",
+    description:
+      "Discrete manufacturing: work centres with capacity and cost rates, versioned routings of ordered operations for each bill of materials, and job cards per operation of a production batch with time, good and scrap quantities and exceptions.",
+    dependsOn: ["production"],
+    enhancedBy: ["costing"],
+    defaultAccess: "none",
+    defaultActive: true,
+    // Job card time, quantities and exceptions are paginated reads, never synced.
+    syncEntities: ["work_centre", "routing", "routing_version", "routing_operation", "job_card"],
   },
   haccp: {
     id: "haccp",

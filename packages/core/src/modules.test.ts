@@ -227,6 +227,7 @@ describe("resolveModuleAccess", () => {
       sales: "none",
       demand: "none",
       production: "none",
+      routings: "none",
       haccp: "none",
       people: "none",
       training: "none",

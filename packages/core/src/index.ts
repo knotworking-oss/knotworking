@@ -32,6 +32,7 @@ export * from "./production-scheduling";
 export * from "./production-performance";
 export * from "./production-packing";
 export * from "./production-devices";
+export * from "./routings";
 export * from "./demand-capacity";
 export * from "./lot-barcode";
 export * from "./haccp";

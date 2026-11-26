@@ -55,6 +55,12 @@ import { canRead, requireModuleLevel } from "../middleware/modules";
 import { personOrToken } from "../middleware/token-actions";
 import { getBatchDeviationWarning } from "../services/haccp";
 import {
+  assertJobCardsComplete,
+  cancelOpenJobCards,
+  refuseDirectOutput,
+  refuseReplanWithCards,
+} from "../services/ports/routings";
+import {
   cancelBatch,
   completeBatch,
   createBatch,
@@ -134,6 +140,19 @@ const packingView = (c: Context<WorkspaceEnv>) => ({
   labels: c.var.activeModules.includes("labels") && canRead(c, "labels"),
   specifications: c.var.activeModules.includes("specifications") && canRead(c, "specifications"),
 });
+/**
+ * While Routings is active, a batch with job cards completes only once every operation has.
+ * Whatever the caller can read: the rule is the workspace's. Cancelling a batch cancels its open
+ * cards whether or not Routings is active (cleanup, so no card is left open on a closed batch).
+ */
+const routingHooks = (c: Context<WorkspaceEnv>) =>
+  c.var.activeModules.includes("routings") ? { beforeComplete: assertJobCardsComplete } : {};
+/**
+ * While Routings is active, a batch with job cards takes its output only from the last
+ * operation's card (`409 use_job_card` here), so finished stock never runs ahead of the cards.
+ */
+const directOutputHooks = (c: Context<WorkspaceEnv>) =>
+  c.var.activeModules.includes("routings") ? { beforePost: refuseDirectOutput } : {};
 const recordParam = z.object({ id: z.uuid(), recordId: z.uuid() });
 const lotParam = z.object({ lotId: z.uuid() });
 const lineParam = z.object({ id: z.uuid() });
@@ -303,6 +322,7 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json"),
+          c.var.activeModules.includes("routings") ? { beforeReplan: refuseReplanWithCards } : {},
         ),
       ),
   )
@@ -723,6 +743,7 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
           c.req.valid("param").id,
           ledgerInput(c, c.req.valid("json")),
           c.var.activeModules.includes("food_items"),
+          directOutputHooks(c),
         ),
         201,
       ),
@@ -761,7 +782,10 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json").reason,
-          { canManage: hasModuleLevel(c.var.workspace.modules.production, "manage") },
+          {
+            canManage: hasModuleLevel(c.var.workspace.modules.production, "manage"),
+            afterCancel: (tx, batch) => cancelOpenJobCards(tx, batch),
+          },
         ),
       ),
   )
@@ -774,7 +798,14 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
     validate("json", productionBatchCompleteSchema),
     async (c) => {
       const { id } = c.req.valid("param");
-      const batch = await completeBatch(c.var.db, c.var.workspace.id, c.var.user.id, id, c.req.valid("json"));
+      const batch = await completeBatch(
+        c.var.db,
+        c.var.workspace.id,
+        c.var.user.id,
+        id,
+        c.req.valid("json"),
+        routingHooks(c),
+      );
       // Completing is never blocked by a deviation, but whoever can read haccp is told about open ones
       // (module-filtered: others get `null`).
       const haccpWarning = hasModuleLevel(c.var.workspace.modules.haccp, "read")

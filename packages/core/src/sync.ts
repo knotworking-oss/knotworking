@@ -108,6 +108,12 @@ export const syncEntityTypes = [
   "production_packing_check",
   "production_device",
   "production_device_reading",
+  // Routings module: work centres, routings and job card headers.
+  "work_centre",
+  "routing",
+  "routing_version",
+  "routing_operation",
+  "job_card",
   // Assets module: the shared register (metadata only).
   "asset",
   // Food safety records (HACCP) module.

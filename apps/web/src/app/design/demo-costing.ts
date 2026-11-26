@@ -93,6 +93,11 @@ const summary = (id: string) => {
 };
 const cost = engine.batchCost("batch-cake");
 const cake = summary("item-cake");
+const conversion = absorbConversion({
+  hours: 3,
+  kg: 2,
+  rate: { labourPerHour: 12, labourPerKg: 0, overheadPerHour: 4, overheadPerKg: 0 },
+});
 
 export const demoBatchCost: BatchCostDetail = {
   batch: {
@@ -113,11 +118,9 @@ export const demoBatchCost: BatchCostDetail = {
     outputItem: cake,
   },
   ...cost,
-  conversion: absorbConversion({
-    hours: 3,
-    kg: 2,
-    rate: { labourPerHour: 12, labourPerKg: 0, overheadPerHour: 4, overheadPerKg: 0 },
-  }),
+  conversion,
+  operations: null,
+  totalCost: Math.round((cost.actualCost + conversion.total) * 100) / 100,
   planned: stockAmount(cost.planned, cake),
   produced: stockAmount(cost.produced, cake),
   yield: { ...cost.yield, difference: stockAmount(cost.yield.difference, cake) },

@@ -538,6 +538,7 @@ export * from "./schema/distribution";
 export * from "./schema/demand";
 export * from "./schema/production";
 export * from "./schema/production-devices";
+export * from "./schema/routings";
 export * from "./schema/haccp";
 export * from "./schema/people";
 export * from "./schema/training";

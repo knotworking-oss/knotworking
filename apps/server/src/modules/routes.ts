@@ -57,6 +57,8 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   [/^\/hse(\/|$)/, "hse"],
   // Demand planning.
   [/^\/demand(\/|$)/, "demand"],
+  // Routings: work centres, routings and job cards (job cards of a batch included).
+  [/^\/routings(\/|$)/, "routings"],
   // Production: batches, batch records, material requirements and lot tracing.
   [/^\/production(\/|$)/, "production"],
   // Food safety records: HACCP plans, CCP logs, corrective actions, cleaning and calibration.

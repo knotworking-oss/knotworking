@@ -72,6 +72,15 @@ describe("project templates", () => {
     expect(plan.find((t) => t.key === "site_checks")?.link?.path).toBe("checklists");
   });
 
+  it("adds the routing step to a new product build only when Routings can be used", () => {
+    const without = planProjectTemplate("new_product_build", (m) => m === "recipes");
+    expect(without.map((t) => t.key)).not.toContain("routing");
+    const plan = planProjectTemplate("new_product_build", (m) => m === "recipes" || m === "routings");
+    const step = plan.find((t) => t.key === "routing");
+    expect(step).toMatchObject({ module: "routings", daysFromStart: -16, link: { path: "routings" } });
+    expect(plan.map((t) => t.key)).toEqual(["bom", "routing", "plan_trial", "first_build", "handover"]);
+  });
+
   // Fixtures copied from the templates as they shipped before the expansion, so an edit to either
   // template's titles or offsets fails here rather than passing against its own definition.
   it.each([

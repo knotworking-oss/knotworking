@@ -9,11 +9,13 @@ import {
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BatchCostPanel } from "@/components/batch-cost-panel";
+import { BatchJobCardsPanel } from "@/components/batch-job-cards-panel";
 import { HaccpBatchPanel } from "@/components/haccp-batch-panel";
 import { PageHeader } from "@/components/page-header";
 import {
   canReadModule,
   getBatchCost,
+  getBatchJobCards,
   getBatchPacking,
   getBatchPerformance,
   getHaccpBatchRecord,
@@ -38,7 +40,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function BatchPage({ params }: Props) {
   const { workspace: slug, id } = await params;
   const currency = await getWorkspaceCurrency(slug);
-  const [batch, { locations }, haccp, canCosting, { lines }, readiness, performance, packing] =
+  const [batch, { locations }, haccp, canCosting, { lines }, readiness, performance, packing, jobCards] =
     await Promise.all([
       getProductionBatch(slug, id),
       getStockLocations(slug),
@@ -49,6 +51,8 @@ export default async function BatchPage({ params }: Props) {
       getProductionReadiness(slug, id),
       getBatchPerformance(slug, id),
       getBatchPacking(slug, id),
+      // Its operations (the routings module), for people who can read it.
+      canReadModule(slug, "routings").then((can) => (can ? getBatchJobCards(slug, id) : null)),
     ]);
   // What the batch cost (the costing module), once something is on record, for people who can read it.
   const cost = canCosting && batch.records.length > 0 ? await getBatchCost(slug, id) : null;
@@ -86,6 +90,7 @@ export default async function BatchPage({ params }: Props) {
             current?.status === "approved" ? { id: current.id, versionNumber: current.versionNumber } : null
           }
         />
+        {jobCards && <BatchJobCardsPanel slug={slug} data={jobCards} currency={currency} />}
         <BatchPackingPanel slug={slug} packing={packing} />
         <BatchPerformancePanel
           slug={slug}

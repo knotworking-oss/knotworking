@@ -763,6 +763,40 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
     expect(options.services.map((q: { id: string }) => q.id)).not.toContain(service.id);
   });
 
+  it("refuses losing an open deal whose quote was handed off in its own module", async () => {
+    const { body, req } = api;
+    const quote = await salesQuote();
+    const deal = await make("Ordered behind CRM", { salesQuoteId: quote.id });
+    await body(
+      await req("POST", `/sales/orders/${quote.id}/convert`, {
+        commandId: newId(),
+        expectedRevision: quote.revision,
+        reason: "Ordered by phone",
+      }),
+    );
+    expect((await body(await req("GET", `/crm/opportunities/${deal.id}`))).handoff).toMatchObject({
+      kind: "sales_order",
+    });
+    expect((await outcome(deal, "lost", 409)).error.code).toBe("quote_handed_off");
+    expect((await body(await req("GET", `/crm/opportunities/${deal.id}`))).status).toBe("open");
+    // Won, it shows the order it was handed off to.
+    expect(await outcome(deal, "won")).toMatchObject({ status: "won", handoff: { kind: "sales_order" } });
+
+    const service = await serviceQuote();
+    const project = await make("Accepted behind CRM", { serviceQuoteId: service.id });
+    await body(
+      await req("POST", `/client-services/${service.id}/decision`, {
+        commandId: newId(),
+        expectedRevision: service.revision,
+        action: "accept",
+        reason: "Signed",
+        teamId: s.ids.team,
+        leadId: s.ids.ada,
+      }),
+    );
+    expect((await outcome(project, "lost", 409)).error.code).toBe("quote_handed_off");
+  });
+
   it("links one quote at most, so a won deal is handed off once", async () => {
     const sales = await salesQuote();
     const service = await serviceQuote();

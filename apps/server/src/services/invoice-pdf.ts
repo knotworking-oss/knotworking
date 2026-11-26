@@ -1,13 +1,42 @@
+import { existsSync, readFileSync } from "node:fs";
 import PDFDocument from "pdfkit";
 import { badRequest } from "../errors";
 import type { findCustomerDocument } from "./invoicing";
 
 type Document = Awaited<ReturnType<typeof findCustomerDocument>>;
 
+/**
+ * Noto Sans (SIL OFL 1.1, licenses/noto-sans.txt) covers Latin, Greek and Cyrillic, so customer
+ * names and addresses print as entered. PDFKit's built-in Helvetica only covers WinAnsi.
+ * The fonts sit in apps/server/assets/fonts: next to src/ in development, next to dist/ in the image.
+ */
+let fonts: { regular: Buffer; bold: Buffer } | undefined;
+function invoiceFonts() {
+  if (fonts) return fonts;
+  const directory = ["../../assets/fonts/", "../assets/fonts/"]
+    .map((path) => new URL(path, import.meta.url))
+    .find((url) => existsSync(new URL("NotoSans-Regular.ttf", url)));
+  if (!directory) throw new Error("Invoice PDF fonts are missing from assets/fonts");
+  fonts = {
+    regular: readFileSync(new URL("NotoSans-Regular.ttf", directory)),
+    bold: readFileSync(new URL("NotoSans-Bold.ttf", directory)),
+  };
+  return fonts;
+}
+
 export async function customerDocumentPdf(document: Document): Promise<Buffer> {
   if (document.status !== "issued") throw badRequest("Issue the document before downloading a PDF");
   const title = document.kind === "credit" ? "Credit note" : "Invoice";
-  const pdf = new PDFDocument({ size: "A4", margin: 48, info: { Title: `${title} ${document.number}` } });
+  const pdf = new PDFDocument({
+    size: "A4",
+    margin: 48,
+    font: "",
+    info: { Title: `${title} ${document.number}` },
+  });
+  const { regular, bold } = invoiceFonts();
+  pdf.registerFont("Body", regular);
+  pdf.registerFont("Body-Bold", bold);
+  pdf.font("Body");
   const result = new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
     pdf.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -17,8 +46,8 @@ export async function customerDocumentPdf(document: Document): Promise<Buffer> {
   const start = 48;
   const width = pdf.page.width - 2 * start;
   const heading = () => {
-    pdf.font("Helvetica-Bold").fontSize(19).fillColor("#17263a").text(`${title} ${document.number}`);
-    pdf.moveDown(0.6).font("Helvetica").fontSize(10).fillColor("#24364b");
+    pdf.font("Body-Bold").fontSize(19).fillColor("#17263a").text(`${title} ${document.number}`);
+    pdf.moveDown(0.6).font("Body").fontSize(10).fillColor("#24364b");
   };
   const columns = [
     { label: "Description", x: start, width: width - 250 },
@@ -37,12 +66,12 @@ export async function customerDocumentPdf(document: Document): Promise<Buffer> {
     pdf.y = y + Math.max(...heights) + 9;
   }
   function tableHeader() {
-    pdf.font("Helvetica-Bold").fontSize(9);
+    pdf.font("Body-Bold").fontSize(9);
     row(
       columns.map((column) => column.label),
       pdf.y,
     );
-    pdf.font("Helvetica").fontSize(9);
+    pdf.font("Body").fontSize(9);
   }
   heading();
   pdf.text(`From  ${document.issuer.name}`);
@@ -82,7 +111,7 @@ export async function customerDocumentPdf(document: Document): Promise<Buffer> {
     .fontSize(11)
     .text(`Subtotal  ${document.net}`, { align: "right" })
     .text(`Tax  ${document.tax}`, { align: "right" })
-    .font("Helvetica-Bold")
+    .font("Body-Bold")
     .text(`Total  ${document.currency} ${document.gross}`, { align: "right" });
   pdf.end();
   return result;

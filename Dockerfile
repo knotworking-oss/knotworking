@@ -26,6 +26,8 @@ WORKDIR /app
 COPY --from=build /repo/api-runtime-package.json ./package.json
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=build /repo/apps/server/dist ./dist
+# Invoice PDF fonts (Noto Sans, OFL 1.1), read next to dist/ at runtime.
+COPY --from=build /repo/apps/server/assets ./assets
 COPY --from=build /repo/packages/db/migrations ./migrations
 # /app/data/uploads holds attachments (a named volume in compose.yaml). Creating it here, owned by
 # node, makes a fresh named volume start with the same owner.

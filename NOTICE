@@ -9,5 +9,10 @@ property assignment to use own data properties.
 Copyright (c) 2012 James Halliday, Josh Duff, and other contributors.
 MIT license: licenses/deepmerge.txt.
 
+Knotworking bundles the Noto Sans 2.015 regular and bold fonts in
+apps/server/assets/fonts for customer document PDFs, unmodified.
+Copyright 2022 The Noto Project Authors. SIL Open Font License 1.1:
+licenses/noto-sans.txt.
+
 Dependencies installed from the package and Cargo registries retain their
 upstream licenses. See their package metadata and accompanying license files.

@@ -26,6 +26,7 @@ import {
   LayoutGrid,
   Network,
   Package,
+  Route,
   PackagePlus,
   ShieldCheck,
   ShoppingCart,
@@ -406,6 +407,24 @@ export const navAreas: readonly NavArea[] = [
           { label: "Lines", path: "production/lines", icon: Factory },
           { label: "Performance", path: "production/performance", icon: TrendingUp },
           { label: "Devices", path: "production/devices", icon: Network },
+        ],
+      },
+    ],
+  },
+  {
+    id: "routings",
+    label: "Routings",
+    description: "Work centres, operations and job cards",
+    icon: Route,
+    group: "Operations",
+    visible: needs("routings"),
+    keywords: ["discrete manufacturing", "operations", "work centres", "job cards", "assembly"],
+    sections: [
+      {
+        items: [
+          { label: "Routings", path: "routings", icon: Route, exact: true },
+          { label: "Work centres", path: "routings/work-centres", icon: Factory },
+          { label: "Job cards", path: "routings/job-cards", icon: ClipboardList },
         ],
       },
     ],

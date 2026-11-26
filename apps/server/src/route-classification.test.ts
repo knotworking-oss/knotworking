@@ -322,7 +322,7 @@ const ROUTES: Record<string, Classification> = {
   "POST /v1/workspaces/:slug/routings/job-cards/:id/quantities": "token-ok",
   "POST /v1/workspaces/:slug/routings/job-cards/:id/quantities/:entryId/void": "token-forbidden",
   "POST /v1/workspaces/:slug/routings/job-cards/:id/exceptions": "token-ok",
-  "POST /v1/workspaces/:slug/routings/job-cards/:id/exceptions/:exceptionId/resolve": "token-ok",
+  "POST /v1/workspaces/:slug/routings/job-cards/:id/exceptions/:exceptionId/resolve": "token-forbidden",
   "POST /v1/workspaces/:slug/routings/job-cards/:id/complete": "token-ok",
   "POST /v1/workspaces/:slug/routings/job-cards/:id/consumption": "token-ok",
   "POST /v1/workspaces/:slug/routings/job-cards/:id/output": "token-ok",
@@ -1159,6 +1159,8 @@ const PERSON_ONLY_ROUTES: Record<string, string> = {
   "POST /v1/workspaces/:slug/governance/drafts/:id/accept": "Assess compliance against a standard",
   "POST /v1/workspaces/:slug/production/batches/:id/complete": "Complete batches",
   "POST /v1/workspaces/:slug/routings/:id/draft/approve": "Approve routing versions",
+  "POST /v1/workspaces/:slug/routings/job-cards/:id/exceptions/:exceptionId/resolve":
+    "Resolve job card exceptions",
   "POST /v1/workspaces/:slug/routings/job-cards/:id/time/:logId/void":
     "Void job card time and quantity records",
   "POST /v1/workspaces/:slug/routings/job-cards/:id/quantities/:entryId/void":

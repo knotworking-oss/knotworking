@@ -354,6 +354,12 @@ describe("routings and job cards", () => {
     });
     expect((await viaToken("POST", `/routings/${routing.id}/draft/approve`)).status).toBe(403);
     await ok("DELETE", `/routings/${routing.id}/draft`, undefined, 204);
+    // Resolving an exception lifts the gate on completing the operation: a person's decision too.
+    const { cards } = await startedBatch();
+    const raised = await ok("POST", `${cards[0]}/exceptions`, { kind: "quality", description: "Burr" }, 201);
+    const resolve = `${cards[0]}/exceptions/${raised.exceptions[0].id}/resolve`;
+    expect((await viaToken("POST", `${resolve}`, { resolution: "Fine" })).status).toBe(403);
+    await ok("POST", resolve, { resolution: "Deburred" });
   });
 
   it("cancels a batch's open job cards with the batch, and only unused cards by hand", async () => {

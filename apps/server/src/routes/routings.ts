@@ -222,6 +222,8 @@ export const routingRoutes = new Hono<WorkspaceEnv>()
   )
   .post(
     "/routings/job-cards/:id/exceptions/:exceptionId/resolve",
+    // Resolving clears the gate on completing the operation: a person's decision, never a token's.
+    forbidTokens,
     validate("param", exceptionParam),
     validate("json", jobCardExceptionResolveSchema),
     async (c) => {

@@ -54,7 +54,7 @@ import { forbidTokens } from "../middleware/auth";
 import { canRead, requireModuleLevel } from "../middleware/modules";
 import { personOrToken } from "../middleware/token-actions";
 import { getBatchDeviationWarning } from "../services/haccp";
-import { assertJobCardsComplete, cancelOpenJobCards } from "../services/ports/routings";
+import { assertJobCardsComplete, cancelOpenJobCards, refuseDirectOutput } from "../services/ports/routings";
 import {
   cancelBatch,
   completeBatch,
@@ -143,6 +143,12 @@ const routingHooks = (c: Context<WorkspaceEnv>) =>
   c.var.activeModules.includes("routings")
     ? { beforeComplete: assertJobCardsComplete, afterCancel: cancelOpenJobCards }
     : {};
+/**
+ * While Routings is active, a batch with job cards takes its output only from the last
+ * operation's card (`409 use_job_card` here), so finished stock never runs ahead of the cards.
+ */
+const directOutputHooks = (c: Context<WorkspaceEnv>) =>
+  c.var.activeModules.includes("routings") ? { beforePost: refuseDirectOutput } : {};
 const recordParam = z.object({ id: z.uuid(), recordId: z.uuid() });
 const lotParam = z.object({ lotId: z.uuid() });
 const lineParam = z.object({ id: z.uuid() });
@@ -732,6 +738,7 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
           c.req.valid("param").id,
           ledgerInput(c, c.req.valid("json")),
           c.var.activeModules.includes("food_items"),
+          directOutputHooks(c),
         ),
         201,
       ),

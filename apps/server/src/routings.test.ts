@@ -376,6 +376,75 @@ describe("routings and job cards", () => {
     expect(after.timeLogs[0]).toMatchObject({ running: false });
   });
 
+  /** A started one-frame batch with its three job cards (Cut, Weld, Assemble). */
+  const startedBatch = async (makeCards = true) => {
+    const batch = await ok(
+      "POST",
+      "/production/batches",
+      { recipeId: frameRecipe, plannedOn: today, batches: 1, outputLocationId: store },
+      201,
+    );
+    const cards: string[] = makeCards
+      ? (await ok("POST", `/routings/batches/${batch.id}/job-cards`, undefined, 201)).jobCards.map(
+          (c: Card) => `/routings/job-cards/${c.id}`,
+        )
+      : [];
+    await ok("POST", `/production/batches/${batch.id}/start`);
+    return { id: batch.id as string, cards };
+  };
+
+  it("keeps a carded batch's output within its cards: no direct output, no more than planned", async () => {
+    const { id, cards } = await startedBatch();
+    const [cut, weld, asm] = cards as [string, string, string];
+    // Direct output on a batch with job cards is refused: it goes through the last card.
+    await refused(
+      "POST",
+      `/production/batches/${id}/output`,
+      { quantity: 500, unit: "each" },
+      409,
+      "use_job_card",
+    );
+    // The first operation reports no more than planned (1), unless over-production is confirmed.
+    await refused("POST", `${cut}/quantities`, { good: 100000, unit: "each" }, 409, "exceeds_planned");
+    await ok("POST", `${cut}/quantities`, { good: 1, unit: "each" }, 201);
+    await refused("POST", `${cut}/quantities`, { good: 1, unit: "each" }, 409, "exceeds_planned");
+    await ok("POST", `${cut}/quantities`, { good: 1, unit: "each", overPlanned: true }, 201);
+    for (const card of [cut, weld, asm]) {
+      if (card !== cut) await ok("POST", `${card}/quantities`, { good: 2, unit: "each" }, 201);
+      if (card === asm) await ok("POST", `${asm}/output`, { quantity: 2, unit: "each" }, 201);
+      await ok("POST", `${card}/complete`, {});
+    }
+    expect((await ok("POST", `/production/batches/${id}/complete`, {})).status).toBe("completed");
+
+    // Output posted before the cards were made must fit what the last card passed as good.
+    const early = await startedBatch(false);
+    const posted = await ok(
+      "POST",
+      `/production/batches/${early.id}/output`,
+      { quantity: 5, unit: "each" },
+      201,
+    );
+    const made = (await ok("POST", `/routings/batches/${early.id}/job-cards`, undefined, 201))
+      .jobCards as Card[];
+    for (const c of made) {
+      await ok("POST", `/routings/job-cards/${c.id}/quantities`, { good: 1, unit: "each" }, 201);
+      if (c !== made.at(-1)) await ok("POST", `/routings/job-cards/${c.id}/complete`, {});
+    }
+    const last = `/routings/job-cards/${made.at(-1)!.id}`;
+    await refused("POST", `${last}/complete`, {}, 409, "output_exceeds_good");
+    await refused("POST", `/production/batches/${early.id}/complete`, {}, 409, "job_cards_open");
+    const record = posted.records.find((r: { kind: string }) => r.kind === "output");
+    await ok(
+      "POST",
+      `/production/batches/${early.id}/records/${record.id}/reverse`,
+      { reason: "Counted at Assemble" },
+      201,
+    );
+    await ok("POST", `${last}/output`, { quantity: 1, unit: "each" }, 201);
+    await ok("POST", `${last}/complete`, {});
+    expect((await ok("POST", `/production/batches/${early.id}/complete`, {})).status).toBe("completed");
+  });
+
   it("leaves batch production, HACCP records and lot traceability unchanged with Routings disabled", async () => {
     // A batch with job cards made while Routings was on.
     const pending = await ok(

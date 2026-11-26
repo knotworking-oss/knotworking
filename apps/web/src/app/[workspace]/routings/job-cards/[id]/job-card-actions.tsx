@@ -6,6 +6,7 @@ import {
   type JobCardExceptionKind,
 } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
+import { Checkbox } from "@knotworking/ui/components/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@knotworking/ui/components/field";
 import { Input } from "@knotworking/ui/components/input";
 import { Textarea } from "@knotworking/ui/components/textarea";
@@ -54,6 +55,7 @@ export function JobCardActions({
   const [good, setGood] = useState("");
   const [scrap, setScrap] = useState("");
   const [scrapReason, setScrapReason] = useState("");
+  const [overPlanned, setOverPlanned] = useState(false);
   const [kind, setKind] = useState<JobCardExceptionKind>("machine");
   const [description, setDescription] = useState("");
   const [lotCode, setLotCode] = useState("");
@@ -173,7 +175,7 @@ export function JobCardActions({
           description={
             remaining
               ? `At most ${remaining.display} ${remaining.displayUnit} more: what operation ${card.sequence.previous?.position} passed as good.`
-              : "What this operation finished, and what it scrapped."
+              : `What this operation finished, and what it scrapped: up to the planned ${card.plannedQuantity.display} ${card.plannedQuantity.displayUnit} in all, unless more was made.`
           }
           submitLabel="Report"
           disabled={!(Number(good) > 0 || Number(scrap) > 0) || (Number(scrap) > 0 && !scrapReason.trim())}
@@ -187,6 +189,7 @@ export function JobCardActions({
                   scrap: Number(scrap) || 0,
                   unit,
                   scrapReason: scrapReason.trim() || null,
+                  ...(overPlanned ? { overPlanned: true } : {}),
                 },
               }),
             );
@@ -228,6 +231,12 @@ export function JobCardActions({
                 onChange={(e) => setScrapReason(e.target.value)}
               />
             </Field>
+          )}
+          {!card.sequence.previous && (
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox checked={overPlanned} onCheckedChange={(v) => setOverPlanned(v === true)} />
+              More than planned was made (over-production)
+            </label>
           )}
         </HaccpDialog>
       )}

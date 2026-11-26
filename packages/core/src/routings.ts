@@ -274,6 +274,11 @@ export const jobCardQuantitySchema = z
     unit: z.enum(unitCodes),
     scrapReason: optionalText(500).optional(),
     note: optionalText(500).optional(),
+    /**
+     * The first operation reports at most the batch's planned quantity (good plus scrap, in all)
+     * unless this says more was really made: an explicit over-production, never a typo.
+     */
+    overPlanned: z.boolean().optional(),
   })
   .refine((v) => v.good > 0 || v.scrap > 0, { path: ["good"], message: "Enter a good or scrap quantity" })
   .refine((v) => !(v.scrap > 0) || !!v.scrapReason, {

@@ -326,7 +326,7 @@ export function registerRoutingTools({ define, slugOf, workspaceParam }: ToolCon
       module: "routings",
       title: "Report good and scrap on a job card",
       description:
-        "Report good and scrapped quantities at an operation, in a unit of the batch's output item. An operation can't report more than the one before it passed as good; scrap needs a reason.",
+        "Report good and scrapped quantities at an operation, in a unit of the batch's output item. An operation can't report more than the one before it passed as good, and the first can't report more than the batch's planned quantity unless over_planned is true (only when more really was made); scrap needs a reason.",
       annotations: CREATE,
       input: {
         workspace: workspaceParam,
@@ -336,9 +336,10 @@ export function registerRoutingTools({ define, slugOf, workspaceParam }: ToolCon
         unit: z.enum(unitCodes),
         scrap_reason: z.string().max(500).optional(),
         note: z.string().max(500).optional(),
+        over_planned: z.boolean().optional(),
       },
     },
-    async ({ workspace, job_card_id: id, good, scrap, unit, scrap_reason, note }, api) => {
+    async ({ workspace, job_card_id: id, good, scrap, unit, scrap_reason, note, over_planned }, api) => {
       const slug = await slugOf(api, workspace);
       return api.call(
         ws(api).routings["job-cards"][":id"].quantities.$post({
@@ -349,6 +350,7 @@ export function registerRoutingTools({ define, slugOf, workspaceParam }: ToolCon
             unit,
             ...(scrap_reason ? { scrapReason: scrap_reason } : {}),
             ...(note ? { note } : {}),
+            ...(over_planned ? { overPlanned: true } : {}),
           },
         }),
       );

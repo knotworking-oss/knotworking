@@ -1292,12 +1292,52 @@ async function stopTimers(tx: Transaction, cardIds: string[], now: Date) {
  * once every operation has.
  */
 export async function assertJobCardsComplete(tx: Executor, batch: BatchRow) {
-  const open = (await liveCardsOfBatch(tx, batch.id)).filter((c) => c.status !== "completed");
+  const cards = await liveCardsOfBatch(tx, batch.id);
+  if (!cards.length) return;
+  const open = cards.filter((c) => c.status !== "completed");
   if (open.length) {
     throw new ApiError(
       409,
       "job_cards_open",
       `Complete every operation before completing the batch: ${open.map((c) => `${c.position}. ${c.name}`).join(", ")} still open`,
+    );
+  }
+  const last = cards.at(-1)!;
+  await assertOutputWithinGood(tx, batch, last, (await progressOf(tx, [last])).get(last.id)!.good);
+}
+
+/**
+ * The batch's finished stock can't be more than its last operation passed as good, however it was
+ * posted (output posted before the cards were made, or while Routings was off, counts too).
+ */
+async function assertOutputWithinGood(tx: Executor, batch: BatchRow, last: CardRow, good: number) {
+  const [produced] = await tx
+    .select({ total: sql<string>`coalesce(sum(${productionRecords.quantity}), 0)` })
+    .from(productionRecords)
+    .where(and(eq(productionRecords.batchId, batch.id), eq(productionRecords.kind, "output")));
+  const net = roundQuantity(num(produced?.total));
+  if (net <= good) return;
+  const output = await findItem(tx, batch.workspaceId, batch.outputItemId);
+  const made = stockAmount(net, output);
+  const passed = stockAmount(good, output);
+  throw new ApiError(
+    409,
+    "output_exceeds_good",
+    `Batch ${batch.batchCode} has ${made.display} ${made.displayUnit} of output on record but operation ${last.position} (${last.name}) passed ${passed.display} ${passed.displayUnit} as good; reverse the difference first`,
+  );
+}
+
+/**
+ * Production's direct-output check while Routings is active: a batch with job cards takes its
+ * output from the last operation's card (`POST /routings/job-cards/:id/output`), which keeps it
+ * within what that operation passed as good.
+ */
+export async function refuseDirectOutput(tx: Executor, batch: BatchRow) {
+  if ((await liveCardsOfBatch(tx, batch.id)).length) {
+    throw new ApiError(
+      409,
+      "use_job_card",
+      `Batch ${batch.batchCode} has job cards: post its output from the last operation's job card`,
     );
   }
 }
@@ -1511,6 +1551,18 @@ export async function recordJobCardQuantity(
       const cards = await liveCardsOfBatch(tx, batch.id);
       const progress = await progressOf(tx, cards);
       const remaining = remainingFromPrevious([...progress.values()], card.position);
+      if (remaining === null && !input.overPlanned) {
+        // The first operation: no more than the batch was planned to make, unless said so.
+        const mine = progress.get(card.id)!;
+        if (roundQuantity(mine.good + mine.scrap + good + scrap) > card.plannedQuantity) {
+          const planned = stockAmount(card.plannedQuantity, output);
+          throw new ApiError(
+            409,
+            "exceeds_planned",
+            `The batch was planned for ${planned.display} ${planned.displayUnit}; to report more at the first operation, confirm it was over-produced`,
+          );
+        }
+      }
       if (remaining !== null && roundQuantity(good + scrap) > remaining) {
         const previous = cards[cards.findIndex((c) => c.id === card.id) - 1]!;
         const passed = stockAmount(progress.get(previous.id)!.good, output);
@@ -1666,6 +1718,7 @@ export async function completeJobCard(
     if (!(mine.good > 0 || mine.scrap > 0)) {
       throw new ApiError(409, "nothing_reported", "Report the good and scrap quantities before completing");
     }
+    if (cards.at(-1)?.id === card.id) await assertOutputWithinGood(tx, batch, card, mine.good);
     const now = new Date();
     await stopTimers(tx, [card.id], now);
     const [row] = await tx

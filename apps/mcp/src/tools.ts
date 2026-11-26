@@ -38,6 +38,7 @@ import { registerBiTools } from "./tools/bi";
 import { registerPurchaseRequestTools } from "./tools/purchase-requests";
 import { registerClientServiceTools } from "./tools/client-services";
 import { registerAssetTools } from "./tools/assets";
+import { registerRoutingTools } from "./tools/routings";
 import { registerQualityTools } from "./tools/quality";
 import { registerRecipeTools } from "./tools/recipes";
 import { PRIORITY_NUMBER, READ, snapshotNote, workspaceParam } from "./tools/shared";
@@ -417,6 +418,7 @@ export function createKnotworkingServer(options: ToolsOptions): McpServer {
   registerDespatchTools({ define, slugOf, workspaceParam });
   registerDemandTools({ define, slugOf, workspaceParam });
   registerProductionTools({ define, slugOf, workspaceParam });
+  registerRoutingTools({ define, slugOf, workspaceParam });
   registerHaccpTools({ define, slugOf, workspaceParam });
   registerPeopleTools({ define, slugOf, workspaceParam });
   registerTrainingTools({ define, slugOf, workspaceParam });

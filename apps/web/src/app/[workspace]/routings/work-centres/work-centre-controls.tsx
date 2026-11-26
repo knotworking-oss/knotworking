@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@knotworking/ui/components/button";
-import { Field, FieldLabel } from "@knotworking/ui/components/field";
+import { Field, FieldDescription, FieldLabel } from "@knotworking/ui/components/field";
 import { Input } from "@knotworking/ui/components/input";
 import { Textarea } from "@knotworking/ui/components/textarea";
 import { PencilLine, Plus } from "lucide-react";
@@ -107,6 +107,10 @@ function WorkCentreDialog({
             value={costPerHour}
             onChange={(e) => setCostPerHour(e.target.value)}
           />
+          <FieldDescription>
+            Only what Costing&apos;s labour and overhead absorption rates don&apos;t already cover: a
+            batch&apos;s cost adds both.
+          </FieldDescription>
         </Field>
       </div>
       <Field>

@@ -170,7 +170,11 @@ const workCentreFields = {
   hoursPerDay: z.number().finite().min(0).max(24).refine(twoDecimals, "At most 2 decimal places"),
   /** Stations (machines, benches, people) that can work at once. */
   stations: z.number().int().min(1).max(1000),
-  /** What an hour of work here costs, in the workspace currency (labour and machine). */
+  /**
+   * What an hour of work here costs, in the workspace currency: only what Costing's labour and
+   * overhead absorption rates don't already cover (a batch's cost adds both, so a line that absorbs
+   * labour per batch hour wants a machine-only rate here).
+   */
   costPerHour: z.number().finite().min(0).max(1_000_000).refine(fourDecimals, "At most 4 decimal places"),
   notes: optionalText(4000),
 };

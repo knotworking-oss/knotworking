@@ -1,5 +1,5 @@
-import { DEFAULT_TIME_ZONE, moduleIds, todayInZone, type ModuleId } from "@knotworking/core";
-import { jobCardTimeLogs } from "@knotworking/db";
+import { addDays, DEFAULT_TIME_ZONE, moduleIds, todayInZone, type ModuleId } from "@knotworking/core";
+import { jobCardTimeLogs, productionBatches } from "@knotworking/db";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeApp, signIn, type TestCtx } from "./test-utils";
@@ -509,6 +509,32 @@ describe("routings and job cards", () => {
     );
     expect(touched).toHaveLength(8);
     expect(new Date((await ok("GET", cut)).updatedAt).getTime()).toBeGreaterThan(new Date(before).getTime());
+  });
+
+  it("adds work-centre time to absorbed conversion in the batch's total cost (rates must not overlap)", async () => {
+    // The documented model: totalCost = materials + absorbed labour and overhead + work-centre time,
+    // so a work centre's rate covers only what the absorption rates don't.
+    await ok("PUT", "/costing/rates", {
+      lineId: null,
+      effectiveFrom: addDays(today, -30),
+      labourPerHour: 20,
+    });
+    const { id, cards } = await startedBatch();
+    await ok("POST", `${cards[0]}/time`, { minutes: 120 }, 201);
+    for (const card of cards) {
+      await ok("POST", `${card}/quantities`, { good: 1, unit: "each" }, 201);
+      if (card === cards.at(-1)) await ok("POST", `${card}/output`, { quantity: 1, unit: "each" }, 201);
+      await ok("POST", `${card}/complete`, {});
+    }
+    await ctx.handle.db
+      .update(productionBatches)
+      .set({ startedAt: sql`now() - interval '2 hours'` })
+      .where(eq(productionBatches.id, id));
+    await ok("POST", `/production/batches/${id}/complete`, {});
+    const cost = await ok("GET", `/costing/batches/${id}`);
+    expect(cost.conversion.total).toBeCloseTo(40, 0);
+    expect(cost.operations.actualCost).toBe(60);
+    expect(cost.totalCost).toBeCloseTo(cost.actualCost + cost.conversion.total + 60, 2);
   });
 
   it("leaves batch production, HACCP records and lot traceability unchanged with Routings disabled", async () => {

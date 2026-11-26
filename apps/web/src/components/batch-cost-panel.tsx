@@ -140,6 +140,12 @@ export function BatchCostPanel({
                 {formatCost(cost.totalCost, currency)}
               </span>
             </p>
+            {cost.conversion.total > 0 && cost.operations.actualCost > 0 && (
+              <p className="text-muted-foreground">
+                The total adds work-centre time to the absorbed labour and overhead: work-centre rates should
+                cover only what the absorption rates don&apos;t.
+              </p>
+            )}
             {!compact && (
               <ol className="divide-y rounded-lg border">
                 {cost.operations.operations.map((op) => (

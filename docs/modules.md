@@ -310,7 +310,7 @@ Risk assessments, required controls, questionnaires and service providers beside
 
 ## Food items module
 
-Enable `food_items` alongside Items for food master data. It holds contains and may-contain declarations, storage conditions and shelf life in days. The existing `/items` endpoints include these fields and accept the `allergen` filter for callers with Food items read access. Writes to these fields, including CSV imports, need Food items write access. Extension updates enter sync as `food_item` events. Historical item events carry their food fields only for callers who can read the extension.
+Enable `food_items` alongside Items for food master data. It holds contains and may-contain declarations, storage conditions and shelf life in days. The existing `/items` endpoints include these fields and accept the `allergen` filter for callers with Food items read access. Writes to these fields, including CSV imports, need Food items write access. The web item form leaves them out for services and spare parts (`nonFoodItemTypes`), which never hold food; the API still accepts them on any type. Extension updates enter sync as `food_item` events. Historical item events carry their food fields only for callers who can read the extension.
 
 Labelling, Specifications and Product Development require Food items. Recipes uses it for allergen roll-up, mismatch and drift warnings. Production scheduling and Site changeovers use it for their allergen comparisons. With Food items active, goods-in and production use shelf life to default lot expiry where a date was omitted. Recorded expiry, lot history and traceability remain available through Stock and Production when the extension is disabled.
 

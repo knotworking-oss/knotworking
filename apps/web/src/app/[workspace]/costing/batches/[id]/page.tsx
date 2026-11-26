@@ -26,9 +26,10 @@ export default async function BatchCostPage({ params }: Props) {
   const { workspace: slug, id } = await params;
   const currency = await getWorkspaceCurrency(slug);
   // Costing depends on production, so a costing reader can read the batch page too.
-  const [cost, canProduction] = await Promise.all([
+  const [cost, canProduction, foodItems] = await Promise.all([
     getBatchCost(slug, id),
     canReadModule(slug, "production"),
+    canReadModule(slug, "food_items"),
   ]);
   const { batch } = cost;
   return (
@@ -77,7 +78,7 @@ export default async function BatchCostPage({ params }: Props) {
               )}
             </p>
           </div>
-          <BatchCostPanel slug={slug} currency={currency} cost={cost} />
+          <BatchCostPanel slug={slug} currency={currency} cost={cost} foodItems={foodItems} />
         </div>
       </div>
     </>

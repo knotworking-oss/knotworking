@@ -26,6 +26,7 @@ import { PageHeader } from "@/components/page-header";
 import { ShortfallBadge } from "@/components/production-badges";
 import { formatAmount } from "@/components/stock-badges";
 import { canReadModule, getMaterialRequirements, getWorkspaceToday } from "@/lib/api";
+import { recipeTerms } from "@/lib/recipe-terms";
 
 export const metadata: Metadata = { title: "Material requirements" };
 
@@ -33,7 +34,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Production → material requirements: what the planned and in-progress batches in a date range
- * need of each ingredient, against stock usable today. Computed on read; nothing is reserved.
+ * need of each ingredient or material, against stock usable today. Computed on read; nothing is reserved.
  */
 export default async function RequirementsPage({
   params,
@@ -48,10 +49,12 @@ export default async function RequirementsPage({
   let to = ISO.test(search.to ?? "") ? search.to! : addDays(from, 6);
   if (to < from) to = from;
   if (to > addDays(from, 366)) to = addDays(from, 366);
-  const [data, purchasing] = await Promise.all([
+  const [data, purchasing, foodItems] = await Promise.all([
     getMaterialRequirements(slug, from, to),
     canReadModule(slug, "purchasing"),
+    canReadModule(slug, "food_items"),
   ]);
+  const terms = recipeTerms(foodItems);
   const short = data.requirements.filter((r) => r.shortfall.base > 0).length;
 
   return (
@@ -98,7 +101,7 @@ export default async function RequirementsPage({
             {data.batches.length} open batch{data.batches.length === 1 ? "" : "es"} planned between {from} and{" "}
             {to}
             {data.requirements.length > 0 &&
-              ` · ${short ? `${short} ingredient${short === 1 ? "" : "s"} short` : "stock covers everything"}`}
+              ` · ${short ? `${short} ${terms.line}${short === 1 ? "" : "s"} short` : "stock covers everything"}`}
             . Available stock is released and not past its use-by date today; quarantined stock is shown
             separately. Nothing is reserved.
           </p>
@@ -110,7 +113,7 @@ export default async function RequirementsPage({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="pl-4">Ingredient</TableHead>
+                    <TableHead className="pl-4">{terms.lineTitle}</TableHead>
                     <TableHead className="text-right">Required</TableHead>
                     <TableHead className="text-right">Consumed</TableHead>
                     <TableHead className="text-right">Outstanding</TableHead>

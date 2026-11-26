@@ -154,6 +154,13 @@ export const despatchableItemTypes = [
 ] as const satisfies readonly ItemType[];
 export const isDespatchableItem = (type: ItemType) =>
   (despatchableItemTypes as readonly ItemType[]).includes(type);
+/**
+ * Item types that never hold food, so the Food items declaration (allergens, storage, shelf life)
+ * doesn't apply: a service is no stock, and spare parts keep equipment running. Every other type
+ * can be or can touch food (a recipe line, packaging, goods for resale) and keeps it.
+ */
+export const nonFoodItemTypes = ["service", "spare_part"] as const satisfies readonly ItemType[];
+export const takesFoodDetails = (type: ItemType) => !(nonFoodItemTypes as readonly ItemType[]).includes(type);
 /** Item types that can go on a sales order or commitment. Components stay internal. */
 export const sellableItemTypes = [
   "finished",

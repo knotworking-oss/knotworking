@@ -10,6 +10,7 @@ import {
   itemTypes,
   storageConditions,
   storageLabels,
+  takesFoodDetails,
   unitCodes,
   units,
   type AllergenCode,
@@ -149,7 +150,7 @@ export function ItemsManager({
           <SelectContent>
             <SelectGroup>
               <SelectItem value={ANY}>All types</SelectItem>
-              {itemTypes.map((t) => (
+              {(showFood || filters.type === "ingredient" ? itemTypes : genericItemTypes).map((t) => (
                 <SelectItem key={t} value={t}>
                   {itemTypeLabels[t]}
                 </SelectItem>
@@ -393,12 +394,14 @@ function ItemDialog({
   const router = useRouter();
   const { can } = useWorkspace();
   const showFood = can("food_items");
-  const foodWrite = can("food_items", "write");
+  const foodWriteAllowed = can("food_items", "write");
   const typeChoices = showFood || item?.type === "ingredient" ? itemTypes : genericItemTypes;
   const [pending, setPending] = useState(false);
   const [code, setCode] = useState(item?.code ?? "");
   const [name, setName] = useState(item?.name ?? "");
   const [type, setType] = useState<ItemType>(item?.type ?? (showFood ? "ingredient" : "raw_material"));
+  // Allergens, storage and shelf life only for types that can hold food (not services or spare parts).
+  const foodWrite = foodWriteAllowed && takesFoodDetails(type);
   const [unit, setUnit] = useState<UnitCode>(item?.unit ?? (showFood ? "kg" : "each"));
   const [storage, setStorage] = useState<StorageCondition>(item?.storage ?? "ambient");
   const [description, setDescription] = useState(item?.description ?? "");
@@ -459,7 +462,7 @@ function ItemDialog({
           <DialogHeader>
             <DialogTitle>{item ? "Edit item" : "New item"}</DialogTitle>
             <DialogDescription>
-              {foodWrite
+              {foodWriteAllowed
                 ? "Allergen declarations are used in recipes and on labels."
                 : "Set the catalogue details for this item."}
             </DialogDescription>
@@ -617,7 +620,8 @@ function ItemDialog({
               </Field>
             </div>
             <FieldDescription>
-              Density and weight each are optional. They let recipes convert between volume, count and weight.
+              Density and weight each are optional. They let quantities convert between volume, count and
+              weight.
             </FieldDescription>
 
             {suppliers.length > 0 && (

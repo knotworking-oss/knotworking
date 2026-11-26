@@ -14,7 +14,14 @@ import { formatCost } from "@/components/costing-badges";
 import { JobCardStatusBadge } from "@/components/job-card-status-badge";
 import { PageHeader } from "@/components/page-header";
 import { WorkspaceDateTime } from "@/components/workspace-date-time";
-import { canReadModule, getJobCard, getProductionBatchPick, getWorkspaceCurrency } from "@/lib/api";
+import {
+  canReadModule,
+  getJobCard,
+  getProductionBatch,
+  getProductionBatchPick,
+  getStockLocations,
+  getWorkspaceCurrency,
+} from "@/lib/api";
 import { JobCardActions, ResolveException, VoidEntry, type PickLine } from "./job-card-actions";
 
 type Props = { params: Promise<{ workspace: string; id: string }> };
@@ -49,6 +56,16 @@ export default async function JobCardPage({ params }: Props) {
           })),
         )
       : [];
+  // Where the last operation's output goes: the batch's output location, or one chosen when posting.
+  const output =
+    open && batchRunning && canStock && card.sequence.isLast && (await canReadModule(slug, "production"))
+      ? await Promise.all([getProductionBatch(slug, card.batchId), getStockLocations(slug)]).then(
+          ([batch, { locations }]) => ({
+            locationId: batch.outputLocation?.id ?? null,
+            locations: locations.map((l) => ({ id: l.id, name: l.name })),
+          }),
+        )
+      : null;
   return (
     <>
       <PageHeader>
@@ -85,7 +102,7 @@ export default async function JobCardPage({ params }: Props) {
               </p>
               {card.instructions && <p className="text-sm whitespace-pre-wrap">{card.instructions}</p>}
             </div>
-            <JobCardActions slug={slug} card={card} batchRunning={batchRunning} pick={pick} />
+            <JobCardActions slug={slug} card={card} batchRunning={batchRunning} pick={pick} output={output} />
           </div>
 
           <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">

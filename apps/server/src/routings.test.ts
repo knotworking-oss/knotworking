@@ -486,6 +486,25 @@ describe("routings and job cards", () => {
       plannedQuantity: { base: 10 },
       expected: { setupMinutes: 15, runMinutes: 100 },
     });
+
+    // Switching Routings off doesn't free the batch: its cards would come back with the old size.
+    await ok("PATCH", "/module-settings", { modules: genericModules.filter((id) => id !== "routings") });
+    try {
+      const body = await refused(
+        "PATCH",
+        `/production/batches/${batch.id}`,
+        { batches: 2 },
+        409,
+        "job_cards_exist",
+      );
+      expect(body.error.message).toContain("switch Routings on");
+      await ok("PATCH", `/production/batches/${batch.id}`, { notes: "Still fine" });
+    } finally {
+      await ok("PATCH", "/module-settings", { modules: genericModules });
+    }
+    expect((await ok("GET", `/routings/batches/${batch.id}/job-cards`)).jobCards[0]).toMatchObject({
+      plannedQuantity: { base: 10 },
+    });
   });
 
   it("makes no job cards on a work centre archived since the routing was approved", async () => {

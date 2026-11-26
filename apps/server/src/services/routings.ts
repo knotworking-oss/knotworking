@@ -1385,15 +1385,25 @@ async function assertOutputWithinGood(tx: Executor, batch: BatchRow, last: CardR
 }
 
 /**
- * Production's resize check while Routings is active: a planned batch's job cards froze its size
- * and recipe version (expected minutes and cost), so it keeps them until its cards are cancelled.
+ * Production's resize check, whether or not Routings is active (data integrity, not a feature): a
+ * planned batch's job cards froze its size and recipe version (expected minutes and cost), so it
+ * keeps them until its cards are cancelled. Switching Routings off doesn't free it, or its cards
+ * would come back with the old size when it is switched on again.
  */
-export async function refuseReplanWithCards(tx: Executor, batch: BatchRow) {
+export async function refuseReplanWithCards(
+  tx: Executor,
+  batch: BatchRow,
+  { routingsActive = true }: { routingsActive?: boolean } = {},
+) {
   if ((await liveCardsOfBatch(tx, batch.id)).length) {
     throw new ApiError(
       409,
       "job_cards_exist",
-      `Batch ${batch.batchCode} has job cards made for its current size and version; cancel the job cards first`,
+      `Batch ${batch.batchCode} has job cards made for its current size and version; ${
+        routingsActive
+          ? "cancel the job cards first"
+          : "switch Routings on to cancel the job cards first, or cancel the batch and plan another"
+      }`,
     );
   }
 }

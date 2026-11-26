@@ -122,7 +122,7 @@ Phase 3.3.1 adds `authenticity_assessments` (item/supplier scope, active/archive
 
 ## General business workflows
 
-- Project templates create ordinary project, team and task rows. The command receipt ties a retry to its original project ID.
+- Project templates create ordinary project, team and task rows; templates themselves are code in `@knotworking/core`, not tables. A task from a module step carries that step's guidance and a link to the module page in its description. The command receipt ties a retry to its original project ID.
 - `purchase_requests` stores the requester and designated approver, the submitted amount and currency, and the final decision with actor, timestamp and note. Records are private to participants and module managers.
 - `service_quotes` stores the customer snapshot, fee or hourly rate, quoted minutes if applicable, and the linked delivery project. Delivery sign-off records approved minutes for hourly work. `service_quote_events` retains signed revisions and reasons. Only quote IDs and revisions enter the sync log.
 

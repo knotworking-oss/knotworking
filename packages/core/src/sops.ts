@@ -36,11 +36,34 @@ export const SOP_REVIEW_SOON_DAYS = 30;
 
 // ─── Dates (plain `YYYY-MM-DD`, compared as strings) ─────────────────────────
 
+/** The first and last dates a `YYYY-MM-DD` string can hold; derived dates outside them are refused. */
+export const ISO_DATE_MIN = "0001-01-01";
+export const ISO_DATE_MAX = "9999-12-31";
+
+/** Whether `date` is a four-digit-year `YYYY-MM-DD` from 0001-01-01 to 9999-12-31 (so it sorts as text). */
+export const isIsoDateInRange = (date: string): boolean =>
+  /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= ISO_DATE_MIN && date <= ISO_DATE_MAX;
+
 const pad = (n: number) => String(n).padStart(2, "0");
-const toIso = (d: Date) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+/**
+ * Years 0–9999 as four digits; any other year in the ISO expanded form (`+010000`, `-000001`), as
+ * `Date#toISOString` writes it, so an out-of-range result is never mistaken for a valid date.
+ */
+const isoYear = (year: number) =>
+  year >= 0 && year <= 9999
+    ? String(year).padStart(4, "0")
+    : `${year < 0 ? "-" : "+"}${String(Math.abs(year)).padStart(6, "0")}`;
+const toIso = (d: Date) =>
+  `${isoYear(d.getUTCFullYear())}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+/** Midnight UTC on a calendar date. Unlike `Date.UTC`, years 0–99 stay themselves (not 1900–1999). */
+const utcDate = (year: number, monthIndex: number, day: number) => {
+  const d = new Date(0);
+  d.setUTCFullYear(year, monthIndex, day);
+  return d;
+};
 const fromIso = (date: string) => {
   const [y, m, d] = date.split("-").map(Number);
-  return new Date(Date.UTC(y!, m! - 1, d!));
+  return utcDate(y!, m! - 1, d!);
 };
 
 /**
@@ -61,7 +84,7 @@ export function addMonthsToIsoDate(date: string, months: number): string {
   const day = d.getUTCDate();
   d.setUTCDate(1);
   d.setUTCMonth(d.getUTCMonth() + months);
-  const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  const lastDay = utcDate(d.getUTCFullYear(), d.getUTCMonth() + 1, 0).getUTCDate();
   d.setUTCDate(Math.min(day, lastDay));
   return toIso(d);
 }

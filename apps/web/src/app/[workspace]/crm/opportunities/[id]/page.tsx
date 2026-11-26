@@ -63,7 +63,10 @@ export default async function CrmOpportunityPage({
                 <dt className="text-muted-foreground">Customer</dt>
                 <dd>
                   {o.customer ? (
-                    <Link href={`/${slug}/customers/${o.customer.id}`} className="underline">
+                    <Link
+                      href={`/${slug}/customers?${new URLSearchParams({ q: o.customer.code })}`}
+                      className="underline"
+                    >
                       {o.customer.code} · {o.customer.name}
                     </Link>
                   ) : (

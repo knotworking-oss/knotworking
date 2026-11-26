@@ -4,8 +4,12 @@ export {
   findBatch,
   getBatch,
   getMaterialRequirements,
+  recordConsumption,
+  recordOutput,
   traceLot,
   userNames,
+  type BatchCloseHooks,
+  type BatchRecordHooks,
 } from "../production";
 
 export { traceForwardProduction } from "../production-impact";

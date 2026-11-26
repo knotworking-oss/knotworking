@@ -54,6 +54,7 @@ import { forbidTokens } from "../middleware/auth";
 import { canRead, requireModuleLevel } from "../middleware/modules";
 import { personOrToken } from "../middleware/token-actions";
 import { getBatchDeviationWarning } from "../services/haccp";
+import { assertJobCardsComplete, cancelOpenJobCards } from "../services/ports/routings";
 import {
   cancelBatch,
   completeBatch,
@@ -134,6 +135,14 @@ const packingView = (c: Context<WorkspaceEnv>) => ({
   labels: c.var.activeModules.includes("labels") && canRead(c, "labels"),
   specifications: c.var.activeModules.includes("specifications") && canRead(c, "specifications"),
 });
+/**
+ * While Routings is active, a batch with job cards completes only once every operation has, and
+ * cancelling it cancels its open cards. Whatever the caller can read: the rule is the workspace's.
+ */
+const routingHooks = (c: Context<WorkspaceEnv>) =>
+  c.var.activeModules.includes("routings")
+    ? { beforeComplete: assertJobCardsComplete, afterCancel: cancelOpenJobCards }
+    : {};
 const recordParam = z.object({ id: z.uuid(), recordId: z.uuid() });
 const lotParam = z.object({ lotId: z.uuid() });
 const lineParam = z.object({ id: z.uuid() });
@@ -761,7 +770,7 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json").reason,
-          { canManage: hasModuleLevel(c.var.workspace.modules.production, "manage") },
+          { canManage: hasModuleLevel(c.var.workspace.modules.production, "manage"), ...routingHooks(c) },
         ),
       ),
   )
@@ -774,7 +783,14 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
     validate("json", productionBatchCompleteSchema),
     async (c) => {
       const { id } = c.req.valid("param");
-      const batch = await completeBatch(c.var.db, c.var.workspace.id, c.var.user.id, id, c.req.valid("json"));
+      const batch = await completeBatch(
+        c.var.db,
+        c.var.workspace.id,
+        c.var.user.id,
+        id,
+        c.req.valid("json"),
+        routingHooks(c),
+      );
       // Completing is never blocked by a deviation, but whoever can read haccp is told about open ones
       // (module-filtered: others get `null`).
       const haccpWarning = hasModuleLevel(c.var.workspace.modules.haccp, "read")

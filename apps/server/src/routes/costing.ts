@@ -16,7 +16,7 @@ import { z } from "zod";
 import type { WorkspaceEnv } from "../env";
 import { badRequest } from "../errors";
 import { forbidTokens } from "../middleware/auth";
-import { requireModuleLevel } from "../middleware/modules";
+import { canRead, requireModuleLevel } from "../middleware/modules";
 import { getBatchCost, getLotCost, listBatchCosts } from "../services/costing";
 import {
   closePeriod,
@@ -53,7 +53,11 @@ export const costingRoutes = new Hono<WorkspaceEnv>()
     c.json(await listBatchCosts(c.var.db, c.var.workspace.id, c.req.valid("query"))),
   )
   .get("/costing/batches/:id", validate("param", idParam), async (c) =>
-    c.json(await getBatchCost(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+    c.json(
+      await getBatchCost(c.var.db, c.var.workspace.id, c.req.valid("param").id, {
+        operations: c.var.activeModules.includes("routings") && canRead(c, "routings"),
+      }),
+    ),
   )
   .get("/costing/lots/:id", validate("param", idParam), async (c) =>
     c.json(await getLotCost(c.var.db, c.var.workspace.id, c.req.valid("param").id)),

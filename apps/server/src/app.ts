@@ -72,6 +72,7 @@ import { concernRoutes, governanceRoutes } from "./routes/governance";
 import { purchaseRequestRoutes } from "./routes/purchase-requests";
 import { clientServicesRoutes } from "./routes/client-services";
 import { assetRoutes } from "./routes/assets";
+import { routingRoutes } from "./routes/routings";
 import { notificationRoutes } from "./routes/notifications";
 import { registerNotificationDelivery } from "./services/notifications";
 import { structureRoutes } from "./routes/structure";
@@ -329,6 +330,7 @@ export function createApp({
     .route("/v1/workspaces/:slug", tokenActionRoutes)
     .route("/v1/workspaces/:slug", meetingRoutes)
     .route("/v1/workspaces/:slug", assetRoutes)
+    .route("/v1/workspaces/:slug", routingRoutes)
     .route("/v1/workspaces/:slug", notificationRoutes)
     .route("/v1/workspaces/:slug", itemRoutes)
     .route("/v1/workspaces/:slug/recipes", recipeRoutes)

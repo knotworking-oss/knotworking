@@ -657,4 +657,37 @@ describe("Invoicing: customer invoices and credit notes", () => {
       net: "10.00",
     });
   });
+
+  it("warns, without refusing or renumbering, when a document is dated before the latest issued one", async () => {
+    const id = await customer("BACKDATED");
+    const one = (date = today) => manual(id, [{ quantity: "1", unitPrice: "10", taxRate: 0 }], { date });
+    const latest = await ok(decide(await ok(send("POST", "/invoicing", one()), 201)));
+    expect(latest.warnings).toEqual([]);
+    const early = addDays(today, -5);
+    const warning = { code: "backdated", latestNumber: latest.number, latestDate: today };
+    const drafted = await ok(send("POST", "/invoicing", one(early)), 201);
+    expect(drafted.warnings).toEqual([warning]);
+    expect((await ok(send("GET", `/invoicing/${drafted.id}`))).warnings).toEqual([warning]);
+    // Saving it with today's date clears the warning; moving it back restores it.
+    const current = await ok(
+      send("PATCH", `/invoicing/${drafted.id}`, { ...terms(), expectedRevision: drafted.revision }),
+    );
+    expect(current.warnings).toEqual([]);
+    const moved = await ok(
+      send("PATCH", `/invoicing/${drafted.id}`, { ...terms(early), expectedRevision: current.revision }),
+    );
+    expect(moved.warnings).toEqual([warning]);
+    const issued = await ok(decide(moved));
+    expect(issued).toMatchObject({ status: "issued", date: early, warnings: [warning] });
+    expect(issued.serial).toBe(latest.serial + 1);
+
+    // Credit notes compare with the latest issued credit note, not with invoices.
+    const cn = await ok(decide(await ok(credit(latest, [latest.lines[0].id]), 201)));
+    expect(cn.warnings).toEqual([]);
+    const backdatedCredit = await ok(credit(issued, [issued.lines[0].id], early), 201);
+    expect(backdatedCredit.warnings).toEqual([
+      { code: "backdated", latestNumber: cn.number, latestDate: today },
+    ]);
+    expect(await ok(decide(backdatedCredit))).toMatchObject({ status: "issued", serial: cn.serial + 1 });
+  });
 });

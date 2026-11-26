@@ -9,9 +9,11 @@ import {
   supportedCurrencies,
   type InvoiceManualLine,
 } from "@knotworking/core";
+import { Alert, AlertDescription } from "@knotworking/ui/components/alert";
 import { Button } from "@knotworking/ui/components/button";
 import { Input } from "@knotworking/ui/components/input";
 import { Textarea } from "@knotworking/ui/components/textarea";
+import { TriangleAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import type { CustomerDocument } from "@/lib/api";
@@ -331,8 +333,19 @@ export function InvoiceApproval({ doc, slug }: { doc: CustomerDocument; slug: st
       setBusy(false);
     }
   }
+  const kind = doc.kind === "credit" ? "credit note" : "invoice";
   return (
     <form className="space-y-3 rounded-lg border p-4" onSubmit={submit}>
+      {doc.warnings.map((warning) => (
+        <Alert key={warning.code}>
+          <TriangleAlert />
+          <AlertDescription>
+            This {kind} is dated {doc.date}, before {warning.latestNumber} ({warning.latestDate}). Issuing it
+            still gives it the next number, so numbers will not follow date order. Check the date before you
+            approve it.
+          </AlertDescription>
+        </Alert>
+      ))}
       <label className={field}>
         Decision reason
         <Textarea name="reason" required maxLength={2000} />

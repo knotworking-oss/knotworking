@@ -9,6 +9,7 @@ import {
   type InvoiceLine,
   type InvoiceManualLine,
   type InvoiceParty,
+  type InvoiceWarning,
   type InvoicingSettingsInput,
 } from "@knotworking/core";
 import {
@@ -22,7 +23,7 @@ import {
   type Executor,
   type Transaction,
 } from "@knotworking/db";
-import { and, asc, desc, eq, max } from "drizzle-orm";
+import { and, asc, desc, eq, max, ne } from "drizzle-orm";
 import { badRequest, notFound } from "../errors";
 import { findCustomer } from "./customers";
 import {
@@ -66,6 +67,30 @@ export async function listCustomerDocuments(db: Executor, ws: string, offset: nu
   return { documents: rows.slice(0, 50), nextOffset: rows.length > 50 ? offset + 50 : null };
 }
 
+/**
+ * Warns when `document` is dated before the latest issued document of its kind. Numbers follow
+ * issue order, so a backdated document gets a higher number than a later-dated one. Advisory only.
+ */
+async function warningsFor(db: Executor, document: Document): Promise<InvoiceWarning[]> {
+  if (document.status === "discarded") return [];
+  const [latest] = await db
+    .select({ number: documents.number, date: documents.date })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.workspaceId, document.workspaceId),
+        eq(documents.kind, document.kind),
+        eq(documents.status, "issued"),
+        ne(documents.id, document.id),
+      ),
+    )
+    .orderBy(desc(documents.date), desc(documents.serial))
+    .limit(1);
+  return latest?.number && document.date < latest.date
+    ? [{ code: "backdated", latestNumber: latest.number, latestDate: latest.date }]
+    : [];
+}
+
 export async function getCustomerDocument(db: Executor, ws: string, id: string) {
   const document = await findCustomerDocument(db, ws, id);
   const history = await db
@@ -97,7 +122,9 @@ export async function getCustomerDocument(db: Executor, ws: string, id: string) 
     "credit_line",
     document.lines.map((line) => line.id),
   );
-  return { ...document, history, credits, creditedLineIds: [...creditedLineIds] };
+  // An issued document's warning was returned when it was issued; only drafts are checked here.
+  const warnings = document.status === "draft" ? await warningsFor(db, document) : [];
+  return { ...document, history, credits, creditedLineIds: [...creditedLineIds], warnings };
 }
 
 async function record(
@@ -315,7 +342,8 @@ export async function draftCustomerDocument(
       if (inserted.length !== reservations.length)
         throw invoiceConflict("Some quantities have already been reserved by another invoice");
     }
-    return record(tx, document!, actorId, "drafted", input.kind === "credit" ? input.reason : "");
+    await record(tx, document!, actorId, "drafted", input.kind === "credit" ? input.reason : "");
+    return { ...document!, warnings: await warningsFor(tx, document!) };
   });
 }
 
@@ -376,7 +404,8 @@ export async function editCustomerDocument(
       })
       .where(scope(ws, id))
       .returning();
-    return record(tx, saved!, actorId, "edited", "");
+    await record(tx, saved!, actorId, "edited", "");
+    return { ...saved!, warnings: await warningsFor(tx, saved!) };
   });
 }
 
@@ -420,6 +449,7 @@ export async function decideCustomerDocument(
       .set({ ...changes, revision: document.revision + 1 })
       .where(scope(ws, id))
       .returning();
-    return record(tx, saved!, actorId, input.action === "issue" ? "issued" : "discarded", input.reason);
+    await record(tx, saved!, actorId, input.action === "issue" ? "issued" : "discarded", input.reason);
+    return { ...saved!, warnings: await warningsFor(tx, saved!) };
   });
 }

@@ -104,5 +104,11 @@ export type InvoiceLine = InvoiceManualLine & {
   /** Shipment, sales line or original invoice line which produced this line. */
   sourceLineId: string | null;
 };
+/**
+ * A non-blocking note returned with a draft, an edit, an issue decision and a draft read.
+ * `backdated`: the document is dated before the latest issued document of the same kind, so its
+ * number will not follow date order. Nothing is renumbered or refused.
+ */
+export type InvoiceWarning = { code: "backdated"; latestNumber: string; latestDate: string };
 /** `taxNumber`: the VAT or other tax registration number at drafting, when one was recorded. */
 export type InvoiceParty = { name: string; address: string; taxNumber?: string };

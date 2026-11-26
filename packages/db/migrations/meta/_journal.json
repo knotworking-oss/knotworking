@@ -764,6 +764,13 @@
       "when": 1795651546248,
       "tag": "0125_routings",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1795651606248,
+      "tag": "0126_invoicing_second_approver",
+      "breakpoints": true
     }
   ]
 }

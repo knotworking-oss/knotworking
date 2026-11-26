@@ -1,6 +1,7 @@
 import type { InvoiceLine, InvoiceParty, InvoiceSource } from "@knotworking/core";
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   date,
   foreignKey,
@@ -125,6 +126,8 @@ export const invoicingSettings = pgTable("invoicing_settings", {
   workspaceId: workspaceRef().primaryKey(),
   /** The seller's VAT or other tax registration number; null when not registered. */
   taxRegistrationNumber: text("tax_registration_number"),
+  /** Four-eyes: whoever drafted or last edited a draft can't approve or issue it. */
+  requireSecondApprover: boolean("require_second_approver").notNull().default(false),
   updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at")

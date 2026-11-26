@@ -136,7 +136,11 @@ async function draftLines(db: Executor, workspaceId: string, input: DespatchDraf
     const { lot, item } = await findLot(db, workspaceId, line.lotId);
     const location = await findActiveLocation(db, workspaceId, line.locationId);
     if (!isDespatchableItem(item.type) || item.status !== "active")
-      throw new ApiError(409, "item_not_despatchable", "Choose an active finished product or merchandise");
+      throw new ApiError(
+        409,
+        "item_not_despatchable",
+        "Choose an active finished product, merchandise or spare part",
+      );
     lines.push({
       lotId: lot.id,
       locationId: location.id,
@@ -272,7 +276,7 @@ export async function confirmDespatch(
           throw new ApiError(
             409,
             "item_not_despatchable",
-            "Only active finished products and merchandise can be despatched",
+            "Only active finished products, merchandise and spare parts can be despatched",
           );
         await assertNoIncidentHold(tx, workspaceId, lot.id);
         if (lot.status !== "available")

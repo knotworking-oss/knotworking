@@ -75,14 +75,20 @@ export const invoiceDecisionSchema = z.object({
   action: z.enum(["issue", "discard"]),
   reason,
 });
-export const invoicingSettingsSchema = z.object({
-  taxRegistrationNumber: z
-    .string()
-    .trim()
-    .max(40)
-    .transform((v) => v || null)
-    .nullable(),
-});
+/** A partial update: fields left out keep their saved value. */
+export const invoicingSettingsSchema = z
+  .object({
+    taxRegistrationNumber: z
+      .string()
+      .trim()
+      .max(40)
+      .transform((v) => v || null)
+      .nullable()
+      .optional(),
+    /** Four-eyes: whoever drafted or last edited a draft can't approve or issue it. */
+    requireSecondApprover: z.boolean().optional(),
+  })
+  .refine((v) => Object.values(v).some((field) => field !== undefined), "Change at least one setting");
 export type InvoicingSettingsInput = z.infer<typeof invoicingSettingsSchema>;
 export const invoiceListSchema = z.object({
   offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
@@ -104,5 +110,11 @@ export type InvoiceLine = InvoiceManualLine & {
   /** Shipment, sales line or original invoice line which produced this line. */
   sourceLineId: string | null;
 };
+/**
+ * A non-blocking note returned with a draft, an edit, an issue decision and a draft read.
+ * `backdated`: the document is dated before the latest issued document of the same kind, so its
+ * number will not follow date order. Nothing is renumbered or refused.
+ */
+export type InvoiceWarning = { code: "backdated"; latestNumber: string; latestDate: string };
 /** `taxNumber`: the VAT or other tax registration number at drafting, when one was recorded. */
 export type InvoiceParty = { name: string; address: string; taxNumber?: string };

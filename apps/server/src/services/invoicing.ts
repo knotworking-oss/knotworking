@@ -9,6 +9,7 @@ import {
   type InvoiceLine,
   type InvoiceManualLine,
   type InvoiceParty,
+  type InvoiceWarning,
   type InvoicingSettingsInput,
 } from "@knotworking/core";
 import {
@@ -22,8 +23,8 @@ import {
   type Executor,
   type Transaction,
 } from "@knotworking/db";
-import { and, asc, desc, eq, max } from "drizzle-orm";
-import { badRequest, notFound } from "../errors";
+import { and, asc, desc, eq, inArray, max, ne } from "drizzle-orm";
+import { ApiError, badRequest, notFound } from "../errors";
 import { findCustomer } from "./customers";
 import {
   activeClaims,
@@ -66,6 +67,30 @@ export async function listCustomerDocuments(db: Executor, ws: string, offset: nu
   return { documents: rows.slice(0, 50), nextOffset: rows.length > 50 ? offset + 50 : null };
 }
 
+/**
+ * Warns when `document` is dated before the latest issued document of its kind. Numbers follow
+ * issue order, so a backdated document gets a higher number than a later-dated one. Advisory only.
+ */
+async function warningsFor(db: Executor, document: Document): Promise<InvoiceWarning[]> {
+  if (document.status === "discarded") return [];
+  const [latest] = await db
+    .select({ number: documents.number, date: documents.date })
+    .from(documents)
+    .where(
+      and(
+        eq(documents.workspaceId, document.workspaceId),
+        eq(documents.kind, document.kind),
+        eq(documents.status, "issued"),
+        ne(documents.id, document.id),
+      ),
+    )
+    .orderBy(desc(documents.date), desc(documents.serial))
+    .limit(1);
+  return latest?.number && document.date < latest.date
+    ? [{ code: "backdated", latestNumber: latest.number, latestDate: latest.date }]
+    : [];
+}
+
 export async function getCustomerDocument(db: Executor, ws: string, id: string) {
   const document = await findCustomerDocument(db, ws, id);
   const history = await db
@@ -97,7 +122,31 @@ export async function getCustomerDocument(db: Executor, ws: string, id: string) 
     "credit_line",
     document.lines.map((line) => line.id),
   );
-  return { ...document, history, credits, creditedLineIds: [...creditedLineIds] };
+  // An issued document's warning was returned when it was issued; only drafts are checked here.
+  const warnings = document.status === "draft" ? await warningsFor(db, document) : [];
+  return { ...document, history, credits, creditedLineIds: [...creditedLineIds], warnings };
+}
+
+/** Four-eyes: refuses approval by the person who drafted the document or last edited it. */
+async function assertSecondApprover(tx: Transaction, document: Document, actorId: string) {
+  if (!(await getInvoicingSettings(tx, document.workspaceId)).requireSecondApprover) return;
+  const authors = await tx
+    .select({ actorId: events.actorId })
+    .from(events)
+    .where(
+      and(
+        eq(events.workspaceId, document.workspaceId),
+        eq(events.documentId, document.id),
+        inArray(events.action, ["drafted", "edited"]),
+      ),
+    )
+    .orderBy(asc(events.revision));
+  if ([authors[0]?.actorId, authors.at(-1)?.actorId].includes(actorId))
+    throw new ApiError(
+      409,
+      "second_approver_required",
+      "This workspace needs a second manager to approve: you drafted or last edited this document.",
+    );
 }
 
 async function record(
@@ -121,27 +170,39 @@ async function record(
 
 export async function getInvoicingSettings(db: Executor, ws: string) {
   const [row] = await db
-    .select({ taxRegistrationNumber: invoicingSettings.taxRegistrationNumber })
+    .select({
+      taxRegistrationNumber: invoicingSettings.taxRegistrationNumber,
+      requireSecondApprover: invoicingSettings.requireSecondApprover,
+    })
     .from(invoicingSettings)
     .where(eq(invoicingSettings.workspaceId, ws));
-  return { taxRegistrationNumber: row?.taxRegistrationNumber ?? null };
+  return {
+    taxRegistrationNumber: row?.taxRegistrationNumber ?? null,
+    requireSecondApprover: row?.requireSecondApprover ?? false,
+  };
 }
 
-/** Applies to documents drafted afterwards; drafted and issued documents keep their snapshot. */
+/**
+ * The tax number applies to documents drafted afterwards; drafted and issued documents keep their
+ * snapshot. The second-approver rule applies to every later decision, including on existing drafts.
+ */
 export async function saveInvoicingSettings(
   db: Database,
   ws: string,
   actorId: string,
   input: InvoicingSettingsInput,
 ) {
+  const changes = Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined),
+  ) as InvoicingSettingsInput;
   return db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, ws);
     await tx
       .insert(invoicingSettings)
-      .values({ workspaceId: ws, ...input, updatedBy: actorId })
+      .values({ workspaceId: ws, ...changes, updatedBy: actorId })
       .onConflictDoUpdate({
         target: invoicingSettings.workspaceId,
-        set: { ...input, updatedBy: actorId, updatedAt: new Date() },
+        set: { ...changes, updatedBy: actorId, updatedAt: new Date() },
       });
     return getInvoicingSettings(tx, ws);
   });
@@ -315,7 +376,8 @@ export async function draftCustomerDocument(
       if (inserted.length !== reservations.length)
         throw invoiceConflict("Some quantities have already been reserved by another invoice");
     }
-    return record(tx, document!, actorId, "drafted", input.kind === "credit" ? input.reason : "");
+    await record(tx, document!, actorId, "drafted", input.kind === "credit" ? input.reason : "");
+    return { ...document!, warnings: await warningsFor(tx, document!) };
   });
 }
 
@@ -376,7 +438,8 @@ export async function editCustomerDocument(
       })
       .where(scope(ws, id))
       .returning();
-    return record(tx, saved!, actorId, "edited", "");
+    await record(tx, saved!, actorId, "edited", "");
+    return { ...saved!, warnings: await warningsFor(tx, saved!) };
   });
 }
 
@@ -393,6 +456,7 @@ export async function decideCustomerDocument(
     let changes: Partial<Document> = { status: "discarded" };
     const now = new Date();
     if (input.action === "issue") {
+      await assertSecondApprover(tx, document, actorId);
       if (document.lines.some((line) => line.pricePending))
         throw badRequest("Review the price for each dispatch line");
       if (document.lines.some((line) => line.taxPending))
@@ -420,6 +484,7 @@ export async function decideCustomerDocument(
       .set({ ...changes, revision: document.revision + 1 })
       .where(scope(ws, id))
       .returning();
-    return record(tx, saved!, actorId, input.action === "issue" ? "issued" : "discarded", input.reason);
+    await record(tx, saved!, actorId, input.action === "issue" ? "issued" : "discarded", input.reason);
+    return { ...saved!, warnings: await warningsFor(tx, saved!) };
   });
 }

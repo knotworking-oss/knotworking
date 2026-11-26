@@ -1,0 +1,1 @@
+ALTER TABLE "invoicing_settings" ADD COLUMN "require_second_approver" boolean DEFAULT false NOT NULL;

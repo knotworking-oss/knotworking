@@ -178,9 +178,13 @@ describe("Invoicing: customer invoices and credit notes", () => {
       send("PUT", "/invoicing/settings", { taxRegistrationNumber }, cookie);
     await grant("write");
     await ok(setting("GB123456789", member), 403);
-    expect(await ok(setting("  GB123456789 "))).toEqual({ taxRegistrationNumber: "GB123456789" });
+    expect(await ok(setting("  GB123456789 "))).toEqual({
+      taxRegistrationNumber: "GB123456789",
+      requireSecondApprover: false,
+    });
     expect(await ok(send("GET", "/invoicing/settings", undefined, member))).toEqual({
       taxRegistrationNumber: "GB123456789",
+      requireSecondApprover: false,
     });
     const id = (
       await ok(
@@ -202,7 +206,7 @@ describe("Invoicing: customer invoices and credit notes", () => {
       customer: { name: "Łódź Spółka – Кириллица", taxNumber: "PL5260250995" },
     });
     // Clearing the setting leaves existing drafts and issued documents unchanged.
-    expect(await ok(setting(""))).toEqual({ taxRegistrationNumber: null });
+    expect(await ok(setting(""))).toEqual({ taxRegistrationNumber: null, requireSecondApprover: false });
     const issued = await ok(decide(drafted));
     expect(issued.issuer.taxNumber).toBe("GB123456789");
     const pdf = await send("GET", `/invoicing/${issued.id}/pdf`);
@@ -569,5 +573,166 @@ describe("Invoicing: customer invoices and credit notes", () => {
     await ok(voidReturn());
     // Credits keep the reservation: the corrected quantity is not billable again from Despatch.
     await ok(draft("despatch", delivery.id), 409);
+  });
+
+  it("sells, despatches and invoices a spare part from Sales and from Despatch", async () => {
+    await setModules(["customers", "items", "stock", "sales", "despatch", "invoicing"]);
+    const id = await customer("SPARES");
+    if (!locationId)
+      locationId = (await ok(send("POST", "/stock/locations", { name: "Invoicing warehouse" }), 201)).id;
+    const spare = await ok(
+      send("POST", "/items", {
+        code: `SP-${newId().slice(-8)}`,
+        name: "Spare belt",
+        type: "spare_part",
+        unit: "each",
+      }),
+      201,
+    );
+    const lot = await ok(
+      send("POST", "/stock/receipts", {
+        itemId: spare.id,
+        locationId,
+        quantity: 10,
+        unit: "each",
+        receivedOn: today,
+        reason: "Fixture stock",
+      }),
+      201,
+    );
+    const placed = await ok(
+      send("POST", "/sales/orders", {
+        commandId: newId(),
+        kind: "order",
+        document: {
+          customerId: id,
+          currency: "GBP",
+          lines: [{ itemId: spare.id, quantity: 3, unit: "each", unitPrice: 4, dueOn: today }],
+        },
+      }),
+      201,
+    );
+    const order = await ok(
+      send("POST", `/sales/orders/${placed.id}/confirm`, {
+        commandId: newId(),
+        expectedRevision: placed.revision,
+        reason: "Reviewed",
+      }),
+    );
+    const despatchOf = async (quantity: number) => {
+      const delivery = await ok(
+        send("POST", "/despatch", {
+          customerId: id,
+          despatchedOn: today,
+          lines: [{ lotId: lot.id, locationId, quantity, unit: "each" }],
+        }),
+        201,
+      );
+      const ready = await prepareDespatch(send, delivery.id);
+      expect(ready.error).toBeUndefined();
+      return ok(
+        send("POST", `/despatch/${delivery.id}/confirm`, {
+          commandId: newId(),
+          expectedUpdatedAt: ready.stamp,
+        }),
+      );
+    };
+    const shipped = await despatchOf(3);
+    // Confirming the despatch takes the spare parts out of stock.
+    expect(await ok(send("GET", `/stock/lots/${lot.id}`))).toMatchObject({ onHand: { base: 7 } });
+    await ok(
+      send("POST", `/sales/orders/${order.id}/fulfilments`, {
+        commandId: newId(),
+        expectedRevision: order.revision,
+        orderLineId: order.lines[0].id,
+        despatchLineId: shipped.lines[0].id,
+        reason: "Fulfilled customer order",
+      }),
+    );
+    const fromSales = await ok(draft("sales", order.id), 201);
+    expect(fromSales).toMatchObject({ net: "12.00", lines: [{ quantity: "3" }] });
+    expect(await ok(decide(await price(fromSales)))).toMatchObject({ status: "issued", gross: "14.40" });
+
+    const standalone = await despatchOf(2);
+    const fromDespatch = await ok(draft("despatch", standalone.id), 201);
+    expect(fromDespatch.lines[0]).toMatchObject({ pricePending: true, quantity: "2" });
+    expect(await ok(decide(await price(fromDespatch, "5")))).toMatchObject({
+      status: "issued",
+      net: "10.00",
+    });
+  });
+
+  it("warns, without refusing or renumbering, when a document is dated before the latest issued one", async () => {
+    const id = await customer("BACKDATED");
+    const one = (date = today) => manual(id, [{ quantity: "1", unitPrice: "10", taxRate: 0 }], { date });
+    const latest = await ok(decide(await ok(send("POST", "/invoicing", one()), 201)));
+    expect(latest.warnings).toEqual([]);
+    const early = addDays(today, -5);
+    const warning = { code: "backdated", latestNumber: latest.number, latestDate: today };
+    const drafted = await ok(send("POST", "/invoicing", one(early)), 201);
+    expect(drafted.warnings).toEqual([warning]);
+    expect((await ok(send("GET", `/invoicing/${drafted.id}`))).warnings).toEqual([warning]);
+    // Saving it with today's date clears the warning; moving it back restores it.
+    const current = await ok(
+      send("PATCH", `/invoicing/${drafted.id}`, { ...terms(), expectedRevision: drafted.revision }),
+    );
+    expect(current.warnings).toEqual([]);
+    const moved = await ok(
+      send("PATCH", `/invoicing/${drafted.id}`, { ...terms(early), expectedRevision: current.revision }),
+    );
+    expect(moved.warnings).toEqual([warning]);
+    const issued = await ok(decide(moved));
+    expect(issued).toMatchObject({ status: "issued", date: early, warnings: [warning] });
+    expect(issued.serial).toBe(latest.serial + 1);
+
+    // Credit notes compare with the latest issued credit note, not with invoices.
+    const cn = await ok(decide(await ok(credit(latest, [latest.lines[0].id]), 201)));
+    expect(cn.warnings).toEqual([]);
+    const backdatedCredit = await ok(credit(issued, [issued.lines[0].id], early), 201);
+    expect(backdatedCredit.warnings).toEqual([
+      { code: "backdated", latestNumber: cn.number, latestDate: today },
+    ]);
+    expect(await ok(decide(backdatedCredit))).toMatchObject({ status: "issued", serial: cn.serial + 1 });
+  });
+
+  it("optionally needs a second manager to approve a draft its author drafted or last edited", async () => {
+    const id = await customer("FOUREYES");
+    const body = () => manual(id, [{ quantity: "1", unitPrice: "5", taxRate: 0 }]);
+    const rule = (requireSecondApprover: boolean, cookie = owner) =>
+      send("PUT", "/invoicing/settings", { requireSecondApprover }, cookie);
+    await grant("write");
+    await ok(rule(true, member), 403);
+    await ok(send("PUT", "/invoicing/settings", {}), 400);
+    // Off (the default): the author approves their own draft.
+    expect((await ok(send("GET", "/invoicing/settings"))).requireSecondApprover).toBe(false);
+    expect(await ok(decide(await ok(send("POST", "/invoicing", body()), 201)))).toMatchObject({
+      status: "issued",
+    });
+
+    await ok(send("PUT", "/invoicing/settings", { taxRegistrationNumber: "GB999" }));
+    // A partial update keeps the other setting.
+    expect(await ok(rule(true))).toEqual({ taxRegistrationNumber: "GB999", requireSecondApprover: true });
+    expect(
+      (await ok(send("PUT", "/invoicing/settings", { taxRegistrationNumber: null }))).requireSecondApprover,
+    ).toBe(true);
+    await grant("manage");
+    const mine = await ok(send("POST", "/invoicing", body()), 201);
+    expect((await ok(decide(mine), 409)).error.code).toBe("second_approver_required");
+    expect(await ok(decide(mine, "issue", member))).toMatchObject({ status: "issued" });
+
+    // The last editor is refused too, and so is the original drafter.
+    const theirs = await ok(send("POST", "/invoicing", body(), member), 201);
+    const edited = await ok(
+      send("PATCH", `/invoicing/${theirs.id}`, { ...terms(), expectedRevision: theirs.revision }),
+    );
+    expect((await ok(decide(edited), 409)).error.code).toBe("second_approver_required");
+    expect((await ok(decide(edited, "issue", member), 409)).error.code).toBe("second_approver_required");
+    // Discarding is not an approval.
+    expect(await ok(decide(edited, "discard"))).toMatchObject({ status: "discarded" });
+
+    expect(await ok(rule(false))).toMatchObject({ requireSecondApprover: false });
+    expect(await ok(decide(await ok(send("POST", "/invoicing", body()), 201)))).toMatchObject({
+      status: "issued",
+    });
   });
 });

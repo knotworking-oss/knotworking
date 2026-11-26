@@ -174,12 +174,23 @@ export const crmOutcomeSchema = z.object({
   outcome: z.enum(["won", "lost", "reopen"]),
   reason,
 });
+/**
+ * What the person reviewed when they opened the handoff: the opportunity revision (`expectedRevision`)
+ * and the linked quote with its revision. A deal reopened, relinked or re-won meanwhile, or a quote
+ * changed since, is refused (`409`) rather than signing a decision nobody reviewed.
+ */
+const reviewedHandoff = {
+  ...command,
+  ...revision,
+  reason,
+  quoteId: z.uuid(),
+  quoteRevision: z.number().int().positive(),
+};
 export const crmHandoffSchema = z.discriminatedUnion("kind", [
-  z.object({ ...command, kind: z.literal("sales_order"), reason }),
+  z.object({ ...reviewedHandoff, kind: z.literal("sales_order") }),
   z.object({
-    ...command,
+    ...reviewedHandoff,
     kind: z.literal("service_project"),
-    reason,
     teamId: z.uuid(),
     leadId: z.uuid(),
   }),

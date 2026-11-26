@@ -800,31 +800,40 @@ export function OutcomeActions({ opportunity }: { opportunity: CrmOpportunity })
   const [choice, setChoice] = useState<{
     action: keyof typeof outcomeLabels | CrmHandoffInput["kind"];
     commandId: string;
+    /** What the dialog showed when opened: a handoff is refused if any of it changed since. */
+    reviewed?: Pick<CrmHandoffInput, "expectedRevision" | "quoteId" | "quoteRevision">;
   } | null>(null);
   const { pending, run } = useSubmit();
   if (viewer.role === "guest" || !can("crm", "write")) return null;
   const outcomes: (keyof typeof outcomeLabels)[] =
     opportunity.status === "open" ? ["won", "lost"] : opportunity.handoff ? [] : ["reopen"];
   const won = opportunity.status === "won" && !opportunity.handoff;
-  const toOrder = won && opportunity.salesQuoteId && can("sales", "manage");
+  const toOrder = won && can("sales", "manage") ? opportunity.salesQuote : null;
   const toProject =
-    won && opportunity.serviceQuoteId && can("client_services", "manage") && can("tasks", "write");
+    won && can("client_services", "manage") && can("tasks", "write") ? opportunity.serviceQuote : null;
+  const handoff = (action: CrmHandoffInput["kind"], quote: { id: string; revision: number }) =>
+    setChoice({
+      action,
+      commandId: newId(),
+      reviewed: { expectedRevision: opportunity.revision, quoteId: quote.id, quoteRevision: quote.revision },
+    });
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!choice) return;
     const form = new FormData(event.currentTarget);
     const reason = String(form.get("reason") ?? "");
-    const { action, commandId } = choice;
+    const { action, commandId, reviewed } = choice;
     const close = () => setChoice(null);
-    if (action === "sales_order" || action === "service_project") {
+    if ((action === "sales_order" || action === "service_project") && reviewed) {
       const json: CrmHandoffInput =
         action === "sales_order"
-          ? { kind: action, commandId, reason }
+          ? { kind: action, commandId, reason, ...reviewed }
           : {
               kind: action,
               commandId,
               reason,
+              ...reviewed,
               teamId: String(form.get("team")),
               leadId: String(form.get("lead")),
             };
@@ -836,6 +845,7 @@ export function OutcomeActions({ opportunity }: { opportunity: CrmOpportunity })
       );
       return;
     }
+    if (action === "sales_order" || action === "service_project") return;
     await run(
       () =>
         unwrap(
@@ -871,12 +881,12 @@ export function OutcomeActions({ opportunity }: { opportunity: CrmOpportunity })
         </Button>
       ))}
       {toOrder && (
-        <Button size="sm" onClick={() => setChoice({ action: "sales_order", commandId: newId() })}>
+        <Button size="sm" onClick={() => handoff("sales_order", toOrder)}>
           Create draft order
         </Button>
       )}
       {toProject && (
-        <Button size="sm" onClick={() => setChoice({ action: "service_project", commandId: newId() })}>
+        <Button size="sm" onClick={() => handoff("service_project", toProject)}>
           Create delivery project
         </Button>
       )}

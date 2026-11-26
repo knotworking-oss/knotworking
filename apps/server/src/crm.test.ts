@@ -1,5 +1,13 @@
 import { DEFAULT_TIME_ZONE, newId, todayInZone, type ModuleId } from "@knotworking/core";
-import { crmLeads, crmOpportunities, crmStages, customers, salesOrders, workspaces } from "@knotworking/db";
+import {
+  crmLeads,
+  crmOpportunities,
+  crmStages,
+  customers,
+  salesOrders,
+  syncChanges,
+  workspaces,
+} from "@knotworking/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sweepDueNotifications } from "./services/notification-sweep";
@@ -10,6 +18,22 @@ const today = todayInZone(DEFAULT_TIME_ZONE);
 
 type Ids = Record<"workspace" | "team" | "ada" | "marcus" | "priya", string>;
 type Session = { ctx: TestCtx; ada: string; marcus: string; priya: string; ids: Ids };
+
+/** An opportunity as the handoff dialog sees it when opened. */
+type Deal = {
+  id: string;
+  revision: number;
+  salesQuoteId?: string | null;
+  serviceQuoteId?: string | null;
+  salesQuote?: { revision: number } | null;
+  serviceQuote?: { revision: number } | null;
+};
+/** The opportunity revision and quote (with its revision) a handoff was reviewed against. */
+const reviewed = (o: Deal) => ({
+  expectedRevision: o.revision,
+  quoteId: o.salesQuoteId ?? o.serviceQuoteId ?? newId(),
+  quoteRevision: (o.salesQuote ?? o.serviceQuote)?.revision ?? 1,
+});
 
 async function open(activeModules?: readonly ModuleId[]): Promise<Session> {
   const ctx = await makeApp({ seed: true, activeModules });
@@ -206,14 +230,16 @@ describe("CRM pipeline with Sales and Client services", () => {
     const done = await body(await req("PATCH", `/crm/activities/${followUp.id}`, { done: true }, s.priya));
     expect(done.completedAt).not.toBeNull();
 
-    const handoff = {
-      commandId: newId(),
+    // The dialog sends what it reviewed: the opportunity and quote revisions as opened.
+    const handoffOf = (o: Deal, commandId = newId()) => ({
+      commandId,
       kind: "service_project",
       reason: "Signed by email",
       teamId: s.ids.team,
       leadId: s.ids.ada,
-    };
-    await body(await req("POST", `/crm/opportunities/${opportunity.id}/handoff`, handoff), 409);
+      ...reviewed(o),
+    });
+    await body(await req("POST", `/crm/opportunities/${opportunity.id}/handoff`, handoffOf(linked)), 409);
     const won = await body(
       await req("POST", `/crm/opportunities/${opportunity.id}/outcome`, {
         commandId: newId(),
@@ -225,8 +251,8 @@ describe("CRM pipeline with Sales and Client services", () => {
     expect(won).toMatchObject({ status: "won", closedReason: "Customer accepted the proposal" });
     // The service quote must be issued before the customer's acceptance is recorded.
     expect(
-      (await body(await req("POST", `/crm/opportunities/${opportunity.id}/handoff`, handoff), 409)).error
-        .message,
+      (await body(await req("POST", `/crm/opportunities/${opportunity.id}/handoff`, handoffOf(won)), 409))
+        .error.message,
     ).toMatch(/Issue/);
     await body(
       await req("POST", `/client-services/${quote.id}/decision`, {
@@ -236,6 +262,12 @@ describe("CRM pipeline with Sales and Client services", () => {
         reason: "Scope checked",
       }),
     );
+    // Reviewed before the quote was issued: the person must look at the issued quote.
+    expect(
+      (await body(await req("POST", `/crm/opportunities/${opportunity.id}/handoff`, handoffOf(won)), 409))
+        .error.message,
+    ).toMatch(/quote changed/);
+    const handoff = handoffOf(await body(await req("GET", `/crm/opportunities/${opportunity.id}`)));
     const handed = await body(await req("POST", `/crm/opportunities/${opportunity.id}/handoff`, handoff));
     expect(handed.handoff).toMatchObject({
       kind: "service_project",
@@ -360,7 +392,12 @@ describe("CRM pipeline with Sales and Client services", () => {
         reason: "Verbal yes from the buyer",
       }),
     );
-    const handoff = { commandId: newId(), kind: "sales_order", reason: "Order the first month" };
+    const handoff = {
+      commandId: newId(),
+      kind: "sales_order",
+      reason: "Order the first month",
+      ...reviewed(won),
+    };
     const handed = await body(await req("POST", `/crm/opportunities/${deal.id}/handoff`, handoff));
     expect(handed.handoff).toMatchObject({
       kind: "sales_order",
@@ -640,12 +677,19 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
       await api.req("PATCH", `/crm/opportunities/${o.id}`, { expectedRevision: o.revision, ...json }, cookie),
       status,
     );
-  const handoff = async (id: string, json: object, status = 200, cookie?: string) =>
+  const handoff = async (o: Deal, json: object, status = 200, cookie?: string) =>
     api.body(
       await api.req(
         "POST",
-        `/crm/opportunities/${id}/handoff`,
-        { commandId: newId(), reason: "Signed", teamId: s.ids.team, leadId: s.ids.ada, ...json },
+        `/crm/opportunities/${o.id}/handoff`,
+        {
+          commandId: newId(),
+          reason: "Signed",
+          teamId: s.ids.team,
+          leadId: s.ids.ada,
+          ...reviewed(o),
+          ...json,
+        },
         cookie,
       ),
       status,
@@ -666,7 +710,7 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
     const won = await outcome(deal, "won");
     // Closed but not yet handed off: the link can't move or drop.
     expect((await patch(won, { salesQuoteId: null }, 409)).error.message).toMatch(/Reopen/);
-    const handed = await handoff(deal.id, { kind: "sales_order" });
+    const handed = await handoff(won, { kind: "sales_order" });
     expect(handed.handoff).toMatchObject({ kind: "sales_order" });
     // Unlinking after the handoff would have let the deal reopen and its quote back a second deal.
     await patch(handed, { salesQuoteId: null }, 409);
@@ -728,11 +772,11 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
     const swapped = await patch(deal, { salesQuoteId: null, serviceQuoteId: service.id });
     expect(swapped).toMatchObject({ salesQuoteId: null, serviceQuoteId: service.id });
     const won = await outcome(swapped, "won");
-    const handed = await handoff(won.id, { kind: "service_project" });
+    const handed = await handoff(won, { kind: "service_project" });
     expect(handed.handoff).toMatchObject({ kind: "service_project", status: "accepted" });
     // A retry of the same handoff returns it; another kind is refused.
-    expect((await handoff(won.id, { kind: "service_project" })).handoff.id).toBe(handed.handoff.id);
-    expect((await handoff(won.id, { kind: "sales_order" }, 409)).error.code).toBe("already_handed_off");
+    expect((await handoff(won, { kind: "service_project" })).handoff.id).toBe(handed.handoff.id);
+    expect((await handoff(won, { kind: "sales_order" }, 409)).error.code).toBe("already_handed_off");
     // The database holds the same rule.
     await expect(
       s.ctx.handle.db
@@ -740,6 +784,88 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
         .set({ salesQuoteId: sales.id })
         .where(eq(crmOpportunities.id, deal.id)),
     ).rejects.toThrow();
+  });
+
+  const ordersOf = (quoteId: string) =>
+    s.ctx.handle.db
+      .select({ id: salesOrders.id, status: salesOrders.status })
+      .from(salesOrders)
+      .where(eq(salesOrders.sourceQuoteId, quoteId));
+  const handoffBody = (o: Deal) => ({
+    commandId: newId(),
+    kind: "sales_order",
+    reason: "Signed",
+    ...reviewed(o),
+  });
+  const postHandoff = async (id: string, json: object, status = 200) =>
+    api.body(await api.req("POST", `/crm/opportunities/${id}/handoff`, json), status);
+
+  it("refuses a handoff reviewed against another quote or an older revision", async () => {
+    const quoteA = await salesQuote();
+    const quoteB = await salesQuote();
+    const won = await outcome(await make("Stale review", { salesQuoteId: quoteA.id }), "won");
+    // One session opens the handoff for quote A...
+    const stale = handoffBody(won);
+    // ...while another reopens the deal, links quote B and wins it again.
+    const relinked = await patch(await outcome(won, "reopen"), { salesQuoteId: quoteB.id });
+    const rewon = await outcome(relinked, "won");
+    expect((await postHandoff(won.id, stale, 409)).error.message).toMatch(/changed/);
+    // The current revision, but the quote or quote revision reviewed is not the linked one.
+    expect((await handoff(rewon, { kind: "sales_order", quoteId: quoteA.id }, 409)).error.message).toMatch(
+      /linked quote changed/,
+    );
+    expect(
+      (await handoff(rewon, { kind: "sales_order", quoteRevision: quoteB.revision - 1 }, 409)).error.message,
+    ).toMatch(/quote changed/);
+    expect(await ordersOf(quoteA.id)).toEqual([]);
+    expect(await ordersOf(quoteB.id)).toEqual([]);
+    // Reviewed as it now stands, it converts quote B.
+    const handed = await handoff(rewon, { kind: "sales_order" });
+    expect(await ordersOf(quoteB.id)).toEqual([{ id: handed.handoff.id, status: "draft" }]);
+  });
+
+  it("replays a handoff from its receipt, never against a relinked quote", async () => {
+    const { body, req } = api;
+    const quoteA = await salesQuote();
+    const quoteB = await salesQuote();
+    const won = await outcome(await make("Replayed handoff", { salesQuoteId: quoteA.id }), "won");
+    const converting = handoffBody(won);
+    const handed = await postHandoff(won.id, converting);
+    // A second request after the handoff adopts it, and gets a receipt of its own.
+    const adopting = handoffBody(won);
+    expect((await postHandoff(won.id, adopting)).handoff.id).toBe(handed.handoff.id);
+    // The draft order is cancelled; the deal is reopened, relinked to quote B and won again.
+    const order = await body(await req("GET", `/sales/orders/${handed.handoff.id}`));
+    await body(
+      await req("POST", `/sales/orders/${order.id}/cancel`, {
+        commandId: newId(),
+        expectedRevision: order.revision,
+        reason: "Customer changed the start date",
+      }),
+    );
+    const current = await body(await req("GET", `/crm/opportunities/${won.id}`));
+    expect(current.handoff).toBeNull();
+    const rewon = await outcome(
+      await patch(await outcome(current, "reopen"), { salesQuoteId: quoteB.id }),
+      "won",
+    );
+    const changesOf = async () =>
+      (
+        await s.ctx.handle.db
+          .select({ id: syncChanges.id })
+          .from(syncChanges)
+          .where(eq(syncChanges.entityId, won.id))
+      ).length;
+    const before = await changesOf();
+    // Replaying either earlier request returns its receipt: no order for quote B, no conflict.
+    for (const replay of [adopting, converting]) {
+      const result = await postHandoff(won.id, replay);
+      expect(result).toMatchObject({ id: won.id, salesQuoteId: quoteB.id, handoff: null });
+    }
+    expect(await ordersOf(quoteB.id)).toEqual([]);
+    expect(await changesOf()).toBe(before);
+    // A fresh review hands off quote B.
+    expect((await handoff(rewon, { kind: "sales_order" })).handoff).toMatchObject({ kind: "sales_order" });
   });
 
   it("rechecks the quote's customer at handoff", async () => {
@@ -763,7 +889,7 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
       }),
     );
     const won = await outcome(deal, "won");
-    expect((await handoff(won.id, { kind: "sales_order" }, 409)).error.message).toMatch(/another customer/);
+    expect((await handoff(won, { kind: "sales_order" }, 409)).error.message).toMatch(/another customer/);
     const orders = await s.ctx.handle.db
       .select({ id: salesOrders.id })
       .from(salesOrders)
@@ -807,9 +933,7 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
     const { grant } = api;
     await grant(s.ids.marcus, "sales", "write");
     const won = await outcome(await make("Not his call", { salesQuoteId: (await salesQuote()).id }), "won");
-    expect((await handoff(won.id, { kind: "sales_order" }, 403, s.marcus)).error.code).toBe(
-      "module_forbidden",
-    );
+    expect((await handoff(won, { kind: "sales_order" }, 403, s.marcus)).error.code).toBe("module_forbidden");
     expect((await api.body(await api.req("GET", `/crm/opportunities/${won.id}`))).handoff).toBeNull();
   });
 
@@ -909,7 +1033,7 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
       }),
       404,
     );
-    await handoff(foreignDeal!.id, { kind: "sales_order" }, 404);
+    await handoff({ ...foreignDeal!, salesQuoteId: foreignQuote!.id }, { kind: "sales_order" }, 404);
     await body(
       await req("POST", "/crm/activities", {
         commandId: newId(),
@@ -1005,6 +1129,7 @@ describe("CRM degrades without its optional modules", () => {
               commandId: newId(),
               kind: "sales_order",
               reason: "Order",
+              ...reviewed(won),
             }),
             404,
           )

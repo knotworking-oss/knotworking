@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   defaultCrmStages,
   hasModuleLevel,
@@ -922,12 +923,26 @@ export async function decideCrmOutcome(
 }
 
 /**
+ * The command id the handoff passes to Sales or Client services. Their receipts share the table
+ * (and its unique key) with CRM's own, so the downstream command gets an id derived from CRM's.
+ */
+function downstreamCommandId(commandId: string) {
+  const hex = createHash("sha256").update(`crm.handoff:${commandId}`).digest("hex");
+  // Shaped as a version 8 (custom) UUID.
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${((parseInt(hex[16]!, 16) & 3) | 8).toString(16)}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
  * Hands a won opportunity to delivery through the linked quote's own workflow: Sales converts its
  * issued quote into a draft order, Client services records the customer's acceptance and creates
- * the delivery project. Already handed off the same way: returns the opportunity as it is (any other
- * handoff is refused, so a won deal is fulfilled once). The quote must still be for the opportunity's
- * customer, and the deal still won when the order or project is created. The route checks the
- * caller's Sales or Client services (and Tasks) access; this is a signed decision, never a token's.
+ * the delivery project. The request names what the person reviewed (the opportunity revision, the
+ * linked quote and its revision): anything changed since is refused, so a decision is never signed
+ * for a quote nobody reviewed. Already handed off the same way: returns the opportunity as it is
+ * (any other handoff is refused, so a won deal is fulfilled once). The quote must still be for the
+ * opportunity's customer, and the deal still won when the order or project is created. CRM keeps a
+ * command receipt: a replay returns the original outcome without acting again, whatever happened to
+ * the deal since. The route checks the caller's Sales or Client services (and Tasks) access; this
+ * is a signed decision, never a token's.
  */
 export async function handOffCrmOpportunity(
   db: Database,
@@ -937,30 +952,49 @@ export async function handOffCrmOpportunity(
   input: CrmHandoffInput,
   links: CrmLinks,
 ) {
-  await db.transaction(async (tx) => {
-    // Serialised with reopen and relinking (both hold the workspace log lock), and the row is locked,
-    // so the deal is still won when the order or project is created in this same transaction.
-    await lockWorkspaceLog(tx, workspaceId);
-    const opportunity = await loadOpportunity(tx, workspaceId, id, true);
-    if (opportunity.status !== "won") throw conflict("Record the opportunity as won before handing it off");
-    const existing = await handoffOf(tx, workspaceId, opportunity);
-    // A retry of the same handoff returns it as it is; a won deal is never fulfilled a second way.
-    if (existing && existing.kind !== input.kind)
-      throw conflict("This opportunity was already handed off", "already_handed_off");
-    if (opportunity.salesQuoteId && opportunity.serviceQuoteId)
-      throw conflict("Unlink one of the two quotes before handing off");
-    // The services open their own (nested) transactions; here they run inside this one.
-    const inner = tx as unknown as Database;
-    const reason = `${opportunity.reference} won: ${input.reason}`;
-    const sameCustomer = (customerId: string) => {
-      if (customerId !== opportunity.customerId)
+  await executeLedgerCommand(
+    db,
+    workspaceId,
+    actorId,
+    "crm.opportunity.handoff",
+    input,
+    { id, ...input },
+    // Holds the workspace log lock (serialised with reopen and relinking) and locks the row, so the
+    // deal is still as reviewed when the order or project is created in this same transaction.
+    async (tx) => {
+      const opportunity = await loadOpportunity(tx, workspaceId, id, true);
+      requireRevision(opportunity, input.expectedRevision, "opportunity");
+      if (opportunity.status !== "won") throw conflict("Record the opportunity as won before handing it off");
+      const existing = await handoffOf(tx, workspaceId, opportunity);
+      // A won deal is never fulfilled a second way.
+      if (existing && existing.kind !== input.kind)
+        throw conflict("This opportunity was already handed off", "already_handed_off");
+      if (opportunity.salesQuoteId && opportunity.serviceQuoteId)
+        throw conflict("Unlink one of the two quotes before handing off");
+      const quoteId = input.kind === "sales_order" ? opportunity.salesQuoteId : opportunity.serviceQuoteId;
+      if (!quoteId)
         throw conflict(
-          "The linked quote is now for another customer. Reopen the opportunity to link the right one",
+          input.kind === "sales_order"
+            ? "Link a Sales quote before handing off to an order"
+            : "Link a Client services quote before handing off to a delivery project",
         );
-    };
-    if (input.kind === "sales_order") {
-      if (!opportunity.salesQuoteId) throw conflict("Link a Sales quote before handing off to an order");
-      if (!existing) {
+      if (quoteId !== input.quoteId)
+        throw conflict("The linked quote changed. Reload and review the latest version");
+      // Already handed off from the reviewed quote: nothing to sign or record again.
+      if (existing) return { id, handoff: existing.id };
+      const sameQuote = (quote: { revision: number; customerId: string }) => {
+        if (quote.customerId !== opportunity.customerId)
+          throw conflict(
+            "The linked quote is now for another customer. Reopen the opportunity to link the right one",
+          );
+        if (quote.revision !== input.quoteRevision)
+          throw conflict("The quote changed. Reload and review the latest version");
+      };
+      // The services open their own (nested) transactions; here they run inside this one.
+      const inner = tx as unknown as Database;
+      const reason = `${opportunity.reference} won: ${input.reason}`;
+      const commandId = downstreamCommandId(input.commandId);
+      if (input.kind === "sales_order") {
         const [quote] = await tx
           .select({
             revision: salesOrders.revision,
@@ -968,22 +1002,18 @@ export async function handOffCrmOpportunity(
             kind: salesOrders.kind,
           })
           .from(salesOrders)
-          .where(and(eq(salesOrders.workspaceId, workspaceId), eq(salesOrders.id, opportunity.salesQuoteId)));
+          .where(and(eq(salesOrders.workspaceId, workspaceId), eq(salesOrders.id, quoteId)));
         if (!quote || quote.kind !== "quote") throw notFound("Quote");
-        sameCustomer(quote.customerId);
+        sameQuote(quote);
         await actOnSalesOrder(
           inner,
           workspaceId,
           actorId,
-          opportunity.salesQuoteId,
-          { commandId: input.commandId, expectedRevision: quote.revision, reason },
+          quoteId,
+          { commandId, expectedRevision: quote.revision, reason },
           "convert",
         );
-      }
-    } else {
-      if (!opportunity.serviceQuoteId)
-        throw conflict("Link a Client services quote before handing off to a delivery project");
-      if (!existing) {
+      } else {
         const [quote] = await tx
           .select({
             status: serviceQuotes.status,
@@ -991,25 +1021,24 @@ export async function handOffCrmOpportunity(
             customerId: serviceQuotes.customerId,
           })
           .from(serviceQuotes)
-          .where(
-            and(eq(serviceQuotes.workspaceId, workspaceId), eq(serviceQuotes.id, opportunity.serviceQuoteId)),
-          );
+          .where(and(eq(serviceQuotes.workspaceId, workspaceId), eq(serviceQuotes.id, quoteId)));
         if (!quote) throw notFound("Quote");
-        sameCustomer(quote.customerId);
+        sameQuote(quote);
         if (quote.status !== "issued") throw conflict("Issue the service quote before handing off");
-        await decideServiceQuote(inner, workspaceId, actorId, opportunity.serviceQuoteId, {
+        await decideServiceQuote(inner, workspaceId, actorId, quoteId, {
           action: "accept",
-          commandId: input.commandId,
+          commandId,
           expectedRevision: quote.revision,
           reason,
           teamId: input.teamId,
           leadId: input.leadId,
         });
       }
-    }
-    // Open clients refresh the opportunity; its own fields don't change.
-    await recordChanges(tx, workspaceId, actorId, [opportunityChange(opportunity)]);
-  });
+      // Open clients refresh the opportunity; its own fields don't change.
+      await recordChanges(tx, workspaceId, actorId, [opportunityChange(opportunity)]);
+      return { id, handoff: (await handoffOf(tx, workspaceId, opportunity))?.id ?? null };
+    },
+  );
   return getCrmOpportunity(db, workspaceId, id, links);
 }
 

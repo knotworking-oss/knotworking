@@ -180,6 +180,47 @@ describe("project templates in a Tasks-only workspace", () => {
     expect(await tasksOf(first.id)).toHaveLength(1);
   });
 
+  it("keeps early years and refuses due dates past 9999", async () => {
+    const early = await body(
+      await create(s.ada, {
+        templateId: "client_kickoff",
+        startDate: "0050-06-15",
+        tasks: [{ title: "Antique kickoff", daysFromStart: 1 }],
+      }),
+      201,
+    );
+    expect((await tasksOf(early.id)).map((t) => t.dueDate)).toEqual(["0050-06-16"]);
+    const late = await create(s.ada, {
+      templateId: "client_kickoff",
+      startDate: "9998-12-31",
+      tasks: [{ title: "Far future", daysFromStart: 730 }],
+    });
+    expect(late.status).toBe(400);
+    // Without edited tasks, the template's own last offset (+3 days) is checked too.
+    await body(await create(s.ada, { templateId: "client_kickoff", startDate: "9999-12-30" }), 400);
+  });
+
+  it("takes up to 50 tasks and titles up to 512 characters", async () => {
+    const many = (count: number, title = "Task") =>
+      Array.from({ length: count }, (_, i) => ({ title: `${title} ${i}`, daysFromStart: i % 5 }));
+    const fifty = await body(await create(s.ada, { templateId: "client_kickoff", tasks: many(50) }), 201);
+    expect(await tasksOf(fifty.id)).toHaveLength(50);
+    await body(await create(s.ada, { templateId: "client_kickoff", tasks: many(51) }), 400);
+    const long = "x".repeat(512);
+    const titled = await body(
+      await create(s.ada, { templateId: "client_kickoff", tasks: [{ title: long, daysFromStart: 0 }] }),
+      201,
+    );
+    expect((await tasksOf(titled.id))[0]!.title).toBe(long);
+    await body(
+      await create(s.ada, {
+        templateId: "client_kickoff",
+        tasks: [{ title: `${long}x`, daysFromStart: 0 }],
+      }),
+      400,
+    );
+  });
+
   it("needs Tasks write access", async () => {
     await grant("tasks", "read");
     try {
@@ -227,10 +268,28 @@ describe("project templates in a general business workspace", () => {
     ]);
   });
 
-  it("still creates the original templates", async () => {
-    for (const templateId of ["employee_onboarding", "client_kickoff"]) {
+  it("still creates the original templates with their titles and dates", async () => {
+    // Fixtures from the templates as they shipped before the expansion, milestone 5 January 2027.
+    const expected = {
+      employee_onboarding: [
+        ["Prepare equipment and workspace", "2026-12-29"],
+        ["Set up accounts and access", "2027-01-02"],
+        ["Send the first-day agenda", "2027-01-04"],
+        ["Introduce the team and review key policies", "2027-01-05"],
+        ["Schedule role training", "2027-01-08"],
+        ["Hold the first-week check-in", "2027-01-12"],
+      ],
+      client_kickoff: [
+        ["Confirm scope, contacts and responsibilities", "2026-12-31"],
+        ["Share the kickoff agenda", "2027-01-03"],
+        ["Hold the kickoff meeting", "2027-01-05"],
+        ["Send decisions and next actions", "2027-01-06"],
+        ["Confirm milestones and review dates", "2027-01-08"],
+      ],
+    };
+    for (const [templateId, tasks] of Object.entries(expected)) {
       const created = await body(await create(s.marcus, { templateId, startDate: "2027-01-05" }), 201);
-      expect(await tasksOf(created.id)).toHaveLength(templateId === "employee_onboarding" ? 6 : 5);
+      expect((await tasksOf(created.id)).map((t) => [t.title, t.dueDate])).toEqual(tasks);
     }
   });
 });

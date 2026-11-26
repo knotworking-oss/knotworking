@@ -141,13 +141,12 @@ const packingView = (c: Context<WorkspaceEnv>) => ({
   specifications: c.var.activeModules.includes("specifications") && canRead(c, "specifications"),
 });
 /**
- * While Routings is active, a batch with job cards completes only once every operation has, and
- * cancelling it cancels its open cards. Whatever the caller can read: the rule is the workspace's.
+ * While Routings is active, a batch with job cards completes only once every operation has.
+ * Whatever the caller can read: the rule is the workspace's. Cancelling a batch cancels its open
+ * cards whether or not Routings is active (cleanup, so no card is left open on a closed batch).
  */
 const routingHooks = (c: Context<WorkspaceEnv>) =>
-  c.var.activeModules.includes("routings")
-    ? { beforeComplete: assertJobCardsComplete, afterCancel: cancelOpenJobCards }
-    : {};
+  c.var.activeModules.includes("routings") ? { beforeComplete: assertJobCardsComplete } : {};
 /**
  * While Routings is active, a batch with job cards takes its output only from the last
  * operation's card (`409 use_job_card` here), so finished stock never runs ahead of the cards.
@@ -783,7 +782,10 @@ export const productionRoutes = new Hono<WorkspaceEnv>()
           c.var.user.id,
           c.req.valid("param").id,
           c.req.valid("json").reason,
-          { canManage: hasModuleLevel(c.var.workspace.modules.production, "manage"), ...routingHooks(c) },
+          {
+            canManage: hasModuleLevel(c.var.workspace.modules.production, "manage"),
+            afterCancel: (tx, batch) => cancelOpenJobCards(tx, batch),
+          },
         ),
       ),
   )

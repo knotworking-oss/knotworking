@@ -1,14 +1,15 @@
 import {
+  JOB_CARD_MAX_LOG_MINUTES,
   batchFactor,
   blockingPrevious,
   expectedOperationMinutes,
   jobCardStatusLabels,
-  loggedMinutes,
   newId,
   openJobCardStatuses,
   remainingFromPrevious,
   roundQuantity,
   stockAmount,
+  stoppedTimer,
   workCentreCost,
   type JobCardCompleteInput,
   type JobCardExceptionInput,
@@ -1235,13 +1236,28 @@ export async function createJobCards(db: Database, workspaceId: string, actorId:
   return listBatchJobCards(db, workspaceId, batchId);
 }
 
-/** Cancels a batch's job cards before any work is recorded on them, so they can be made again. */
+/**
+ * Cancels a batch's job cards before any work is recorded on them, so they can be made again. On a
+ * closed batch (completed or cancelled while Routings was off, so its cards were left open) it
+ * closes the cards still open instead, whatever was recorded on them: their running timers stop
+ * at the batch's close, and their time stays costed.
+ */
 export async function cancelJobCards(db: Database, workspaceId: string, actorId: string, batchId: string) {
   await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
-    await findBatch(tx, workspaceId, batchId);
+    const batch = await findBatch(tx, workspaceId, batchId);
     const cards = await liveCardsOfBatch(tx, batchId);
     if (!cards.length) throw new ApiError(409, "no_job_cards", "This batch has no job cards");
+    if (batch.status === "completed" || batch.status === "cancelled") {
+      const changes = await cancelOpenJobCards(
+        tx,
+        batch,
+        batch.completedAt ?? batch.cancelledAt ?? new Date(),
+      );
+      if (!changes.length) throw new ApiError(409, "no_open_job_cards", "This batch has no open job cards");
+      await recordChanges(tx, workspaceId, actorId, changes);
+      return;
+    }
     const progress = await progressOf(tx, cards);
     const ids = cards.map((c) => c.id);
     const [records] = await tx
@@ -1269,14 +1285,15 @@ export async function cancelJobCards(db: Database, workspaceId: string, actorId:
   return listBatchJobCards(db, workspaceId, batchId);
 }
 
-/** Stops every running timer on the cards, at `now`. */
+/** Stops every running timer on the cards at `now`, each capped at a day (`stoppedTimer`). */
 async function stopTimers(tx: Transaction, cardIds: string[], now: Date) {
   if (!cardIds.length) return;
+  const at = sql`least(greatest(${now.toISOString()}::timestamptz, ${jobCardTimeLogs.startedAt}), ${jobCardTimeLogs.startedAt} + ${sql.raw(`interval '${JOB_CARD_MAX_LOG_MINUTES} minutes'`)})`;
   await tx
     .update(jobCardTimeLogs)
     .set({
-      endedAt: now,
-      minutes: sql`greatest(1, round(extract(epoch from (${now.toISOString()}::timestamptz - ${jobCardTimeLogs.startedAt})) / 60))::int`,
+      endedAt: at,
+      minutes: sql`greatest(1, round(extract(epoch from (${at} - ${jobCardTimeLogs.startedAt})) / 60))::int`,
     })
     .where(
       and(
@@ -1356,15 +1373,22 @@ export async function refuseDirectOutput(tx: Executor, batch: BatchRow) {
   }
 }
 
-/** Production's cancellation step while Routings is active: the batch's open cards are cancelled. */
-export async function cancelOpenJobCards(tx: Transaction, batch: BatchRow): Promise<ChangeInput[]> {
+/**
+ * Production's cancellation step, whether or not Routings is active (data cleanup, not a rule):
+ * the batch's open cards are cancelled and their running timers stopped.
+ */
+export async function cancelOpenJobCards(
+  tx: Transaction,
+  batch: BatchRow,
+  stopAt = new Date(),
+): Promise<ChangeInput[]> {
   const open = (await liveCardsOfBatch(tx, batch.id)).filter((c) => openJobCardStatuses.includes(c.status));
   if (!open.length) return [];
   const now = new Date();
   await stopTimers(
     tx,
     open.map((c) => c.id),
-    now,
+    stopAt,
   );
   const rows = await tx
     .update(jobCards)
@@ -1456,11 +1480,22 @@ export async function startJobCardTimer(
   return getJobCard(db, workspaceId, id);
 }
 
-/** Stops the caller's running timer on the card. Works while the card is open, whatever the batch. */
+/**
+ * Stops the caller's running timer on the card, capped at a day. Not once the batch is closed:
+ * cancelling its open cards stops their timers at the batch's close.
+ */
 export async function stopJobCardTimer(db: Database, workspaceId: string, actorId: string, id: string) {
   await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
-    await findCard(tx, workspaceId, id);
+    const card = await findCard(tx, workspaceId, id);
+    const batch = await findBatch(tx, workspaceId, card.batchId);
+    if (batch.status === "completed" || batch.status === "cancelled") {
+      throw new ApiError(
+        409,
+        "invalid_batch_status",
+        `Batch ${batch.batchCode} is ${batch.status}; cancel its open job cards to close them`,
+      );
+    }
     const [running] = await tx
       .select()
       .from(jobCardTimeLogs)
@@ -1473,10 +1508,9 @@ export async function stopJobCardTimer(db: Database, workspaceId: string, actorI
         ),
       );
     if (!running) throw new ApiError(409, "no_timer", "You have no timer running on this job card");
-    const now = new Date();
     await tx
       .update(jobCardTimeLogs)
-      .set({ endedAt: now, minutes: loggedMinutes(running.startedAt, now) })
+      .set(stoppedTimer(running.startedAt, new Date()))
       .where(eq(jobCardTimeLogs.id, running.id));
   });
   return getJobCard(db, workspaceId, id);

@@ -33,15 +33,18 @@ export function BatchJobCardsPanel({
     can("routings", "write") &&
     data.jobCards.length === 0 &&
     (data.batch.status === "planned" || data.batch.status === "in_progress");
-  async function make() {
+  // Cards left open on a batch closed while Routings was off: closing them stops their timers.
+  const canClose =
+    can("routings", "write") &&
+    (data.batch.status === "completed" || data.batch.status === "cancelled") &&
+    data.jobCards.some((c) => c.status === "pending" || c.status === "in_progress");
+  async function act(kind: "make" | "close") {
     setPending(true);
     try {
-      await unwrap(
-        browserApi().v1.workspaces[":slug"].routings.batches[":batchId"]["job-cards"].$post({
-          param: { slug, batchId: data.batch.id },
-        }),
-      );
-      toast.success("Job cards made");
+      const cards = browserApi().v1.workspaces[":slug"].routings.batches[":batchId"]["job-cards"];
+      const param = { slug, batchId: data.batch.id };
+      await unwrap(kind === "make" ? cards.$post({ param }) : cards.$delete({ param }));
+      toast.success(kind === "make" ? "Job cards made" : "Open job cards closed");
       router.refresh();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -63,8 +66,13 @@ export function BatchJobCardsPanel({
             )}
           </CardTitle>
           {canMake && (
-            <Button size="sm" disabled={pending || !data.routing} onClick={() => void make()}>
+            <Button size="sm" disabled={pending || !data.routing} onClick={() => void act("make")}>
               Make job cards
+            </Button>
+          )}
+          {canClose && (
+            <Button size="sm" variant="outline" disabled={pending} onClick={() => void act("close")}>
+              Close open job cards
             </Button>
           )}
         </CardHeader>

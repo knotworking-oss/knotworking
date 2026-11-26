@@ -1,4 +1,6 @@
 import { DEFAULT_TIME_ZONE, moduleIds, todayInZone, type ModuleId } from "@knotworking/core";
+import { jobCardTimeLogs } from "@knotworking/db";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeApp, signIn, type TestCtx } from "./test-utils";
 
@@ -596,5 +598,48 @@ describe("routings and job cards", () => {
       lot: { lotCode: "VG-1" },
       amount: { base: 5000 },
     });
+  });
+  it("caps forgotten timers and closes cards left open on batches closed while Routings was off", async () => {
+    await ok("PATCH", "/module-settings", { modules: [...moduleIds] });
+    // A timer left running for a month books a day at most, like entered time.
+    const running = await startedBatch();
+    const cut = running.cards[0]!;
+    await ok("POST", `${cut}/timer/start`, {}, 201);
+    const cardId = cut.split("/").at(-1)!;
+    await ctx.handle.db
+      .update(jobCardTimeLogs)
+      .set({ startedAt: sql`now() - interval '30 days'` })
+      .where(eq(jobCardTimeLogs.jobCardId, cardId));
+    const stopped = await ok("POST", `${cut}/timer/stop`);
+    expect(stopped.timeLogs[0]).toMatchObject({ minutes: 1440, running: false });
+    expect(
+      new Date(stopped.timeLogs[0].endedAt).getTime() - new Date(stopped.timeLogs[0].startedAt).getTime(),
+    ).toBe(1440 * 60_000);
+
+    // Cancelling a batch while Routings is off still cancels its open cards and stops their timers.
+    const cancelled = await startedBatch();
+    await ok("POST", `${cancelled.cards[0]}/timer/start`, {}, 201);
+    const completed = await startedBatch();
+    await ok("POST", `${completed.cards[0]}/timer/start`, {}, 201);
+    await ok("POST", `${completed.cards[0]}/time`, { minutes: 30 }, 201);
+    await ok("PATCH", "/module-settings", { modules: moduleIds.filter((id) => id !== "routings") });
+    await ok("POST", `/production/batches/${cancelled.id}/cancel`, { reason: "Withdrawn" });
+    // Completing one with Routings off leaves its cards open (they no longer gate it).
+    await ok("POST", `/production/batches/${completed.id}/output`, { quantity: 1, unit: "each" }, 201);
+    await ok("POST", `/production/batches/${completed.id}/complete`, {});
+    await ok("PATCH", "/module-settings", { modules: [...moduleIds] });
+
+    const afterCancel = await ok("GET", cancelled.cards[0]!);
+    expect(afterCancel).toMatchObject({ status: "cancelled", runningTimers: 0 });
+    // The completed batch's open cards: no timer stopped weeks later, but closable by cancelling them.
+    await refused("POST", `${completed.cards[0]}/timer/stop`, undefined, 409, "invalid_batch_status");
+    const closed = await ok("DELETE", `/routings/batches/${completed.id}/job-cards`);
+    expect(closed.jobCards).toEqual([]);
+    const card = await ok("GET", completed.cards[0]!);
+    expect(card).toMatchObject({ status: "cancelled", runningTimers: 0 });
+    expect(card.timeLogs.every((l: { running: boolean }) => !l.running)).toBe(true);
+    const open = await ok("GET", `/routings/job-cards?status=open&batchId=${completed.id}`);
+    expect(open.total).toBe(0);
+    await refused("DELETE", `/routings/batches/${completed.id}/job-cards`, undefined, 409, "no_job_cards");
   });
 });

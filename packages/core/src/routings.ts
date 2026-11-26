@@ -93,6 +93,18 @@ export function loggedMinutes(startedAt: Date | string, endedAt: Date | string):
   return Math.max(1, Math.round(ms / 60_000));
 }
 
+/**
+ * A timer stopped at `stoppedAt`: its end and minutes, capped at JOB_CARD_MAX_LOG_MINUTES (a day)
+ * like entered time, so a timer left running is booked for a day at most, never for weeks.
+ */
+export function stoppedTimer(startedAt: Date | string, stoppedAt: Date | string) {
+  const start = new Date(startedAt).getTime();
+  const endedAt = new Date(
+    Math.min(new Date(stoppedAt).getTime(), start + JOB_CARD_MAX_LOG_MINUTES * 60_000),
+  );
+  return { endedAt, minutes: loggedMinutes(new Date(start), endedAt) };
+}
+
 export interface JobCardProgress {
   position: number;
   status: JobCardStatus;

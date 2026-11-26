@@ -4,6 +4,7 @@ import {
   expectedOperationMinutes,
   jobCardQuantitySchema,
   loggedMinutes,
+  stoppedTimer,
   remainingFromPrevious,
   routingDraftSchema,
   ROUTING_MAX_OPERATIONS,
@@ -51,6 +52,15 @@ describe("routings rules", () => {
     expect(loggedMinutes("2026-11-20T08:00:00Z", "2026-11-20T08:00:10Z")).toBe(1);
     expect(loggedMinutes("2026-11-20T08:00:00Z", "2026-11-20T08:00:00Z")).toBe(0);
     expect(loggedMinutes("2026-11-20T09:00:00Z", "2026-11-20T08:00:00Z")).toBe(0);
+    // A timer is capped at a day, like entered time: a forgotten one never books weeks.
+    expect(stoppedTimer("2026-11-20T08:00:00Z", "2026-11-20T09:30:00Z")).toEqual({
+      endedAt: new Date("2026-11-20T09:30:00Z"),
+      minutes: 90,
+    });
+    expect(stoppedTimer("2026-11-01T08:00:00Z", "2026-11-29T08:00:00Z")).toEqual({
+      endedAt: new Date("2026-11-02T08:00:00Z"),
+      minutes: 1440,
+    });
   });
 
   it("limits each operation to what the one before passed as good", () => {

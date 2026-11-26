@@ -89,6 +89,7 @@ export default async function BatchPage({ params }: Props) {
           currentVersion={
             current?.status === "approved" ? { id: current.id, versionNumber: current.versionNumber } : null
           }
+          outputCardId={jobCards?.jobCards.at(-1)?.id ?? null}
         />
         {jobCards && <BatchJobCardsPanel slug={slug} data={jobCards} currency={currency} />}
         <BatchPackingPanel slug={slug} packing={packing} />

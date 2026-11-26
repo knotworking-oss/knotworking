@@ -107,6 +107,7 @@ export function BatchDetail({
   currentVersion,
   openDeviations,
   readiness,
+  outputCardId = null,
 }: {
   slug: string;
   batch: Batch;
@@ -122,6 +123,11 @@ export function BatchDetail({
   };
   /** The recipe's approved version, when the batch is planned on a superseded one. */
   currentVersion: { id: string; versionNumber: number } | null;
+  /**
+   * The last operation's job card while Routings is on and the batch has live cards: the batch's
+   * output is posted there (direct output is refused, `409 use_job_card`).
+   */
+  outputCardId?: string | null;
 }) {
   const dateTime = useFormatDateTime();
   const router = useRouter();
@@ -201,9 +207,17 @@ export function BatchDetail({
               <Button variant="outline" onClick={() => setAction({ kind: "consume" })}>
                 <PackageMinus data-icon="inline-start" /> Record consumption
               </Button>
-              <Button variant="outline" onClick={() => setAction({ kind: "output" })}>
-                <PackagePlus data-icon="inline-start" /> Record output
-              </Button>
+              {outputCardId ? (
+                <Button variant="outline" asChild>
+                  <Link href={`/${slug}/routings/job-cards/${outputCardId}`}>
+                    <PackagePlus data-icon="inline-start" /> Post output on the last job card
+                  </Link>
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={() => setAction({ kind: "output" })}>
+                  <PackagePlus data-icon="inline-start" /> Record output
+                </Button>
+              )}
             </>
           )}
           {canManage && running && (

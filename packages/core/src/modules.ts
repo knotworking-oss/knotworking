@@ -736,11 +736,11 @@ const legacySplitModules: { id: ModuleId; neededBy: readonly ModuleId[] }[] = [
  *
  * One exception keeps lists written before a module was split out working: a list that names, say,
  * `labels` but not `food_items` (which Labels needs since it left Items) gets `food_items` added,
- * and `onWarning` (default `console.warn`) is told to add it to the list.
+ * and `onWarning` is told to add it to the list (the API and MCP server log it at startup).
  */
 export function parseActiveModules(
   value: string | undefined | null,
-  onWarning: (message: string) => void = (message) => console.warn(message),
+  onWarning: (message: string) => void = () => {},
 ): ModuleId[] {
   const raw = (value ?? "").trim();
   if (!raw) return moduleIds.filter((id) => modules[id].defaultActive);

@@ -85,7 +85,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     accountingDispatchIntervalMs: limitSetting(env, "ACCOUNTING_DISPATCH_INTERVAL_SECONDS", 300) * 1000,
     uploads: uploadConfig(env),
     /** Modules switched on in this environment. Throws on an unknown id or a missing dependency. */
-    activeModules: parseActiveModules(env.KNOTWORKING_MODULES),
+    activeModules: parseActiveModules(env.KNOTWORKING_MODULES, (message) => console.warn(message)),
   };
 }
 

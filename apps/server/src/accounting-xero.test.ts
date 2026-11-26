@@ -891,9 +891,13 @@ describe("connected Xero accounting against a fake HTTP provider", () => {
       net: "50.00",
       lines: [{ sourceLineId: first.lines[0].id, quantity: "4000", unit: "g" }],
     });
+    const voidFirst = () =>
+      send("POST", `/despatch/${first.id}/void`, { commandId: newId(), reason: "Recording correction" });
+    expect((await ok(voidFirst(), 409)).error.message).toContain("Discard the invoice draft");
     await ok(draft("despatch", first.id), 409);
     const invoice = await ok(decision(await price(originalDraft)));
     expect(invoice).toMatchObject({ status: "issued", net: "50.00", tax: "10.00", gross: "60.00" });
+    expect((await ok(voidFirst(), 409)).error.message).toContain("Issue a credit note");
     await ok(draft("despatch", first.id), 409);
     await ok(draft("sales", order.id), 409);
     const second = await ship(6);
@@ -942,7 +946,10 @@ describe("connected Xero accounting against a fake HTTP provider", () => {
       reason: "Customer returned the shipment",
       lineIds: [invoice.lines[0].id],
     };
-    const credit = await ok(decision(await ok(send("POST", "/invoicing", correction), 201)));
+    const creditDraft = await ok(send("POST", "/invoicing", correction), 201);
+    expect((await ok(voidFirst(), 409)).error.message).toContain("Issue a credit note");
+    const credit = await ok(decision(creditDraft));
+    expect(await ok(voidFirst())).toMatchObject({ status: "voided" });
     await ok(send("POST", "/invoicing", { ...correction, commandId: newId() }), 409);
     await ok(
       send("PATCH", `/invoicing/${invoice.id}`, { ...terms(), expectedRevision: invoice.revision }),

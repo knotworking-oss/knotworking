@@ -9,6 +9,7 @@ import {
 } from "@knotworking/core";
 import {
   customerDocumentClaims as claims,
+  customerDocuments,
   despatchLines,
   despatchReturns,
   despatches,
@@ -46,6 +47,46 @@ export async function activeClaims(db: Executor, ws: string, kind: Claim["kind"]
       ),
     );
   return new Set(rows.map(({ sourceId }) => sourceId));
+}
+
+/** Keep the reservation as billing history even when its invoice line has been credited. */
+export async function assertInvoiceAllowsDespatchCorrection(db: Executor, ws: string, lineIds: string[]) {
+  if (!lineIds.length) return;
+  const rows = await db
+    .select({ sourceId: claims.sourceId, document: customerDocuments })
+    .from(claims)
+    .innerJoin(customerDocuments, eq(customerDocuments.id, claims.documentId))
+    .where(
+      and(
+        eq(claims.workspaceId, ws),
+        eq(claims.kind, "despatch_line"),
+        inArray(claims.sourceId, lineIds),
+        isNull(claims.releasedAt),
+      ),
+    );
+  const issuedLineIds = rows.flatMap(({ sourceId, document }) => {
+    if (document.status === "draft")
+      throw invoiceConflict("Discard the invoice draft before correcting this dispatch or return.");
+    return document.lines.filter((line) => line.sourceLineId === sourceId).map((line) => line.id);
+  });
+  if (!issuedLineIds.length) return;
+  const credits = await db
+    .select({ sourceId: claims.sourceId })
+    .from(claims)
+    .innerJoin(customerDocuments, eq(customerDocuments.id, claims.documentId))
+    .where(
+      and(
+        eq(claims.workspaceId, ws),
+        eq(claims.kind, "credit_line"),
+        inArray(claims.sourceId, issuedLineIds),
+        isNull(claims.releasedAt),
+        eq(customerDocuments.status, "issued"),
+      ),
+    );
+  if (credits.length !== issuedLineIds.length)
+    throw invoiceConflict(
+      "Issue a credit note for each affected invoice line before correcting this dispatch or return.",
+    );
 }
 
 /** A shipment is shared by both draft entry points. Keep its sales link stable while reserved. */

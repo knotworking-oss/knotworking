@@ -26,6 +26,7 @@ import {
 import { and, asc, count, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { ApiError, badRequest, notFound } from "../errors";
 import { findCustomer } from "./customers";
+import { assertInvoiceAllowsDespatchCorrection } from "./invoice-sources";
 import { executeLedgerCommand } from "./ledger-command";
 import { onHandOf, reservedByLot, reservedByLotLocation } from "./reservations-core";
 import {
@@ -356,6 +357,12 @@ export async function voidDespatch(
       const row = await findDespatch(tx, workspaceId, id);
       if (row.status === "voided")
         throw new ApiError(409, "already_voided", "This despatch has already been voided");
+      const lines = row.status === "confirmed" ? await linesOf(tx, workspaceId, id) : [];
+      await assertInvoiceAllowsDespatchCorrection(
+        tx,
+        workspaceId,
+        lines.map((line) => line.id),
+      );
       const changes: ChangeInput[] = [];
       const [physicalReturn] = await tx
         .select({ id: despatchReturns.id })
@@ -389,28 +396,26 @@ export async function voidDespatch(
             sql`${despatchHandlingUnits.supersededAt} is null`,
           ),
         );
-      if (row.status === "confirmed") {
-        for (const line of await linesOf(tx, workspaceId, id)) {
-          await findActiveLocation(tx, workspaceId, line.locationId);
-          const [movement] = await insertMovements(tx, workspaceId, [
-            {
-              lotId: line.lotId,
-              itemId: line.itemId,
-              locationId: line.locationId,
-              quantity: line.quantity,
-              type: "despatch",
-              reference: row.reference,
-              reason: input.reason,
-              reversesMovementId: line.movementId!,
-              actorId,
-            },
-          ]);
-          await tx
-            .update(despatchLines)
-            .set({ reversalMovementId: movement!.id })
-            .where(eq(despatchLines.id, line.id));
-          changes.push(movementChange(movement!));
-        }
+      for (const line of lines) {
+        await findActiveLocation(tx, workspaceId, line.locationId);
+        const [movement] = await insertMovements(tx, workspaceId, [
+          {
+            lotId: line.lotId,
+            itemId: line.itemId,
+            locationId: line.locationId,
+            quantity: line.quantity,
+            type: "despatch",
+            reference: row.reference,
+            reason: input.reason,
+            reversesMovementId: line.movementId!,
+            actorId,
+          },
+        ]);
+        await tx
+          .update(despatchLines)
+          .set({ reversalMovementId: movement!.id })
+          .where(eq(despatchLines.id, line.id));
+        changes.push(movementChange(movement!));
       }
       const [voided] = await tx
         .update(despatches)

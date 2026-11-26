@@ -282,6 +282,45 @@ describe("catalogue and bills of materials", () => {
     expect(costed.costPerUnit).toBeCloseTo(5.25);
   });
 
+  it("values a large area lot at the entered price, rounding only the money", async () => {
+    await ok("PATCH", "/module-settings", { modules: genericModules });
+    const supplier = await ok("POST", "/suppliers", { name: "Synthetic flooring" }, 201);
+    await ok("POST", `/suppliers/${supplier.id}/approval`, { status: "approved" });
+    const store = await ok("POST", "/stock/locations", { name: "Flooring store" }, 201);
+    const vinyl = await item("VINYL", "raw_material", "m2");
+    const order = await ok(
+      "POST",
+      "/purchasing/orders",
+      {
+        supplierId: supplier.id,
+        expectedOn: today,
+        lines: [{ itemId: vinyl.id, quantity: 500, unit: "m2", unitPrice: 2.994 }],
+      },
+      201,
+    );
+    expect(order.lines[0].lineValue).toBe(1497);
+    await ok("POST", `/purchasing/orders/${order.id}/send`, {});
+    const received = await ok(
+      "POST",
+      `/purchasing/orders/${order.id}/receipts`,
+      {
+        receivedOn: today,
+        lines: [
+          { lineId: order.lines[0].id, outcome: "accepted", quantity: 500, unit: "m2", locationId: store.id },
+        ],
+      },
+      201,
+    );
+    const lotId = received.receipts[0].lotId;
+    // £2.994/m² is £0.000002994/mm²: held to 8 places it would value the lot at £1,495.
+    expect(received.receipts[0].unitPrice).toBe(0.000002994);
+    const cost = await ok("GET", `/costing/lots/${lotId}`);
+    expect(cost).toMatchObject({ unitCost: 2.994, receipts: [{ unitPrice: 2.994 }] });
+    const valuation = await ok("GET", "/costing/valuation?q=VINYL");
+    expect(valuation.lots).toHaveLength(1);
+    expect(valuation.lots[0].value).toBe(1497);
+  });
+
   it("buys merchandise into stock and despatches it with Food items disabled", async () => {
     await ok("PATCH", "/module-settings", { modules: [...genericModules, "customers", "despatch"] });
     const store = await ok("POST", "/stock/locations", { name: "Shop store" }, 201);

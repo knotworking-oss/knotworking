@@ -708,6 +708,13 @@
       "when": 1795631365271,
       "tag": "0105_food_items",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1795651186248,
+      "tag": "0106_receipt_price_precision",
+      "breakpoints": true
     }
   ]
 }

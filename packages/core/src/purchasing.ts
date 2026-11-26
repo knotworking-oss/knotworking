@@ -112,8 +112,12 @@ export const purchaseReceiptMovementReference = (
  * (a 1.4% error on the order's value). Display may round.
  */
 export const PRICE_DECIMALS = 8;
-/** Decimal places of a receipt's price per base unit (`numeric(18,8)`), what costing reads. */
-export const BASE_PRICE_DECIMALS = 8;
+/**
+ * Decimal places of a receipt's price per base unit (`numeric(24,14)`), what costing reads. Base
+ * units are small (mm², mm, g, ml): £2.994 per m² is £0.000002994 per mm², which 8 places would
+ * round to 0.00000299 (500 m² valued at £1,495 instead of £1,497). Money rounds only at the total.
+ */
+export const BASE_PRICE_DECIMALS = 14;
 /** Decimal places of an order's or line's value (money). */
 export const VALUE_DECIMALS = 4;
 

@@ -187,10 +187,11 @@ export const purchaseReceipts = pgTable(
     lotId: uuid("lot_id").references(() => stockLots.id),
     stockMovementId: uuid("stock_movement_id").references(() => stockMovements.id),
     /**
-     * Per base unit (8 places: a price per gram is small), what costing reads; per the line's own
-     * unit on a non-stock line. Null when unknown.
+     * Per base unit, what costing reads; per the line's own unit on a non-stock line. Null when
+     * unknown. 14 places (`BASE_PRICE_DECIMALS`): a price per mm² is tiny, and £2.994/m² held to
+     * 8 places per mm² would value 500 m² at £1,495 instead of £1,497.
      */
-    unitPrice: numeric("unit_price", { precision: 18, scale: 8, mode: "number" }),
+    unitPrice: numeric("unit_price", { precision: 24, scale: 14, mode: "number" }),
     /** The delivery note number. */
     deliveryReference: text("delivery_reference"),
     /** Why it was refused (rejected rows). */

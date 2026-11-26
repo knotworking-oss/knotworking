@@ -857,40 +857,71 @@ function serializeCard(
 
 type CardView = ReturnType<typeof serializeCard>;
 
-/** A batch's operations cost and progress: the work-centre time costed at each card's rate. */
-function summarize(cards: readonly CardView[]) {
+/**
+ * A batch's operations cost and progress: the work-centre time costed at each card's rate. Actual
+ * minutes and cost include `cancelled` cards that have time on them (the batch was cancelled, or
+ * closed with them open): that time was worked, so it stays in the cost.
+ */
+function summarize(cards: readonly CardView[], cancelled: readonly CardView[] = []) {
   const last = cards.at(-1);
+  const minutes = (list: readonly CardView[]) => round2(list.reduce((s, c) => s + c.actualMinutes, 0));
+  const cost = (list: readonly CardView[]) => round2(list.reduce((s, c) => s + c.actualCost, 0));
   return {
     cards: cards.length,
     completed: cards.filter((c) => c.status === "completed").length,
     expectedMinutes: round2(cards.reduce((s, c) => s + c.expected.totalMinutes, 0)),
-    actualMinutes: round2(cards.reduce((s, c) => s + c.actualMinutes, 0)),
+    actualMinutes: round2(minutes(cards) + minutes(cancelled)),
     expectedCost: round2(cards.reduce((s, c) => s + c.expectedCost, 0)),
-    actualCost: round2(cards.reduce((s, c) => s + c.actualCost, 0)),
+    actualCost: round2(cost(cards) + cost(cancelled)),
+    /** Of the actual figures, what cancelled cards carry. */
+    cancelled: { cards: cancelled.length, actualMinutes: minutes(cancelled), actualCost: cost(cancelled) },
     /** What the last operation passed as good: the batch's finished quantity so far. */
     finishedGood: last ? last.good : null,
     scrap: cards.length ? round2(cards.reduce((s, c) => s + c.scrap.base, 0)) : 0,
   };
 }
 
+/** A batch's cancelled cards that still carry time (time logs not voided). */
+async function cancelledCardsWithTime(db: Executor, batchId: string) {
+  return db
+    .select()
+    .from(jobCards)
+    .where(
+      and(
+        eq(jobCards.batchId, batchId),
+        isNull(jobCards.deletedAt),
+        eq(jobCards.status, "cancelled"),
+        sql`exists (select 1 from ${jobCardTimeLogs} where ${jobCardTimeLogs.jobCardId} = ${jobCards.id} and ${jobCardTimeLogs.voidedAt} is null and ${jobCardTimeLogs.minutes} > 0)`,
+      ),
+    )
+    .orderBy(asc(jobCards.position), asc(jobCards.createdAt));
+}
+
+/** A batch's live cards in operation order, and its cancelled cards that carry time (for cost). */
 async function batchCards(db: Executor, batch: BatchRow) {
-  const cards = await liveCardsOfBatch(db, batch.id);
+  const [live, cancelled] = await Promise.all([
+    liveCardsOfBatch(db, batch.id),
+    cancelledCardsWithTime(db, batch.id),
+  ]);
+  const all = [...live, ...cancelled];
   const [progress, centres, outputs] = await Promise.all([
-    progressOf(db, cards),
+    progressOf(db, all),
     workCentresById(
       db,
-      cards.map((c) => c.workCentreId),
+      all.map((c) => c.workCentreId),
     ),
     outputItemsOf(db, [batch.outputItemId]),
   ]);
   const output = outputs.get(batch.outputItemId)!;
-  return cards.map((c) => serializeCard(c, progress.get(c.id)!, output, centres.get(c.workCentreId), batch));
+  const view = (c: CardRow) =>
+    serializeCard(c, progress.get(c.id)!, output, centres.get(c.workCentreId), batch);
+  return { cards: live.map(view), cancelled: cancelled.map(view) };
 }
 
 /** A batch's job cards in operation order, with the operations cost so far. */
 export async function listBatchJobCards(db: Executor, workspaceId: string, batchId: string) {
   const batch = await findBatch(db, workspaceId, batchId);
-  const cards = await batchCards(db, batch);
+  const { cards, cancelled } = await batchCards(db, batch);
   const [routing] = await db
     .select({ id: routings.id, code: routings.code, name: routings.name })
     .from(routings)
@@ -899,21 +930,22 @@ export async function listBatchJobCards(db: Executor, workspaceId: string, batch
     batch: { id: batch.id, batchCode: batch.batchCode, status: batch.status },
     routing: routing ?? null,
     jobCards: cards,
-    summary: summarize(cards),
+    summary: summarize(cards, cancelled),
   };
 }
 
 /**
  * The work-centre cost a batch carries from its job cards, for Costing: `null` when it has none.
- * Actual minutes are finished time logs; running timers count once stopped.
+ * Actual minutes are finished time logs; running timers count once stopped. Cancelled cards with
+ * time on them are costed too (listed after the live ones, `status: "cancelled"`).
  */
 export async function batchOperationsCost(db: Executor, workspaceId: string, batchId: string) {
   const batch = await findBatch(db, workspaceId, batchId);
-  const cards = await batchCards(db, batch);
-  if (!cards.length) return null;
+  const { cards, cancelled } = await batchCards(db, batch);
+  if (!cards.length && !cancelled.length) return null;
   return {
-    ...summarize(cards),
-    operations: cards.map((c) => ({
+    ...summarize(cards, cancelled),
+    operations: [...cards, ...cancelled].map((c) => ({
       jobCardId: c.id,
       position: c.position,
       name: c.name,

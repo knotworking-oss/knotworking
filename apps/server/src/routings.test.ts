@@ -372,10 +372,24 @@ describe("routings and job cards", () => {
     await ok("POST", `/production/batches/${batch.id}/start`);
     await ok("POST", `/routings/job-cards/${again.jobCards[0].id}/timer/start`, {}, 201);
     await refused("DELETE", `/routings/batches/${batch.id}/job-cards`, undefined, 409, "job_cards_in_use");
+    await ok("POST", `/routings/job-cards/${again.jobCards[0].id}/time`, { minutes: 120 }, 201);
     await ok("POST", `/production/batches/${batch.id}/cancel`, { reason: "Order withdrawn" });
     const after = await ok("GET", `/routings/job-cards/${again.jobCards[0].id}`);
     expect(after.status).toBe("cancelled");
-    expect(after.timeLogs[0]).toMatchObject({ running: false });
+    expect(after.timeLogs.map((l: { running: boolean }) => l.running)).toEqual([false, false]);
+    // The time worked stays in the cancelled batch's cost (121 min at Cut's 30/h).
+    const cost = await ok("GET", `/costing/batches/${batch.id}`);
+    expect(cost.operations).toMatchObject({
+      cards: 0,
+      actualMinutes: 121,
+      actualCost: 60.5,
+      cancelled: { cards: 1, actualMinutes: 121, actualCost: 60.5 },
+    });
+    expect(cost.operations.operations).toEqual([
+      expect.objectContaining({ status: "cancelled", actualMinutes: 121 }),
+    ]);
+    const summary = await ok("GET", `/routings/batches/${batch.id}/job-cards`);
+    expect(summary).toMatchObject({ jobCards: [], summary: { actualCost: 60.5 } });
   });
 
   /** A started one-frame batch with its three job cards (Cut, Weld, Assemble). */

@@ -65,11 +65,23 @@ export function NewRouting({
           <div className="grid gap-4 sm:grid-cols-[8rem_1fr]">
             <Field>
               <FieldLabel htmlFor="routing-code">Code</FieldLabel>
-              <Input id="routing-code" required maxLength={40} value={code} onChange={(e) => setCode(e.target.value)} />
+              <Input
+                id="routing-code"
+                required
+                maxLength={40}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+              />
             </Field>
             <Field>
               <FieldLabel htmlFor="routing-name">Name</FieldLabel>
-              <Input id="routing-name" required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
+              <Input
+                id="routing-name"
+                required
+                maxLength={200}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
             </Field>
           </div>
         </HaccpDialog>
@@ -211,11 +223,16 @@ export function RoutingEditor({
         </div>
       </div>
       {!active.length && (
-        <p className="text-sm text-muted-foreground">Add a work centre first: every operation is done at one.</p>
+        <p className="text-sm text-muted-foreground">
+          Add a work centre first: every operation is done at one.
+        </p>
       )}
       <ol className="space-y-3">
         {rows.map((row, index) => (
-          <li key={row.key} className="grid gap-3 rounded-md border p-3 md:grid-cols-[2rem_1fr_14rem_6rem_6rem_auto]">
+          <li
+            key={row.key}
+            className="grid gap-3 rounded-md border p-3 md:grid-cols-[2rem_1fr_14rem_6rem_6rem_auto]"
+          >
             <span className="pt-7 text-sm font-medium tabular-nums">{index + 1}.</span>
             <Field>
               <FieldLabel htmlFor={`op-name-${row.key}`}>Operation</FieldLabel>
@@ -339,7 +356,13 @@ export function RoutingEditor({
 }
 
 /** Archive or restore a routing (write). An archived routing makes no new job cards. */
-export function RoutingStatusButton({ slug, routing }: { slug: string; routing: Pick<Routing, "id" | "status"> }) {
+export function RoutingStatusButton({
+  slug,
+  routing,
+}: {
+  slug: string;
+  routing: Pick<Routing, "id" | "status">;
+}) {
   const { can } = useWorkspace();
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -353,7 +376,9 @@ export function RoutingStatusButton({ slug, routing }: { slug: string; routing: 
       onClick={async () => {
         setPending(true);
         try {
-          await unwrap(routingsApi()[":id"].$patch({ param: { slug, id: routing.id }, json: { status: next } }));
+          await unwrap(
+            routingsApi()[":id"].$patch({ param: { slug, id: routing.id }, json: { status: next } }),
+          );
           toast.success(next === "archived" ? "Routing archived" : "Routing restored");
           router.refresh();
         } catch (err) {

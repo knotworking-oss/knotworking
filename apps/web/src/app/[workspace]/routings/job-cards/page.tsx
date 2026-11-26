@@ -36,8 +36,13 @@ export default async function JobCardsPage({
   const base = `/${slug}/routings/job-cards`;
   const href = (patch: Record<string, string | number | undefined>) => {
     const query = new URLSearchParams();
-    const merged = { status: status === "open" ? undefined : status, workCentreId: search.workCentreId, ...patch };
-    for (const [key, value] of Object.entries(merged)) if (value !== undefined && value !== "") query.set(key, String(value));
+    const merged = {
+      status: status === "open" ? undefined : status,
+      workCentreId: search.workCentreId,
+      ...patch,
+    };
+    for (const [key, value] of Object.entries(merged))
+      if (value !== undefined && value !== "") query.set(key, String(value));
     const qs = query.toString();
     return qs ? `${base}?${qs}` : base;
   };
@@ -63,7 +68,12 @@ export default async function JobCardsPage({
                 <Link href={href({ workCentreId: undefined, offset: undefined })}>Every work centre</Link>
               </Button>
               {workCentres.map((w) => (
-                <Button key={w.id} size="sm" variant={search.workCentreId === w.id ? "secondary" : "ghost"} asChild>
+                <Button
+                  key={w.id}
+                  size="sm"
+                  variant={search.workCentreId === w.id ? "secondary" : "ghost"}
+                  asChild
+                >
                   <Link href={href({ workCentreId: w.id, offset: undefined })}>{w.code}</Link>
                 </Button>
               ))}
@@ -96,7 +106,9 @@ export default async function JobCardsPage({
                           {card.position}. {card.name}
                         </Link>
                         {card.openExceptions > 0 && (
-                          <span className="block text-xs text-destructive">{card.openExceptions} open exception(s)</span>
+                          <span className="block text-xs text-destructive">
+                            {card.openExceptions} open exception(s)
+                          </span>
                         )}
                       </td>
                       <td className="p-2">{card.workCentre?.code ?? "—"}</td>
@@ -116,12 +128,15 @@ export default async function JobCardsPage({
             </div>
           ) : (
             <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-              No job cards match. Make them from a production batch whose bill of materials has an approved routing.
+              No job cards match. Make them from a production batch whose bill of materials has an approved
+              routing.
             </p>
           )}
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span>
-              {page.total === 0 ? "0 job cards" : `${page.offset + 1}–${page.offset + page.jobCards.length} of ${page.total}`}
+              {page.total === 0
+                ? "0 job cards"
+                : `${page.offset + 1}–${page.offset + page.jobCards.length} of ${page.total}`}
             </span>
             <span className="flex gap-2">
               {page.offset > 0 && (

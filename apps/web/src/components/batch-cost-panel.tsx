@@ -127,6 +127,40 @@ export function BatchCostPanel({
           ))}
         </dl>
 
+        {cost.operations && (
+          <div className="flex flex-col gap-2 border-t pt-3 text-sm">
+            <p>
+              <span className="font-medium">Work-centre time</span>{" "}
+              <span className="tabular-nums">
+                {formatCost(cost.operations.actualCost, currency)} for {cost.operations.actualMinutes} min
+              </span>{" "}
+              <span className="text-muted-foreground">
+                (expected {formatCost(cost.operations.expectedCost, currency)} for{" "}
+                {cost.operations.expectedMinutes} min) · total with conversion{" "}
+                {formatCost(cost.totalCost, currency)}
+              </span>
+            </p>
+            {!compact && (
+              <ol className="divide-y rounded-lg border">
+                {cost.operations.operations.map((op) => (
+                  <li key={op.jobCardId} className="flex flex-wrap justify-between gap-2 p-2">
+                    <Link className="hover:underline" href={`/${slug}/routings/job-cards/${op.jobCardId}`}>
+                      {op.position}. {op.name}
+                      {op.workCentre && (
+                        <span className="text-muted-foreground"> · {op.workCentre.code}</span>
+                      )}
+                    </Link>
+                    <span className="tabular-nums">
+                      {op.actualMinutes} min at {formatCost(op.costPerHour, currency)}/h ·{" "}
+                      {formatCost(op.actualCost, currency)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
+
         {!compact && (
           <>
             <div className="-mx-4 overflow-x-auto border-t">

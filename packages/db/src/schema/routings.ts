@@ -69,7 +69,9 @@ export const routings = pgTable(
     uniqueIndex("routings_workspace_code_key")
       .on(t.workspaceId, sql`lower(${t.code})`)
       .where(sql`${t.deletedAt} is null`),
-    uniqueIndex("routings_recipe_key").on(t.recipeId).where(sql`${t.deletedAt} is null`),
+    uniqueIndex("routings_recipe_key")
+      .on(t.recipeId)
+      .where(sql`${t.deletedAt} is null`),
   ],
 );
 

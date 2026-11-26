@@ -1,6 +1,10 @@
 "use client";
 
-import { jobCardExceptionKindLabels, jobCardExceptionKinds, type JobCardExceptionKind } from "@knotworking/core";
+import {
+  jobCardExceptionKindLabels,
+  jobCardExceptionKinds,
+  type JobCardExceptionKind,
+} from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import { Field, FieldDescription, FieldLabel } from "@knotworking/ui/components/field";
 import { Input } from "@knotworking/ui/components/input";
@@ -92,7 +96,9 @@ export function JobCardActions({
               size="sm"
               variant="outline"
               disabled={pending}
-              onClick={() => void quick(() => unwrap(cardsApi().timer.stop.$post({ param })), "Timer stopped")}
+              onClick={() =>
+                void quick(() => unwrap(cardsApi().timer.stop.$post({ param })), "Timer stopped")
+              }
             >
               <Pause /> Stop my timer
             </Button>
@@ -190,11 +196,25 @@ export function JobCardActions({
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="jc-good">Good ({unit})</FieldLabel>
-              <Input id="jc-good" type="number" min={0} step="any" value={good} onChange={(e) => setGood(e.target.value)} />
+              <Input
+                id="jc-good"
+                type="number"
+                min={0}
+                step="any"
+                value={good}
+                onChange={(e) => setGood(e.target.value)}
+              />
             </Field>
             <Field>
               <FieldLabel htmlFor="jc-scrap">Scrap ({unit})</FieldLabel>
-              <Input id="jc-scrap" type="number" min={0} step="any" value={scrap} onChange={(e) => setScrap(e.target.value)} />
+              <Input
+                id="jc-scrap"
+                type="number"
+                min={0}
+                step="any"
+                value={scrap}
+                onChange={(e) => setScrap(e.target.value)}
+              />
             </Field>
           </div>
           {Number(scrap) > 0 && (
@@ -220,7 +240,9 @@ export function JobCardActions({
           disabled={!description.trim()}
           onClose={close}
           onSubmit={async () => {
-            await unwrap(cardsApi().exceptions.$post({ param, json: { kind, description: description.trim() } }));
+            await unwrap(
+              cardsApi().exceptions.$post({ param, json: { kind, description: description.trim() } }),
+            );
             return "Exception raised";
           }}
         >
@@ -258,7 +280,12 @@ export function JobCardActions({
         >
           <Field>
             <FieldLabel htmlFor="jc-complete-note">Note (optional)</FieldLabel>
-            <Input id="jc-complete-note" maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} />
+            <Input
+              id="jc-complete-note"
+              maxLength={2000}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
           </Field>
         </HaccpDialog>
       )}
@@ -324,7 +351,11 @@ export function JobCardActions({
             await unwrap(
               cardsApi().output.$post({
                 param,
-                json: { quantity: Number(good), unit, ...(lotCode.trim() ? { lotCode: lotCode.trim() } : {}) },
+                json: {
+                  quantity: Number(good),
+                  unit,
+                  ...(lotCode.trim() ? { lotCode: lotCode.trim() } : {}),
+                },
               }),
             );
             return "Output posted";
@@ -333,11 +364,23 @@ export function JobCardActions({
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="jc-output">Quantity ({unit})</FieldLabel>
-              <Input id="jc-output" type="number" min={0} step="any" value={good} onChange={(e) => setGood(e.target.value)} />
+              <Input
+                id="jc-output"
+                type="number"
+                min={0}
+                step="any"
+                value={good}
+                onChange={(e) => setGood(e.target.value)}
+              />
             </Field>
             <Field>
               <FieldLabel htmlFor="jc-lot-code">Lot code (optional)</FieldLabel>
-              <Input id="jc-lot-code" maxLength={60} value={lotCode} onChange={(e) => setLotCode(e.target.value)} />
+              <Input
+                id="jc-lot-code"
+                maxLength={60}
+                value={lotCode}
+                onChange={(e) => setLotCode(e.target.value)}
+              />
               <FieldDescription>Default: the batch code.</FieldDescription>
             </Field>
           </div>
@@ -348,7 +391,15 @@ export function JobCardActions({
 }
 
 /** Resolve an open exception (write). */
-export function ResolveException({ slug, cardId, exceptionId }: { slug: string; cardId: string; exceptionId: string }) {
+export function ResolveException({
+  slug,
+  cardId,
+  exceptionId,
+}: {
+  slug: string;
+  cardId: string;
+  exceptionId: string;
+}) {
   const { can } = useWorkspace();
   const [open, setOpen] = useState(false);
   const [resolution, setResolution] = useState("");
@@ -423,7 +474,9 @@ export function VoidEntry({
           onSubmit={async () => {
             const json = { reason: reason.trim() };
             if (kind === "time") {
-              await unwrap(cardsApi().time[":logId"].void.$post({ param: { slug, id: cardId, logId: entryId }, json }));
+              await unwrap(
+                cardsApi().time[":logId"].void.$post({ param: { slug, id: cardId, logId: entryId }, json }),
+              );
             } else {
               await unwrap(
                 cardsApi().quantities[":entryId"].void.$post({ param: { slug, id: cardId, entryId }, json }),
@@ -434,7 +487,13 @@ export function VoidEntry({
         >
           <Field>
             <FieldLabel htmlFor="jc-void-reason">Reason</FieldLabel>
-            <Input id="jc-void-reason" required maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <Input
+              id="jc-void-reason"
+              required
+              maxLength={500}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
           </Field>
         </HaccpDialog>
       )}

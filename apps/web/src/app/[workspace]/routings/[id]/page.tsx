@@ -98,10 +98,14 @@ export default async function RoutingPage({ params }: Props) {
                               <span className="block text-xs text-muted-foreground">{op.instructions}</span>
                             )}
                           </td>
-                          <td className="p-2">{op.workCentre ? `${op.workCentre.code} · ${op.workCentre.name}` : "—"}</td>
+                          <td className="p-2">
+                            {op.workCentre ? `${op.workCentre.code} · ${op.workCentre.name}` : "—"}
+                          </td>
                           <td className="p-2 text-right tabular-nums">{op.setupMinutes}</td>
                           <td className="p-2 text-right tabular-nums">{op.runMinutes}</td>
-                          <td className="p-2 text-right tabular-nums">{formatCost(op.expectedCost, currency)}</td>
+                          <td className="p-2 text-right tabular-nums">
+                            {formatCost(op.expectedCost, currency)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

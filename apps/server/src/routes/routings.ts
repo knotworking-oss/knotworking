@@ -140,7 +140,13 @@ export const routingRoutes = new Hono<WorkspaceEnv>()
     validate("json", jobCardTimeEntrySchema),
     async (c) =>
       c.json(
-        await addJobCardTime(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("param").id, c.req.valid("json")),
+        await addJobCardTime(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          c.req.valid("param").id,
+          c.req.valid("json"),
+        ),
         201,
       ),
   )
@@ -152,7 +158,14 @@ export const routingRoutes = new Hono<WorkspaceEnv>()
     async (c) => {
       const { id, logId } = c.req.valid("param");
       return c.json(
-        await voidJobCardTime(c.var.db, c.var.workspace.id, c.var.user.id, id, logId, c.req.valid("json").reason),
+        await voidJobCardTime(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          id,
+          logId,
+          c.req.valid("json").reason,
+        ),
       );
     },
   )
@@ -288,7 +301,13 @@ export const routingRoutes = new Hono<WorkspaceEnv>()
   )
   .patch("/routings/:id", validate("param", idParam), validate("json", routingUpdateSchema), async (c) =>
     c.json(
-      await updateRouting(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("param").id, c.req.valid("json")),
+      await updateRouting(
+        c.var.db,
+        c.var.workspace.id,
+        c.var.user.id,
+        c.req.valid("param").id,
+        c.req.valid("json"),
+      ),
     ),
   )
   .put("/routings/:id/draft", validate("param", idParam), validate("json", routingDraftSchema), async (c) =>

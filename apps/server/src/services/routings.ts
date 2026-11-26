@@ -176,7 +176,9 @@ async function findWorkCentre(db: Executor, workspaceId: string, id: string) {
   const [row] = await db
     .select()
     .from(workCentres)
-    .where(and(eq(workCentres.id, id), eq(workCentres.workspaceId, workspaceId), isNull(workCentres.deletedAt)));
+    .where(
+      and(eq(workCentres.id, id), eq(workCentres.workspaceId, workspaceId), isNull(workCentres.deletedAt)),
+    );
   if (!row) throw notFound("Work centre");
   return row;
 }
@@ -197,7 +199,10 @@ async function assertWorkCentreCodeFree(db: Executor, workspaceId: string, code:
 }
 
 export async function listWorkCentres(db: Executor, workspaceId: string, query: WorkCentreListQuery) {
-  const where: (SQL | undefined)[] = [eq(workCentres.workspaceId, workspaceId), isNull(workCentres.deletedAt)];
+  const where: (SQL | undefined)[] = [
+    eq(workCentres.workspaceId, workspaceId),
+    isNull(workCentres.deletedAt),
+  ];
   if (query.status !== "all") where.push(eq(workCentres.status, query.status));
   if (query.q) {
     where.push(
@@ -326,7 +331,9 @@ async function fullVersion(db: Executor, version: VersionRow) {
     status: version.status,
     changeNote: version.changeNote,
     approvedAt: version.approvedAt,
-    approvedBy: version.approvedBy ? { id: version.approvedBy, name: names.get(version.approvedBy) ?? null } : null,
+    approvedBy: version.approvedBy
+      ? { id: version.approvedBy, name: names.get(version.approvedBy) ?? null }
+      : null,
     createdAt: version.createdAt,
     updatedAt: version.updatedAt,
     operations,
@@ -347,7 +354,9 @@ async function versionsOf(db: Executor, routingId: string) {
 }
 
 const recipeRef = (row: typeof recipes.$inferSelect | undefined) =>
-  row ? { id: row.id, code: row.code, name: row.name, status: row.status, outputItemId: row.outputItemId } : null;
+  row
+    ? { id: row.id, code: row.code, name: row.name, status: row.status, outputItemId: row.outputItemId }
+    : null;
 
 export async function listRoutings(db: Executor, workspaceId: string, query: RoutingListQuery) {
   const where: (SQL | undefined)[] = [eq(routings.workspaceId, workspaceId), isNull(routings.deletedAt)];
@@ -410,7 +419,11 @@ export async function listRoutings(db: Executor, workspaceId: string, query: Rou
         status: routing.status,
         recipe: recipeRef(recipe),
         approvedVersion: approved
-          ? { id: approved.id, versionNumber: approved.versionNumber, operations: opsOf.get(approved.id) ?? 0 }
+          ? {
+              id: approved.id,
+              versionNumber: approved.versionNumber,
+              operations: opsOf.get(approved.id) ?? 0,
+            }
           : null,
         draftVersion: draft ? { id: draft.id, versionNumber: draft.versionNumber } : null,
         updatedAt: routing.updatedAt,
@@ -551,7 +564,12 @@ async function saveDraftIn(
   return { version, changes };
 }
 
-export async function createRouting(db: Database, workspaceId: string, actorId: string, input: RoutingCreateInput) {
+export async function createRouting(
+  db: Database,
+  workspaceId: string,
+  actorId: string,
+  input: RoutingCreateInput,
+) {
   const { draft, id, ...fields } = input;
   const routingId = await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -643,7 +661,11 @@ export async function approveRoutingDraft(db: Database, workspaceId: string, act
     await lockWorkspaceLog(tx, workspaceId);
     const routing = await findRouting(tx, workspaceId, id);
     if (routing.status === "archived") {
-      throw new ApiError(409, "routing_archived", "This routing is archived; make it active before approving");
+      throw new ApiError(
+        409,
+        "routing_archived",
+        "This routing is archived; make it active before approving",
+      );
     }
     const draft = await draftOf(tx, id);
     if (!draft) throw new ApiError(409, "no_draft", "This routing has no draft to approve");
@@ -702,7 +724,10 @@ export async function deleteRouting(db: Database, workspaceId: string, actorId: 
     }
     const changes = await removeDraft(tx, id);
     await tx.update(routings).set({ deletedAt: new Date() }).where(eq(routings.id, id));
-    await recordChanges(tx, workspaceId, actorId, [...changes, { entity: "routing", entityId: id, action: "delete" }]);
+    await recordChanges(tx, workspaceId, actorId, [
+      ...changes,
+      { entity: "routing", entityId: id, action: "delete" },
+    ]);
   });
 }
 
@@ -720,7 +745,15 @@ async function progressOf(db: Executor, cards: readonly CardRow[]): Promise<Map<
   const out = new Map<string, CardProgress>(
     cards.map((c) => [
       c.id,
-      { position: c.position, status: c.status, good: 0, scrap: 0, minutes: 0, runningTimers: 0, openExceptions: 0 },
+      {
+        position: c.position,
+        status: c.status,
+        good: 0,
+        scrap: 0,
+        minutes: 0,
+        runningTimers: 0,
+        openExceptions: 0,
+      },
     ]),
   );
   if (!ids.length) return out;
@@ -1045,7 +1078,15 @@ export async function getJobCard(db: Executor, workspaceId: string, id: string) 
   const index = siblings.findIndex((c) => c.id === card.id);
   const isLast = index >= 0 && index === siblings.length - 1;
   const neighbour = (c: CardRow | undefined) =>
-    c ? { id: c.id, position: c.position, name: c.name, status: c.status, good: stockAmount(progress.get(c.id)!.good, output) } : null;
+    c
+      ? {
+          id: c.id,
+          position: c.position,
+          name: c.name,
+          status: c.status,
+          good: stockAmount(progress.get(c.id)!.good, output),
+        }
+      : null;
   return {
     ...serializeCard(card, progress.get(card.id)!, output, centres.get(card.workCentreId), batch),
     instructions: operation?.instructions ?? null,
@@ -1125,7 +1166,11 @@ export async function createJobCards(db: Database, workspaceId: string, actorId:
     await lockWorkspaceLog(tx, workspaceId);
     const batch = await findBatch(tx, workspaceId, batchId);
     if (batch.status !== "planned" && batch.status !== "in_progress") {
-      throw new ApiError(409, "invalid_batch_status", `Batch ${batch.batchCode} is ${batch.status}; it takes no new job cards`);
+      throw new ApiError(
+        409,
+        "invalid_batch_status",
+        `Batch ${batch.batchCode} is ${batch.status}; it takes no new job cards`,
+      );
     }
     if ((await liveCardsOfBatch(tx, batch.id)).length) {
       throw new ApiError(409, "job_cards_exist", `Batch ${batch.batchCode} already has job cards`);
@@ -1293,7 +1338,11 @@ async function openCard(
   const card = await findCard(tx, workspaceId, id);
   const batch = await findBatch(tx, workspaceId, card.batchId);
   if (!openJobCardStatuses.includes(card.status)) {
-    throw new ApiError(409, "job_card_closed", `This job card is ${jobCardStatusLabels[card.status].toLowerCase()}`);
+    throw new ApiError(
+      409,
+      "job_card_closed",
+      `This job card is ${jobCardStatusLabels[card.status].toLowerCase()}`,
+    );
   }
   const allowed: BatchRow["status"][] = batchRunning ? ["in_progress"] : ["planned", "in_progress"];
   if (!allowed.includes(batch.status)) {
@@ -1392,7 +1441,9 @@ export async function addJobCardTime(
     const endedAt = input.startedAt
       ? new Date(new Date(input.startedAt).getTime() + input.minutes * 60_000)
       : new Date();
-    const startedAt = input.startedAt ? new Date(input.startedAt) : new Date(endedAt.getTime() - input.minutes * 60_000);
+    const startedAt = input.startedAt
+      ? new Date(input.startedAt)
+      : new Date(endedAt.getTime() - input.minutes * 60_000);
     if (endedAt.getTime() > Date.now() + 60_000) throw badRequest("Time can't end in the future");
     await tx.insert(jobCardTimeLogs).values({
       workspaceId,
@@ -1444,37 +1495,45 @@ export async function recordJobCardQuantity(
   id: string,
   input: JobCardQuantityInput,
 ) {
-  await executeLedgerCommand(db, workspaceId, actorId, "recordJobCardQuantity", input, { id, input }, async (tx) => {
-    const { card, batch } = await openCard(tx, workspaceId, id);
-    const output = await findItem(tx, workspaceId, batch.outputItemId);
-    const good = toBase(input.good, input.unit, output, { allowZero: true });
-    const scrap = toBase(input.scrap, input.unit, output, { allowZero: true });
-    if (!(good > 0 || scrap > 0)) throw badRequest("Enter a good or scrap quantity");
-    const cards = await liveCardsOfBatch(tx, batch.id);
-    const progress = await progressOf(tx, cards);
-    const remaining = remainingFromPrevious([...progress.values()], card.position);
-    if (remaining !== null && roundQuantity(good + scrap) > remaining) {
-      const previous = cards[cards.findIndex((c) => c.id === card.id) - 1]!;
-      const passed = stockAmount(progress.get(previous.id)!.good, output);
-      const left = stockAmount(remaining, output);
-      throw new ApiError(
-        409,
-        "exceeds_previous_good",
-        `Operation ${previous.position} (${previous.name}) passed ${passed.display} ${passed.displayUnit} as good; at most ${left.display} ${left.displayUnit} more can be reported here`,
-      );
-    }
-    await tx.insert(jobCardQuantities).values({
-      workspaceId,
-      jobCardId: id,
-      good,
-      scrap,
-      scrapReason: input.scrapReason ?? null,
-      note: input.note ?? null,
-      recordedBy: actorId,
-    });
-    await recordChanges(tx, workspaceId, actorId, await markStarted(tx, card));
-    return { id };
-  });
+  await executeLedgerCommand(
+    db,
+    workspaceId,
+    actorId,
+    "recordJobCardQuantity",
+    input,
+    { id, input },
+    async (tx) => {
+      const { card, batch } = await openCard(tx, workspaceId, id);
+      const output = await findItem(tx, workspaceId, batch.outputItemId);
+      const good = toBase(input.good, input.unit, output, { allowZero: true });
+      const scrap = toBase(input.scrap, input.unit, output, { allowZero: true });
+      if (!(good > 0 || scrap > 0)) throw badRequest("Enter a good or scrap quantity");
+      const cards = await liveCardsOfBatch(tx, batch.id);
+      const progress = await progressOf(tx, cards);
+      const remaining = remainingFromPrevious([...progress.values()], card.position);
+      if (remaining !== null && roundQuantity(good + scrap) > remaining) {
+        const previous = cards[cards.findIndex((c) => c.id === card.id) - 1]!;
+        const passed = stockAmount(progress.get(previous.id)!.good, output);
+        const left = stockAmount(remaining, output);
+        throw new ApiError(
+          409,
+          "exceeds_previous_good",
+          `Operation ${previous.position} (${previous.name}) passed ${passed.display} ${passed.displayUnit} as good; at most ${left.display} ${left.displayUnit} more can be reported here`,
+        );
+      }
+      await tx.insert(jobCardQuantities).values({
+        workspaceId,
+        jobCardId: id,
+        good,
+        scrap,
+        scrapReason: input.scrapReason ?? null,
+        note: input.note ?? null,
+        recordedBy: actorId,
+      });
+      await recordChanges(tx, workspaceId, actorId, await markStarted(tx, card));
+      return { id };
+    },
+  );
   return getJobCard(db, workspaceId, id);
 }
 
@@ -1513,7 +1572,11 @@ export async function voidJobCardQuantity(
         );
       }
     } else if ((await linkedOutput(tx, card.id)) > goodAfter) {
-      throw new ApiError(409, "used_by_output", "Output posted from this job card needs it; reverse that output first");
+      throw new ApiError(
+        409,
+        "used_by_output",
+        "Output posted from this job card needs it; reverse that output first",
+      );
     }
     await tx
       .update(jobCardQuantities)
@@ -1559,7 +1622,8 @@ export async function resolveJobCardException(
       .from(jobCardExceptions)
       .where(and(eq(jobCardExceptions.id, exceptionId), eq(jobCardExceptions.jobCardId, id)));
     if (!row) throw notFound("Exception");
-    if (row.status !== "open") throw new ApiError(409, "already_resolved", "This exception is already resolved");
+    if (row.status !== "open")
+      throw new ApiError(409, "already_resolved", "This exception is already resolved");
     await tx
       .update(jobCardExceptions)
       .set({ status: "resolved", resolvedAt: new Date(), resolvedBy: actorId, resolution: input.resolution })
@@ -1593,7 +1657,11 @@ export async function completeJobCard(
     }
     const mine = progress.get(card.id)!;
     if (mine.openExceptions > 0) {
-      throw new ApiError(409, "open_exceptions", "Resolve this operation's open exceptions before completing it");
+      throw new ApiError(
+        409,
+        "open_exceptions",
+        "Resolve this operation's open exceptions before completing it",
+      );
     }
     if (!(mine.good > 0 || mine.scrap > 0)) {
       throw new ApiError(409, "nothing_reported", "Report the good and scrap quantities before completing");
@@ -1691,7 +1759,11 @@ export async function outputFromJobCard(
       async (tx, current, batch) => {
         const cards = await liveCardsOfBatch(tx, batch.id);
         if (cards.at(-1)?.id !== current.id) {
-          throw new ApiError(409, "not_last_operation", "Only the last operation's job card posts the batch's output");
+          throw new ApiError(
+            409,
+            "not_last_operation",
+            "Only the last operation's job card posts the batch's output",
+          );
         }
       },
       async (tx, current) => {
@@ -1708,4 +1780,3 @@ export async function outputFromJobCard(
   );
   return getJobCard(db, workspaceId, id);
 }
-

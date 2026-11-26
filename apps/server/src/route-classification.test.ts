@@ -1159,7 +1159,8 @@ const PERSON_ONLY_ROUTES: Record<string, string> = {
   "POST /v1/workspaces/:slug/governance/drafts/:id/accept": "Assess compliance against a standard",
   "POST /v1/workspaces/:slug/production/batches/:id/complete": "Complete batches",
   "POST /v1/workspaces/:slug/routings/:id/draft/approve": "Approve routing versions",
-  "POST /v1/workspaces/:slug/routings/job-cards/:id/time/:logId/void": "Void job card time and quantity records",
+  "POST /v1/workspaces/:slug/routings/job-cards/:id/time/:logId/void":
+    "Void job card time and quantity records",
   "POST /v1/workspaces/:slug/routings/job-cards/:id/quantities/:entryId/void":
     "Void job card time and quantity records",
   "POST /v1/workspaces/:slug/haccp/plans/:id/status": "Change a HACCP plan's status",

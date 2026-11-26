@@ -373,7 +373,10 @@ export function registerRoutingTools({ define, slugOf, workspaceParam }: ToolCon
     async ({ workspace, job_card_id: id, kind, description }, api) => {
       const slug = await slugOf(api, workspace);
       return api.call(
-        ws(api).routings["job-cards"][":id"].exceptions.$post({ param: { slug, id }, json: { kind, description } }),
+        ws(api).routings["job-cards"][":id"].exceptions.$post({
+          param: { slug, id },
+          json: { kind, description },
+        }),
       );
     },
   );
@@ -391,7 +394,10 @@ export function registerRoutingTools({ define, slugOf, workspaceParam }: ToolCon
     async ({ workspace, job_card_id: id, note }, api) => {
       const slug = await slugOf(api, workspace);
       return api.call(
-        ws(api).routings["job-cards"][":id"].complete.$post({ param: { slug, id }, json: note ? { note } : {} }),
+        ws(api).routings["job-cards"][":id"].complete.$post({
+          param: { slug, id },
+          json: note ? { note } : {},
+        }),
       );
     },
   );

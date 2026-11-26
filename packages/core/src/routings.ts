@@ -138,7 +138,12 @@ const requiredText = (max: number) => z.string().trim().min(1).max(max);
 const twoDecimals = (value: number) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6;
 const fourDecimals = (value: number) => Math.abs(value * 10_000 - Math.round(value * 10_000)) < 1e-6;
 const minutes = z.number().finite().min(0).max(100_000).refine(twoDecimals, "At most 2 decimal places");
-const quantity = z.number().finite().min(0).max(1_000_000_000).refine(fourDecimals, "At most 4 decimal places");
+const quantity = z
+  .number()
+  .finite()
+  .min(0)
+  .max(1_000_000_000)
+  .refine(fourDecimals, "At most 4 decimal places");
 const paging = {
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
@@ -154,12 +159,7 @@ const workCentreFields = {
   /** Stations (machines, benches, people) that can work at once. */
   stations: z.number().int().min(1).max(1000),
   /** What an hour of work here costs, in the workspace currency (labour and machine). */
-  costPerHour: z
-    .number()
-    .finite()
-    .min(0)
-    .max(1_000_000)
-    .refine(fourDecimals, "At most 4 decimal places"),
+  costPerHour: z.number().finite().min(0).max(1_000_000).refine(fourDecimals, "At most 4 decimal places"),
   notes: optionalText(4000),
 };
 

@@ -14,7 +14,15 @@ import { useWorkspace } from "@/lib/workspace-store";
 const centresApi = () => browserApi().v1.workspaces[":slug"].routings["work-centres"];
 
 /** Adds a work centre, or edits one (`centre`). */
-function WorkCentreDialog({ slug, centre, onClose }: { slug: string; centre?: WorkCentre; onClose: () => void }) {
+function WorkCentreDialog({
+  slug,
+  centre,
+  onClose,
+}: {
+  slug: string;
+  centre?: WorkCentre;
+  onClose: () => void;
+}) {
   const [code, setCode] = useState(centre?.code ?? "");
   const [name, setName] = useState(centre?.name ?? "");
   const [hoursPerDay, setHoursPerDay] = useState(String(centre?.hoursPerDay ?? 8));
@@ -46,11 +54,23 @@ function WorkCentreDialog({ slug, centre, onClose }: { slug: string; centre?: Wo
       <div className="grid gap-4 sm:grid-cols-[8rem_1fr]">
         <Field>
           <FieldLabel htmlFor="wc-code">Code</FieldLabel>
-          <Input id="wc-code" required maxLength={40} value={code} onChange={(e) => setCode(e.target.value)} />
+          <Input
+            id="wc-code"
+            required
+            maxLength={40}
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+          />
         </Field>
         <Field>
           <FieldLabel htmlFor="wc-name">Name</FieldLabel>
-          <Input id="wc-name" required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
+          <Input
+            id="wc-name"
+            required
+            maxLength={200}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </Field>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
@@ -143,7 +163,9 @@ export function WorkCentreActions({ slug, centre }: { slug: string; centre: Work
           submitLabel={next === "archived" ? "Archive" : "Restore"}
           onClose={() => setArchiving(false)}
           onSubmit={async () => {
-            await unwrap(centresApi()[":id"].$patch({ param: { slug, id: centre.id }, json: { status: next } }));
+            await unwrap(
+              centresApi()[":id"].$patch({ param: { slug, id: centre.id }, json: { status: next } }),
+            );
             return next === "archived" ? `${centre.code} archived` : `${centre.code} restored`;
           }}
         >

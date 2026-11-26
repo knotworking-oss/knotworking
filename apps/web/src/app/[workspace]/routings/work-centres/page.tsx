@@ -71,7 +71,9 @@ export default async function WorkCentresPage({
                       <td className="p-2 text-right tabular-nums">{centre.hoursPerDay}</td>
                       <td className="p-2 text-right tabular-nums">{centre.stations}</td>
                       <td className="p-2 text-right tabular-nums">{centre.capacityHoursPerDay}</td>
-                      <td className="p-2 text-right tabular-nums">{formatCost(centre.costPerHour, currency)}</td>
+                      <td className="p-2 text-right tabular-nums">
+                        {formatCost(centre.costPerHour, currency)}
+                      </td>
                       <td className="p-2 text-right">
                         <WorkCentreActions slug={slug} centre={centre} />
                       </td>

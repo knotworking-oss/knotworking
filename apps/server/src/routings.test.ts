@@ -5,7 +5,15 @@ import { makeApp, signIn, type TestCtx } from "./test-utils";
 const ws = "/v1/workspaces/acme";
 const today = todayInZone(DEFAULT_TIME_ZONE);
 /** Generic discrete manufacturing: no Food items, no HACCP, no Labels. */
-const genericModules: ModuleId[] = ["items", "recipes", "stock", "production", "routings", "purchasing", "costing"];
+const genericModules: ModuleId[] = [
+  "items",
+  "recipes",
+  "stock",
+  "production",
+  "routings",
+  "purchasing",
+  "costing",
+];
 
 type Card = { id: string; position: number; name: string; status: string };
 
@@ -16,8 +24,8 @@ describe("routings and job cards", () => {
   const as = (cookie: string) => ({
     send: (method: string, path: string, json?: unknown) => ctx.req(ws + path, { method, cookie, json }),
   });
-  const expectStatus = async (res: Response, status: number) => {
-    const body = res.status === 204 ? null : await res.json();
+  const expectStatus = async (res: Response, status: number): Promise<any> => {
+    const body = res.status === 204 ? null : ((await res.json()) as any);
     expect(res.status, JSON.stringify(body)).toBe(status);
     return body;
   };
@@ -40,7 +48,7 @@ describe("routings and job cards", () => {
   beforeAll(async () => {
     ctx = await makeApp({ seed: true });
     ada = (await signIn(ctx, "ada@knotworking.dev")).cookie;
-    const { members } = await (await ctx.req(`${ws}/members`, { cookie: ada })).json();
+    const { members } = (await (await ctx.req(`${ws}/members`, { cookie: ada })).json()) as any;
     const m = members.find((x: { email: string }) => x.email === "marcus@knotworking.dev");
     marcus = { userId: m.userId, cookie: (await signIn(ctx, m.email)).cookie };
   }, 60_000);
@@ -140,10 +148,18 @@ describe("routings and job cards", () => {
       operations: [
         { name: "Cut", workCentreId: cut, setupMinutes: 15, runMinutes: 10 },
         { name: "Weld", workCentreId: weld, setupMinutes: 10, runMinutes: 20 },
-        { name: "Assemble", workCentreId: assemble, setupMinutes: 0, runMinutes: 5, instructions: "Torque to spec" },
+        {
+          name: "Assemble",
+          workCentreId: assemble,
+          setupMinutes: 0,
+          runMinutes: 5,
+          instructions: "Torque to spec",
+        },
       ],
     });
-    expect(revised.versions.map((v: { versionNumber: number; status: string }) => [v.versionNumber, v.status])).toEqual([
+    expect(
+      revised.versions.map((v: { versionNumber: number; status: string }) => [v.versionNumber, v.status]),
+    ).toEqual([
       [2, "draft"],
       [1, "approved"],
     ]);
@@ -182,7 +198,11 @@ describe("routings and job cards", () => {
     ]);
     expect(made.summary).toMatchObject({ cards: 3, completed: 0, expectedMinutes: 200 });
     await refused("POST", `/routings/batches/${batch.id}/job-cards`, undefined, 409, "job_cards_exist");
-    const [cutCard, weldCard, asmCard] = cards.map((c) => `/routings/job-cards/${c.id}`) as [string, string, string];
+    const [cutCard, weldCard, asmCard] = cards.map((c) => `/routings/job-cards/${c.id}`) as [
+      string,
+      string,
+      string,
+    ];
 
     // Nothing is recorded on a batch that hasn't started.
     await refused("POST", `${cutCard}/time`, { minutes: 5 }, 409, "invalid_batch_status");
@@ -206,9 +226,18 @@ describe("routings and job cards", () => {
       { good: 4, scrap: 1, unit: "each", scrapReason: "Short cut" },
       201,
     );
-    expect(cutDone).toMatchObject({ status: "in_progress", good: { base: 4 }, scrap: { base: 1 }, actualMinutes: 61 });
+    expect(cutDone).toMatchObject({
+      status: "in_progress",
+      good: { base: 4 },
+      scrap: { base: 1 },
+      actualMinutes: 61,
+    });
     expect(cutDone.records).toEqual([
-      expect.objectContaining({ kind: "consumption", lotCode: "ST-1", quantity: expect.objectContaining({ base: 10000 }) }),
+      expect.objectContaining({
+        kind: "consumption",
+        lotCode: "ST-1",
+        quantity: expect.objectContaining({ base: 10000 }),
+      }),
     ]);
 
     // Weld can't report more than Cut passed as good, nor complete before Cut.
@@ -236,7 +265,9 @@ describe("routings and job cards", () => {
     );
     expect(raised.openExceptions).toBe(1);
     await refused("POST", `${weldCard}/complete`, {}, 409, "open_exceptions");
-    await ok("POST", `${weldCard}/exceptions/${raised.exceptions[0].id}/resolve`, { resolution: "Cleared the liner" });
+    await ok("POST", `${weldCard}/exceptions/${raised.exceptions[0].id}/resolve`, {
+      resolution: "Cleared the liner",
+    });
     await ok("POST", `${weldCard}/complete`, {});
 
     // Assemble: bolts used there, then the output, never more than passed as good, only from the last card.
@@ -264,10 +295,9 @@ describe("routings and job cards", () => {
     const trace = await ok("GET", `/production/lots/${frameLot}/trace`);
     expect(trace.lot).toMatchObject({ lotCode: "FR-1" });
     expect(
-      trace.backward[0].inputs.map((i: { lot: { lotCode: string }; amount: { base: number } }) => [
-        i.lot.lotCode,
-        i.amount.base,
-      ]).sort(),
+      trace.backward[0].inputs
+        .map((i: { lot: { lotCode: string }; amount: { base: number } }) => [i.lot.lotCode, i.amount.base])
+        .sort(),
     ).toEqual([
       ["BL-1", 16],
       ["ST-1", 10000],
@@ -285,7 +315,9 @@ describe("routings and job cards", () => {
       actualCost: 110.5,
       finishedGood: { base: 4 },
     });
-    expect(cost.operations.operations.map((o: { actualCost: number }) => o.actualCost)).toEqual([30.5, 67.5, 12.5]);
+    expect(cost.operations.operations.map((o: { actualCost: number }) => o.actualCost)).toEqual([
+      30.5, 67.5, 12.5,
+    ]);
     expect(cost.totalCost).toBeCloseTo(cost.actualCost + cost.conversion.total + 110.5, 2);
 
     // The job card list and the batch summary agree.
@@ -296,11 +328,14 @@ describe("routings and job cards", () => {
   });
 
   it("refuses job card voids and routing approval to API tokens", async () => {
-    const token = (
-      await (
-        await ctx.req("/v1/me/api-tokens", { method: "POST", cookie: ada, json: { name: "agent", scope: "write" } })
-      ).json()
-    ).token as string;
+    const created = (await (
+      await ctx.req("/v1/me/api-tokens", {
+        method: "POST",
+        cookie: ada,
+        json: { name: "agent", scope: "write" },
+      })
+    ).json()) as any;
+    const token = created.token as string;
     const viaToken = (method: string, path: string, json?: unknown) =>
       ctx.req(ws + path, { method, headers: { authorization: `Bearer ${token}`, origin: "" }, json });
     const { jobCards } = await ok("GET", "/routings/job-cards?status=all&limit=1");
@@ -360,7 +395,12 @@ describe("routings and job cards", () => {
       },
       201,
     );
-    const out = await ok("POST", `/production/batches/${pending.id}/output`, { quantity: 1, unit: "each" }, 201);
+    const out = await ok(
+      "POST",
+      `/production/batches/${pending.id}/output`,
+      { quantity: 1, unit: "each" },
+      201,
+    );
     expect((await ok("POST", `/production/batches/${pending.id}/complete`, {})).status).toBe("completed");
     const frameLot = out.outputs.at(-1).lotId as string;
     const back = await ok("GET", `/production/lots/${frameLot}/trace`);
@@ -424,7 +464,10 @@ describe("routings and job cards", () => {
       },
       201,
     );
-    await expectStatus(await as(marcus.cookie).send("POST", `/haccp/plans/${plan.id}/draft/approve`, {}), 200);
+    await expectStatus(
+      await as(marcus.cookie).send("POST", `/haccp/plans/${plan.id}/draft/approve`, {}),
+      200,
+    );
     const ccp = (await ok("GET", `/haccp/plans/${plan.id}`)).currentVersion.ccps[0].id;
     const soupBatch = await ok(
       "POST",
@@ -440,12 +483,20 @@ describe("routings and job cards", () => {
       201,
     );
     await ok("POST", "/haccp/logs", { ccpId: ccp, value: 82, batchId: soupBatch.id }, 201);
-    const soupOut = await ok("POST", `/production/batches/${soupBatch.id}/output`, { quantity: 10, unit: "l" }, 201);
+    const soupOut = await ok(
+      "POST",
+      `/production/batches/${soupBatch.id}/output`,
+      { quantity: 10, unit: "l" },
+      201,
+    );
     const done = await ok("POST", `/production/batches/${soupBatch.id}/complete`, {});
     expect(done).toMatchObject({ status: "completed", haccpWarning: expect.anything() });
     const record = await ok("GET", `/haccp/batches/${soupBatch.id}`);
     expect(JSON.stringify(record)).toContain(ccp);
     const soupTrace = await ok("GET", `/production/lots/${soupOut.outputs[0].lotId}/trace`);
-    expect(soupTrace.backward[0].inputs[0]).toMatchObject({ lot: { lotCode: "VG-1" }, amount: { base: 5000 } });
+    expect(soupTrace.backward[0].inputs[0]).toMatchObject({
+      lot: { lotCode: "VG-1" },
+      amount: { base: 5000 },
+    });
   });
 });

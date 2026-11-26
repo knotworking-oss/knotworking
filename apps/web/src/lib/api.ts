@@ -911,8 +911,10 @@ export const getCorrectiveActions = (slug: string, status: "open" | "closed" | "
   );
 
 /** Routings module: work centres (see `workCentreListQuerySchema`). */
-export const getWorkCentres = (slug: string, query: { q?: string; status?: "active" | "archived" | "all" } = {}) =>
-  load((api) => unwrap(ws(api).routings["work-centres"].$get({ param: { slug }, query })));
+export const getWorkCentres = (
+  slug: string,
+  query: { q?: string; status?: "active" | "archived" | "all" } = {},
+) => load((api) => unwrap(ws(api).routings["work-centres"].$get({ param: { slug }, query })));
 
 /** Routings module: one page of routings (see `routingListQuerySchema`). */
 export const getRoutings = (
@@ -930,7 +932,9 @@ export const getJobCards = (
   query: { status?: string; batchId?: string; workCentreId?: string; offset?: string } = {},
 ) =>
   load((api) =>
-    unwrap(ws(api).routings["job-cards"].$get({ param: { slug }, query: { ...query, limit: "50" } as never })),
+    unwrap(
+      ws(api).routings["job-cards"].$get({ param: { slug }, query: { ...query, limit: "50" } as never }),
+    ),
   );
 
 /** A job card in full: sequence, time, quantities, exceptions and batch records. */

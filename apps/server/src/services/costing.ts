@@ -511,8 +511,7 @@ export async function getBatchCost(
     conversion,
     operations,
     /** Materials, absorbed conversion and work-centre time together. */
-    totalCost:
-      Math.round((cost.actualCost + conversion.total + (operations?.actualCost ?? 0)) * 100) / 100,
+    totalCost: Math.round((cost.actualCost + conversion.total + (operations?.actualCost ?? 0)) * 100) / 100,
   };
 }
 

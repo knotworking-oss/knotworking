@@ -21,7 +21,15 @@ export function mountFakeRoutings(app: Hono, ws: string) {
   const err = (code: string, message: string) => ({ error: { code, message } });
   const prefix = `${ws}/routings`;
   const workCentres: Record<string, any>[] = [
-    { id: newId(), code: "CUT", name: "Cutting cell", hoursPerDay: 8, stations: 1, costPerHour: 30, status: "active" },
+    {
+      id: newId(),
+      code: "CUT",
+      name: "Cutting cell",
+      hoursPerDay: 8,
+      stations: 1,
+      costPerHour: 30,
+      status: "active",
+    },
   ];
   const routings: Record<string, any>[] = [];
   const jobCards: Record<string, any>[] = [];
@@ -37,7 +45,9 @@ export function mountFakeRoutings(app: Hono, ws: string) {
     const q = c.req.query("q")?.toLowerCase();
     return c.json({
       workCentres: workCentres.filter(
-        (w) => (status === "all" || w.status === status) && (!q || `${w.code} ${w.name}`.toLowerCase().includes(q)),
+        (w) =>
+          (status === "all" || w.status === status) &&
+          (!q || `${w.code} ${w.name}`.toLowerCase().includes(q)),
       ),
     });
   });
@@ -111,7 +121,8 @@ export function mountFakeRoutings(app: Hono, ws: string) {
   app.post(`${prefix}/job-cards/:id/complete`, (c) => {
     const row = card(c);
     if (!row) return c.json(err("not_found", "Job card not found"), 404);
-    if (row.openExceptions > 0) return c.json(err("open_exceptions", "Resolve the open exceptions first"), 409);
+    if (row.openExceptions > 0)
+      return c.json(err("open_exceptions", "Resolve the open exceptions first"), 409);
     row.status = "completed";
     return c.json(row);
   });
@@ -151,7 +162,13 @@ export function mountFakeRoutings(app: Hono, ws: string) {
       status: "active",
       recipe: { id: data.recipeId },
       versions: data.draft
-        ? [{ versionNumber: 1, status: "draft", operations: data.draft.operations.map((o, i) => ({ ...o, position: i + 1 })) }]
+        ? [
+            {
+              versionNumber: 1,
+              status: "draft",
+              operations: data.draft.operations.map((o, i) => ({ ...o, position: i + 1 })),
+            },
+          ]
         : [],
     };
     routings.push(row);

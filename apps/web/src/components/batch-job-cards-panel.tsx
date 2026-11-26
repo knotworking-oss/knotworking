@@ -93,7 +93,8 @@ export function BatchJobCardsPanel({
               </ol>
               <p className="text-sm text-muted-foreground">
                 {data.summary.completed} of {data.summary.cards} operations complete · work-centre cost{" "}
-                {formatCost(data.summary.actualCost, currency)} (expected {formatCost(data.summary.expectedCost, currency)})
+                {formatCost(data.summary.actualCost, currency)} (expected{" "}
+                {formatCost(data.summary.expectedCost, currency)})
               </p>
             </>
           )}

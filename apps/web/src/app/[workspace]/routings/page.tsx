@@ -24,7 +24,9 @@ export default async function RoutingsPage({
     getRoutings(slug, { status: "all" }),
   ]);
   const routed = new Set(all.routings.map((r) => r.recipe?.id));
-  const boms = recipes.recipes.filter((r) => !routed.has(r.id)).map((r) => ({ id: r.id, code: r.code, name: r.name }));
+  const boms = recipes.recipes
+    .filter((r) => !routed.has(r.id))
+    .map((r) => ({ id: r.id, code: r.code, name: r.name }));
   const base = `/${slug}/routings`;
 
   return (
@@ -75,7 +77,8 @@ export default async function RoutingsPage({
                     <span className="flex flex-wrap gap-1.5">
                       {routing.approvedVersion ? (
                         <Badge>
-                          v{routing.approvedVersion.versionNumber} · {routing.approvedVersion.operations} operations
+                          v{routing.approvedVersion.versionNumber} · {routing.approvedVersion.operations}{" "}
+                          operations
                         </Badge>
                       ) : (
                         <Badge variant="outline">Not approved</Badge>

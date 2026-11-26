@@ -102,7 +102,8 @@ export default async function JobCardPage({ params }: Props) {
               </dd>
               {card.sequence.remaining && (
                 <dd className="text-xs text-muted-foreground">
-                  Up to {card.sequence.remaining.display} more from operation {card.sequence.previous?.position}
+                  Up to {card.sequence.remaining.display} more from operation{" "}
+                  {card.sequence.previous?.position}
                 </dd>
               )}
             </div>
@@ -121,7 +122,9 @@ export default async function JobCardPage({ params }: Props) {
               <dd className="font-medium tabular-nums">
                 {formatCost(card.actualCost, currency)} / {formatCost(card.expectedCost, currency)}
               </dd>
-              <dd className="text-xs text-muted-foreground">At {formatCost(card.costPerHour, currency)} an hour</dd>
+              <dd className="text-xs text-muted-foreground">
+                At {formatCost(card.costPerHour, currency)} an hour
+              </dd>
             </div>
           </dl>
 
@@ -150,7 +153,9 @@ export default async function JobCardPage({ params }: Props) {
                         {e.resolution && ` · resolved: ${e.resolution}`}
                       </span>
                     </span>
-                    {e.status === "open" && <ResolveException slug={slug} cardId={card.id} exceptionId={e.id} />}
+                    {e.status === "open" && (
+                      <ResolveException slug={slug} cardId={card.id} exceptionId={e.id} />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -167,7 +172,8 @@ export default async function JobCardPage({ params }: Props) {
                   <li key={q.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
                     <span className={q.voidedAt ? "text-muted-foreground line-through" : undefined}>
                       {q.good.display} good, {q.scrap.display} scrap {q.good.displayUnit}
-                      {q.scrapReason && ` (${q.scrapReason})`} · {q.recordedBy?.name ?? "—"} · <WorkspaceDateTime value={q.createdAt} />
+                      {q.scrapReason && ` (${q.scrapReason})`} · {q.recordedBy?.name ?? "—"} ·{" "}
+                      <WorkspaceDateTime value={q.createdAt} />
                     </span>
                     {q.voidedAt ? (
                       <span className="text-xs text-muted-foreground">Voided: {q.voidReason}</span>
@@ -189,7 +195,8 @@ export default async function JobCardPage({ params }: Props) {
                 {card.timeLogs.map((l) => (
                   <li key={l.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
                     <span className={l.voidedAt ? "text-muted-foreground line-through" : undefined}>
-                      {l.user?.name ?? "—"} · <WorkspaceDateTime value={l.startedAt} /> → {l.running ? "running" : <WorkspaceDateTime value={l.endedAt} />}
+                      {l.user?.name ?? "—"} · <WorkspaceDateTime value={l.startedAt} /> →{" "}
+                      {l.running ? "running" : <WorkspaceDateTime value={l.endedAt} />}
                       {l.minutes !== null && ` · ${l.minutes} min`}
                       {l.note && ` · ${l.note}`}
                     </span>

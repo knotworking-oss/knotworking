@@ -17,14 +17,18 @@ describe("routing tools", () => {
   it("are tagged with the routings module, with no approval or void tool", async () => {
     const { client } = await session({ modules: ["items", "recipes", "stock", "production", "routings"] });
     const names = (await client.listTools()).tools.map((t) => t.name);
-    expect(names).toEqual(expect.arrayContaining(["list_work_centres", "create_routing", "complete_job_card"]));
+    expect(names).toEqual(
+      expect.arrayContaining(["list_work_centres", "create_routing", "complete_job_card"]),
+    );
     expect(names.filter((n) => /approve_routing|void_job_card/.test(n))).toEqual([]);
     const { client: without } = await session({ modules: ["items", "recipes", "stock", "production"] });
     expect((await without.listTools()).tools.map((t) => t.name)).not.toContain("list_job_cards");
   });
 
   it("keeps work centres, drafts a routing and records work on job cards", async () => {
-    const { call, fake } = await session({ modules: ["items", "recipes", "stock", "production", "routings"] });
+    const { call, fake } = await session({
+      modules: ["items", "recipes", "stock", "production", "routings"],
+    });
     const cut = (await call("list_work_centres", { workspace: "acme" })).data.workCentres[0];
     expect(cut).toMatchObject({ code: "CUT" });
     const weld = await call("save_work_centre", {
@@ -52,7 +56,12 @@ describe("routing tools", () => {
     const made = await call("create_job_cards", { workspace: "acme", batch_id: newId() });
     const [first, second] = made.data.jobCards;
     await call("record_job_card_time", { workspace: "acme", job_card_id: first.id, minutes: 30 });
-    await call("record_job_card_quantity", { workspace: "acme", job_card_id: first.id, good: 3, unit: "each" });
+    await call("record_job_card_quantity", {
+      workspace: "acme",
+      job_card_id: first.id,
+      good: 3,
+      unit: "each",
+    });
     const over = await call("record_job_card_quantity", {
       workspace: "acme",
       job_card_id: second.id,

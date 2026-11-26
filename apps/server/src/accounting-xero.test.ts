@@ -1142,6 +1142,94 @@ describe("connected Xero accounting against a fake HTTP provider", () => {
     expect(xero.state.postCalls).toBe(count + 1);
   }, 30_000);
 
+  it("checks revenue coding at prepare and re-prepares a customer posting Xero rejected", async () => {
+    await setModules(["customers", "invoicing", "accounting"]);
+    const customer = await billingCustomer("RECODE-BILL");
+    await mapCustomer(customer.id);
+    await ok(
+      send("PUT", `${connection()}/mappings`, {
+        commandId: newId(),
+        expectedRevision: (await getConnection()).revision,
+        kind: "account",
+        localReference: "purchases",
+        externalReference: "7500",
+        reason: "Supplier bill coding shares the account mappings",
+      }),
+    );
+    const invoice = await ok(
+      decision(
+        await ok(
+          send("POST", "/invoicing", {
+            ...terms(),
+            kind: "manual",
+            customerId: customer.id,
+            currency: "GBP",
+            lines: [
+              { description: "Fixture survey", unit: "", quantity: "1", unitPrice: "100", taxRate: 20 },
+            ],
+          }),
+          201,
+        ),
+      ),
+    );
+    const path = `${connection()}/customer-documents/${invoice.id}/prepare`;
+    const coded = async (accountKey: string) =>
+      send("POST", path, {
+        commandId: newId(),
+        expectedRevision: (await getConnection()).revision,
+        reason: "Finance verified the coding",
+        lines: [{ id: invoice.lines[0].id, accountKey, taxKey: "output" }],
+        allocate: false,
+      });
+    expect((await ok(coded("purchases"), 409)).error.message).toContain("active Xero revenue account");
+    xero.state.salesTaxRate = 5;
+    expect((await ok(coded("revenue"), 409)).error.message).toContain("effective rate of 20%");
+    xero.state.salesTaxRate = 20;
+    const posting = await prepareCustomer(invoice);
+    const posted = (await ok(send("POST", `${posting.path}/send`))).posting;
+    expect(posted.state).toBe("posted");
+
+    const credit = await ok(
+      decision(
+        await ok(
+          send("POST", "/invoicing", {
+            kind: "credit",
+            sourceId: invoice.id,
+            commandId: newId(),
+            date: today,
+            reason: "Survey cancelled",
+            lineIds: [invoice.lines[0].id],
+          }),
+          201,
+        ),
+      ),
+    );
+    const allocated = await prepareCustomer(credit, true);
+    // The customer paid in Xero before the credit was sent: allocation is no longer possible.
+    xero.bills.get(posted.externalId)!.AmountDue = 0;
+    const rejected = await ok(send("POST", `${allocated.path}/send`));
+    expect(rejected.posting.state).toBe("failed");
+    expect(rejected.history.at(-1).evidence).toContain("outstanding balance");
+    expect((await ok(send("GET", `${connection()}/customer-documents/${credit.id}`))).posting).toMatchObject({
+      id: allocated.id,
+      state: "failed",
+    });
+    const onAccount = await prepareCustomer(credit, false);
+    expect(onAccount).toMatchObject({ id: allocated.id, state: "queued" });
+    const requeued = await ok(send("GET", onAccount.path));
+    expect(requeued.history.map((event: { action: string }) => event.action)).toEqual([
+      "queued",
+      "dispatch_started",
+      "rejected",
+      "reprepared",
+    ]);
+    expect(requeued.history.at(-1).supersededPayload.originalInvoice.allocate).toBe(true);
+    expect(requeued.posting.payload.originalInvoice.allocate).toBe(false);
+    const sent = (await ok(send("POST", `${onAccount.path}/send`))).posting;
+    expect(sent).toMatchObject({ state: "posted", receipt: { gross: "120.00" } });
+    expect(xero.credits.get(sent.externalId)?.Allocations).toEqual([]);
+  });
+
   it("drafts, approves and downloads a local invoice with Xero disabled", async () => {
     await disable(true);
     await setModules(["customers", "invoicing"]);

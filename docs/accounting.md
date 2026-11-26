@@ -67,6 +67,8 @@ Under **Accounting connections → Manage → Prepare customer invoices and cred
 
 Credit notes use the contact and line coding from the original invoice's verified posting to the same Xero connection. Review the original Xero invoice ID and select whether to allocate the credit to it. The review reason, immutable snapshot and eventual Xero ID are recorded in the shared queue. Repeating the same review with identical coding returns the same posting. Queue details link finance back to the source document and identify the original Xero invoice on credits.
 
+When the Xero adapter is reachable, preparation also checks each line against the organisation: the account must be an active `REVENUE` account and the tax type must apply to revenue with an effective rate equal to the line's tax rate. Account mappings are shared with supplier bills, so an expense account is refused here rather than at send. Sending checks again. If Xero definitively rejects a customer invoice or credit note (**Failed**), prepare it again with corrected coding, or clear **Allocate** on a credit whose original invoice has since been paid. The same posting is queued again with the new snapshot and a new idempotency key. Its history keeps the rejected attempt and the replaced snapshot. A posting that is queued, uncertain or posted cannot be re-prepared. Supplier bills are still corrected through a new invoice version.
+
 Routes are under `/v1/workspaces/:slug/accounting/connections/:id/customer-documents`: `GET` with `offset`, `GET /:invoiceId` and `POST /:invoiceId/prepare`.
 
 ## Dispatch and the finance review queue

@@ -97,6 +97,10 @@ export async function enqueueAccountingPostingTx(
       ),
     );
   if (previous) {
+    // A definitive rejection performed no write, so a customer document can be re-coded and sent
+    // again under the same posting key. Supplier bills get a new invoice version instead. The
+    // replaced snapshot stays in the history; a fresh Idempotency-Key stops the destination
+    // replaying its cached rejection.
     if (previous.state === "failed" && payload.kind !== "purchase_invoice") {
       const changed = previous.payloadHash !== payloadHash;
       const [updated] = await tx
@@ -105,7 +109,7 @@ export async function enqueueAccountingPostingTx(
           state: "queued",
           payload,
           payloadHash,
-          idempotencyKey: changed ? newId() : previous.idempotencyKey,
+          idempotencyKey: newId(),
           attemptId: null,
           updatedAt: new Date(),
         })

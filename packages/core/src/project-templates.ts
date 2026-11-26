@@ -340,8 +340,17 @@ export const projectTemplates: Record<ProjectTemplateId, ProjectTemplate> = {
       { key: "first_build", title: "Check the first build", daysFromStart: -7 },
       { key: "handover", title: "Approve handover to production", daysFromStart: 0 },
     ],
-    // Pending: `routings` steps (work centres and operations) once the Routings module ships.
     moduleSteps: {
+      routings: [
+        {
+          key: "routing",
+          title: "Set up work centres and the routing",
+          daysFromStart: -16,
+          detail:
+            "Order the operations, give each its work centre and setup and run times, and approve the routing before the trial build.",
+          link: { label: "Open Routings", path: "routings" },
+        },
+      ],
       recipes: [
         {
           key: "bom",

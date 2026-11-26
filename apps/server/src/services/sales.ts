@@ -39,7 +39,7 @@ import { ApiError, badRequest, notFound } from "../errors";
 import { findCustomer } from "./customers";
 import { findDeliverySite } from "./customer-sites";
 import { findItem, toBase } from "./ports/stock";
-import { assertInvoiceFulfilmentUnclaimed } from "./invoice-sources";
+import { assertInvoiceFulfilmentUnclaimed, reservedSalesLines } from "./invoice-sources";
 import { executeLedgerCommand } from "./ledger-command";
 import { workspaceToday } from "./time-zone";
 
@@ -327,6 +327,29 @@ export async function saveSalesOrder(
       if (amend) await recipient(tx, ws, input.document); // revalidate active master data; retain historical recipient
       const existing = await orderLines(tx, ws, id);
       const resolved = await resolveLines(tx, ws, input.document, { existing, amend });
+      if (amend) {
+        const reserved = await reservedSalesLines(
+          tx,
+          ws,
+          existing.map((line) => line.id),
+        );
+        const replacements = new Map(resolved.map((line) => [line.id, line]));
+        for (const old of existing) {
+          if (!reserved.has(old.id)) continue;
+          const line = replacements.get(old.id);
+          if (
+            !line ||
+            line.quantity !== old.quantity ||
+            line.baseQuantity !== old.baseQuantity ||
+            line.unitPrice !== old.unitPrice ||
+            line.itemId !== old.itemId ||
+            line.unit !== old.unit
+          )
+            throw conflict(
+              "A reserved sales line cannot be repriced, resized or removed. Discard its invoice draft or amend the remaining balance with a new line.",
+            );
+        }
+      }
       // Live links to confirmed despatches; a link to a since-voided despatch no longer fixes the line.
       const allLinks = await tx
         .select({ lineId: fulfilments.orderLineId })

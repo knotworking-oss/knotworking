@@ -49,6 +49,15 @@ export async function activeClaims(db: Executor, ws: string, kind: Claim["kind"]
   return new Set(rows.map(({ sourceId }) => sourceId));
 }
 
+export async function reservedSalesLines(db: Executor, ws: string, ids: string[]) {
+  if (!ids.length) return new Set<string>();
+  const rows = await db
+    .select({ id: claims.orderLineId })
+    .from(claims)
+    .where(and(eq(claims.workspaceId, ws), inArray(claims.orderLineId, ids), isNull(claims.releasedAt)));
+  return new Set(rows.map(({ id }) => id));
+}
+
 /** Keep the reservation as billing history even when its invoice line has been credited. */
 export async function assertInvoiceAllowsDespatchCorrection(db: Executor, ws: string, lineIds: string[]) {
   if (!lineIds.length) return;
@@ -119,6 +128,7 @@ export async function assertInvoiceSourcesCurrent(
   ws: string,
   documentId: string,
   lines: InvoiceLine[],
+  currency: string,
 ) {
   const reservations = await db
     .select()
@@ -153,28 +163,37 @@ export async function assertInvoiceSourcesCurrent(
         throw invoiceConflict("A dispatch changed after drafting. Discard the draft and prepare it again.");
     }
   }
-  const salesIds = reservations.filter((row) => row.kind === "sales_line").map((row) => row.sourceId);
-  if (salesIds.length) {
+  const salesClaims = reservations.filter((row) => row.orderLineId);
+  if (salesClaims.length) {
     const rows = await db
-      .select({ line: salesOrderLines })
+      .select({ line: salesOrderLines, status: salesOrders.status, currency: salesOrders.currency })
       .from(salesOrderLines)
       .innerJoin(salesOrders, eq(salesOrders.id, salesOrderLines.orderId))
       .where(
         and(
           eq(salesOrderLines.workspaceId, ws),
           eq(salesOrders.workspaceId, ws),
-          eq(salesOrders.status, "confirmed"),
           isNull(salesOrderLines.removedAt),
-          inArray(salesOrderLines.id, salesIds),
+          inArray(
+            salesOrderLines.id,
+            salesClaims.map((row) => row.orderLineId!),
+          ),
         ),
       );
-    const byId = new Map(rows.map(({ line }) => [line.id, line]));
-    for (const line of lines) {
-      const current = byId.get(line.sourceLineId!);
+    const byId = new Map(rows.map((row) => [row.line.id, row]));
+    const bySource = new Map(lines.map((line) => [line.sourceLineId, line]));
+    for (const claim of salesClaims) {
+      const current = byId.get(claim.orderLineId!);
+      const snapshot = bySource.get(claim.sourceId);
+      const changed = !current || !snapshot || current.currency !== currency || !snapshot.priceLocked;
       if (
-        !current ||
-        current.quantity !== Number(line.quantity) ||
-        current.unitPrice !== Number(line.unitPrice)
+        changed ||
+        (claim.kind === "sales_line"
+          ? current.status !== "confirmed" ||
+            current.line.quantity !== Number(snapshot.quantity) ||
+            current.line.unitPrice !== Number(snapshot.unitPrice)
+          : shipmentPrice(Number(claim.quantity), current.line, currency) !== snapshot.net ||
+            decimal(shipmentUnitPrice(current.line)) !== snapshot.unitPrice)
       )
         throw invoiceConflict("A sales line changed after drafting. Discard the draft and prepare it again.");
     }
@@ -207,6 +226,10 @@ function sourceLine(
 
 const decimal = (n: number) => n.toFixed(8).replace(/\.?0+$/, "");
 const scaled = (n: number, places: number) => BigInt(n.toFixed(places).replace(".", ""));
+
+function shipmentUnitPrice(order: typeof salesOrderLines.$inferSelect) {
+  return (order.unitPrice * order.quantity) / order.baseQuantity;
+}
 
 /** Shipment units are the order's physical base units. Calculate against the original agreed price. */
 function shipmentPrice(quantity: number, order: typeof salesOrderLines.$inferSelect, currency: string) {
@@ -279,7 +302,7 @@ async function billableShipments(
     const quantity = roundQuantity(row.line.quantity - row.returned);
     if (quantity <= 0 || billed.has(row.line.id) || (row.orderLine && direct.has(row.orderLine.id))) continue;
     const order = useSalesPrices ? row.orderLine : null;
-    const price = order ? (order.unitPrice * order.quantity) / order.baseQuantity : 0;
+    const price = order ? shipmentUnitPrice(order) : 0;
     lines.push(
       sourceLine(
         row.line.itemName,

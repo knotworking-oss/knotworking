@@ -2,6 +2,7 @@ import { addDays, DEFAULT_TIME_ZONE, newId, todayInZone, type ModuleId } from "@
 import {
   accountingXeroCredentials,
   accountingXeroFlows,
+  salesOrderLines,
   workspaceMembers,
   workspaces,
 } from "@knotworking/db";
@@ -894,8 +895,41 @@ describe("connected Xero accounting against a fake HTTP provider", () => {
     const voidFirst = () =>
       send("POST", `/despatch/${first.id}/void`, { commandId: newId(), reason: "Recording correction" });
     expect((await ok(voidFirst(), 409)).error.message).toContain("Discard the invoice draft");
+    const amended = await ok(
+      send("POST", `/sales/orders/${order.id}/amend`, {
+        commandId: newId(),
+        expectedRevision: confirmed.revision,
+        document: {
+          customerId: customer.id,
+          currency: "GBP",
+          lines: [
+            {
+              id: order.lines[0].id,
+              itemId: finishedItem.id,
+              quantity: 11,
+              unit: "kg",
+              unitPrice: 13,
+              dueOn: today,
+            },
+          ],
+        },
+        reason: "Correct order terms",
+      }),
+      409,
+    );
+    expect(amended.error.message).toContain("A reserved sales line");
+    const priced = await price(originalDraft);
+    await ctx.handle.db
+      .update(salesOrderLines)
+      .set({ unitPrice: 13 })
+      .where(eq(salesOrderLines.id, order.lines[0].id));
+    expect((await ok(decision(priced), 409)).error.message).toContain("A sales line changed after drafting");
+    await ctx.handle.db
+      .update(salesOrderLines)
+      .set({ unitPrice: 12.5 })
+      .where(eq(salesOrderLines.id, order.lines[0].id));
     await ok(draft("despatch", first.id), 409);
-    const invoice = await ok(decision(await price(originalDraft)));
+    const invoice = await ok(decision(priced));
     expect(invoice).toMatchObject({ status: "issued", net: "50.00", tax: "10.00", gross: "60.00" });
     expect((await ok(voidFirst(), 409)).error.message).toContain("Issue a credit note");
     await ok(draft("despatch", first.id), 409);

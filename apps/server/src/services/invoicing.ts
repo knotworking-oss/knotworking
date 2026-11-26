@@ -359,7 +359,7 @@ export async function decideCustomerDocument(
         throw badRequest("The issue date cannot be in the future");
       if (Number(document.gross) <= 0)
         throw badRequest("The document needs a positive total before approval");
-      await assertInvoiceSourcesCurrent(tx, ws, id, document.lines);
+      await assertInvoiceSourcesCurrent(tx, ws, id, document.lines, document.currency);
       const [counter] = await tx
         .select({ serial: max(documents.serial) })
         .from(documents)

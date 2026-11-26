@@ -47,6 +47,7 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   // Stock: locations, lots and the movement ledger.
   [/^\/stock(\/|$)/, "stock"],
   [/^\/customers(\/|$)/, "customers"],
+  [/^\/invoicing(\/|$)/, "invoicing"],
   [/^\/despatch(\/|$)/, "despatch"],
   [/^\/sales(\/|$)/, "sales"],
   [/^\/client-services(\/|$)/, "client_services"],

@@ -2,7 +2,7 @@
 // externals from tsup.config.ts, pinned to the versions installed in this repo.
 import { readFileSync } from "node:fs";
 
-const externals = ["@electric-sql/pglite", "postgres", "nodemailer"];
+const externals = ["@electric-sql/pglite", "postgres", "nodemailer", "pdfkit"];
 const dependencies = Object.fromEntries(
   externals.map((name) => {
     const pkg = new URL(`../node_modules/${name}/package.json`, import.meta.url);

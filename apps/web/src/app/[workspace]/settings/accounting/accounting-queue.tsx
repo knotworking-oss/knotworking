@@ -43,6 +43,15 @@ const actionLabels: Record<string, string> = {
   unknown: "Outcome uncertain",
   deferred: "Not sent yet, back in the queue",
   retry_requested: "Retry requested",
+  reprepared: "Prepared again after rejection",
+  allocation_pending: "Credit posted, allocation not verified",
+  allocation_verified: "Allocation confirmed in accounting system",
+  allocation_recorded: "Allocation settled in accounting system",
+};
+const allocationLabels: Record<string, string> = {
+  pending: "Allocation to the original invoice is pending.",
+  allocated: "Allocated to the original invoice.",
+  recorded: "Allocation recorded as settled in the accounting system.",
 };
 
 /** The finance review of one connection's outbox: queued, uncertain, rejected and posted invoices. */
@@ -50,11 +59,13 @@ export function AccountingQueue({
   slug,
   connectionId,
   canReadPurchasing,
+  canReadInvoicing,
   onChecked,
 }: {
   slug: string;
   connectionId: string;
   canReadPurchasing: boolean;
+  canReadInvoicing: boolean;
   onChecked: () => void;
 }) {
   const [state, setState] = useState<State>("queued");
@@ -127,6 +138,16 @@ export function AccountingQueue({
       ),
     );
   }
+  function settleAllocation(action: "allocate" | "record") {
+    const p = item!.posting;
+    void run(async () =>
+      settle(
+        await unwrap(
+          postings()[":postingId"].allocation.$post({ param: params(p.id), json: { action, reason } }),
+        ),
+      ),
+    );
+  }
   function readBack(e: FormEvent) {
     e.preventDefault();
     const p = item!.posting;
@@ -185,7 +206,7 @@ export function AccountingQueue({
           <table className="w-full text-left text-sm">
             <thead>
               <tr>
-                <th className="p-2">Invoice</th>
+                <th className="p-2">Document</th>
                 <th className="p-2">Date</th>
                 <th className="p-2 text-right">Gross</th>
                 <th className="p-2">Attempts</th>
@@ -260,9 +281,21 @@ export function AccountingQueue({
               Open source purchase invoice
             </Link>
           )}
+          {canReadInvoicing && p.payload.kind !== "purchase_invoice" && (
+            <Link className="underline" href={`/${slug}/invoicing/${p.payload.sourceId}`}>
+              Open source {p.payload.kind === "customer_invoice" ? "invoice" : "credit note"}
+            </Link>
+          )}
+          {p.payload.kind === "customer_credit_note" && (
+            <p className="mt-1 text-muted-foreground">
+              Original Xero invoice {p.payload.originalInvoice.reference} ·{" "}
+              {p.payload.originalInvoice.externalId}
+            </p>
+          )}
           {p.externalId && (
             <p className="mt-1 text-muted-foreground">Accounting transaction {p.externalId}</p>
           )}
+          {p.allocation && <p className="mt-1 text-muted-foreground">{allocationLabels[p.allocation]}</p>}
           <ol className="mt-3 flex flex-col gap-2">
             {item.history.map((h) => (
               <li key={h.id}>
@@ -294,6 +327,44 @@ export function AccountingQueue({
               <div>
                 <Button type="submit" disabled={pending}>
                   Retry
+                </Button>
+              </div>
+            </form>
+          )}
+          {p.state === "posted" && p.allocation === "pending" && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                settleAllocation("allocate");
+              }}
+              className="mt-3 flex flex-col gap-3 border-t pt-3"
+            >
+              <Field>
+                <FieldLabel htmlFor="allocation-reason">Review note</FieldLabel>
+                <Input
+                  id="allocation-reason"
+                  required
+                  maxLength={2000}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+                <FieldDescription>
+                  The credit is posted. Allocating reads it back first and allocates only if the allocation is
+                  not already there. If the original invoice was paid or settled another way, record what
+                  finance did in the accounting system instead.
+                </FieldDescription>
+              </Field>
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={pending || !list?.canAllocate}>
+                  Allocate to original invoice
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pending || !reason.trim()}
+                  onClick={() => settleAllocation("record")}
+                >
+                  Record as settled
                 </Button>
               </div>
             </form>

@@ -1,11 +1,6 @@
-import type { AccountingPosting } from "@knotworking/core";
 import { xeroDocumentIssues } from "./adapters/xero";
 
-type DocumentFields = Pick<AccountingPosting, "kind" | "date" | "reference" | "currency"> & {
-  dueDate?: string | null;
-  /** Null while the supplier has no reviewed mapping: that is reported separately. */
-  supplierReference: string | null;
-};
+type DocumentFields = Parameters<typeof xeroDocumentIssues>[0];
 
 /**
  * Checks an installed provider needs before a document can be prepared for it, so the reviewer

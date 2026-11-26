@@ -1,3 +1,4 @@
+import { hasModuleLevel } from "@knotworking/core";
 import { Badge } from "@knotworking/ui/components/badge";
 import {
   Table,
@@ -57,6 +58,15 @@ export default async function DespatchPage({
             </div>
             <Badge variant="secondary">{d.status}</Badge>
           </div>
+          {d.status === "confirmed" &&
+            hasModuleLevel(boot.modules.find((module) => module.id === "invoicing")?.access, "write") && (
+              <Link
+                className="text-sm underline print:hidden"
+                href={`/${slug}/invoicing/new?source=despatch&id=${id}`}
+              >
+                Draft customer invoice
+              </Link>
+            )}
           <DespatchActions slug={slug} despatch={d} />
           <Link className="text-sm underline" href={`/${slug}/despatch/${id}/pick`}>
             Print pick list and handling units

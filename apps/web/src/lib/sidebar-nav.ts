@@ -347,6 +347,16 @@ export const navAreas: readonly NavArea[] = [
     ],
   },
   {
+    id: "invoicing",
+    label: "Invoicing",
+    description: "Customer invoices and credit notes",
+    icon: FileText,
+    group: "Operations",
+    visible: needs("invoicing"),
+    keywords: ["customer", "billing", "credit notes", "sales invoices"],
+    sections: [{ items: [{ label: "Customer invoices and credits", path: "invoicing", icon: FileText }] }],
+  },
+  {
     id: "purchasing",
     label: "Purchasing",
     description: "Purchase orders, invoices and prices",

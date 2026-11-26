@@ -10,6 +10,7 @@ export * from "./project-templates";
 export * from "./purchase-requests";
 export * from "./client-services";
 export * from "./crm";
+export * from "./invoicing";
 export * from "./assets";
 export * from "./token-actions";
 export * from "./items";

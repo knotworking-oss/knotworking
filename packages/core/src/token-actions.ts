@@ -179,6 +179,7 @@ export const personOnlyActions: readonly PersonOnlyAction[] = [
   personOnly("workforce_hr", "Prepare, approve and export payroll runs", "sign_off"),
   // Sign-offs and approvals.
   personOnly("purchase_requests", "Decide or withdraw purchase requests", "sign_off"),
+  personOnly("invoicing", "Approve or discard customer invoices and credit notes", "sign_off"),
   personOnly("client_services", "Sign client service quote and delivery decisions", "sign_off"),
   personOnly("crm", "Hand off won opportunities to an order or delivery project", "sign_off"),
   personOnly("items", "Approve or suspend suppliers", "sign_off"),
@@ -301,6 +302,7 @@ export const personOnlyActions: readonly PersonOnlyAction[] = [
   personOnly("attendance", "Change attendance settings", "safety"),
   personOnly("purchasing", "Change invoice match tolerances", "safety"),
   personOnly("purchasing", "Change purchase order approval and over-delivery settings", "safety"),
+  personOnly("invoicing", "Change the seller tax registration number printed on invoices", "safety"),
   personOnly("costing", "Change standard costs and absorption rates", "safety"),
 ];
 

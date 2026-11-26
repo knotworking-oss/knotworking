@@ -59,6 +59,7 @@ export const moduleIds = [
   "purchase_requests",
   "client_services",
   "crm",
+  "invoicing",
 ] as const;
 export type ModuleId = (typeof moduleIds)[number];
 
@@ -101,6 +102,17 @@ export interface ModuleDefinition {
 }
 
 export const modules: Record<ModuleId, ModuleDefinition> = {
+  invoicing: {
+    id: "invoicing",
+    name: "Invoicing",
+    description:
+      "Customer invoices, credit notes and approved billing from sales, despatch and client services.",
+    dependsOn: ["customers"],
+    enhancedBy: ["sales", "despatch", "client_services", "accounting"],
+    defaultAccess: "none",
+    defaultActive: false,
+    syncEntities: [],
+  },
   client_services: {
     id: "client_services",
     name: "Client services",

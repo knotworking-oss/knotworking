@@ -729,6 +729,34 @@
       "when": 1795651246248,
       "tag": "0110_crm",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1795651306248,
+      "tag": "0120_invoicing",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1795651366248,
+      "tag": "0121_customer_posting_revisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1795651426248,
+      "tag": "0122_credit_allocation_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795651486248,
+      "tag": "0123_invoice_tax_numbers",
+      "breakpoints": true
     }
   ]
 }

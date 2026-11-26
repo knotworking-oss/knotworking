@@ -29,7 +29,8 @@ const binding = {
   companyId: "test-company",
   capabilities: { postingKinds: ["purchase_invoice"] as const, currencies: ["GBP", "USD", "JPY", "KWD"] },
 };
-function document(extra: Partial<AccountingPosting> = {}): AccountingPosting {
+type PurchaseInvoice = Extract<AccountingPosting, { kind: "purchase_invoice" }>;
+function document(extra: Partial<PurchaseInvoice> = {}): PurchaseInvoice {
   return {
     version: 1,
     provider: binding.provider,
@@ -77,20 +78,18 @@ describe("Provider-neutral durable posting boundary (test adapters only)", () =>
       { id: other, name: "Other", slug: "other-finance" },
     ]);
     for (const workspaceId of [ws, other])
-      await handle.db
-        .insert(accountingConnections)
-        .values({
-          id: connectionId,
-          workspaceId,
-          name: "Test setup",
-          provider: binding.provider,
-          companyId: binding.companyId,
-        });
+      await handle.db.insert(accountingConnections).values({
+        id: connectionId,
+        workspaceId,
+        name: "Test setup",
+        provider: binding.provider,
+        companyId: binding.companyId,
+      });
   }, 30000);
   afterAll(async () => {
     await handle?.close();
   });
-  const enqueue = async (input = document(), workspace = ws) => {
+  const enqueue = async (input: AccountingPosting = document(), workspace = ws) => {
     await handle.db
       .insert(accountingConnections)
       .values({
@@ -250,6 +249,59 @@ describe("Provider-neutral durable posting boundary (test adapters only)", () =>
     await expect(
       retryAccountingPosting(handle.db, ws, row.id, rejected!.attemptId!, actor, "Stale retry"),
     ).rejects.toMatchObject({ code: "accounting_conflict" });
+  });
+  it("re-prepares a rejected customer document under the same key, keeping the replaced snapshot", async () => {
+    const { supplierReference: _, ...rest } = document();
+    const invoice: AccountingPosting = {
+      ...rest,
+      kind: "customer_invoice",
+      customerReference: "CUS001",
+      dueDate: "2026-12-15",
+    };
+    const row = await enqueue(invoice);
+    const seen: (string | undefined)[] = [];
+    const rejecting: AccountingAdapter = {
+      ...binding,
+      capabilities: { ...binding.capabilities, postingKinds: ["customer_invoice"] },
+      post: async ({ idempotencyKey }) => {
+        seen.push(idempotencyKey);
+        return { outcome: "rejected", evidence: "Wrong tax rate for the line" };
+      },
+    };
+    const rejected = await dispatchAccountingPosting(handle.db, ws, row.id, actor, rejecting);
+    expect(rejected?.state).toBe("failed");
+    const recoded = {
+      ...invoice,
+      lines: [{ ...invoice.lines[0]!, taxReference: "T2" }],
+    };
+    const requeued = await enqueue(recoded);
+    expect(requeued).toMatchObject({ id: row.id, state: "queued", attemptId: null });
+    expect(requeued.idempotencyKey).toEqual(expect.any(String));
+    expect(requeued.payload.lines[0]!.taxReference).toBe("T2");
+    // The queued, re-coded posting is now the one to reconcile; a different snapshot conflicts again.
+    expect((await enqueue(recoded)).id).toBe(row.id);
+    await expect(enqueue(invoice)).rejects.toMatchObject({ code: "accounting_conflict" });
+    const { history: events } = await history(row.id);
+    expect(events.map((event) => event.action)).toEqual([
+      "queued",
+      "dispatch_started",
+      "rejected",
+      "reprepared",
+    ]);
+    expect(events.at(-1)?.supersededPayload?.lines[0]?.taxReference).toBe("T1");
+    await dispatchAccountingPosting(handle.db, ws, row.id, actor, rejecting);
+    expect(seen).toEqual([undefined, requeued.idempotencyKey]);
+    // Supplier bills stay immutable: a rejected bill is corrected through a new invoice version.
+    const bill = await enqueue();
+    await dispatchAccountingPosting(handle.db, ws, bill.id, actor, {
+      ...binding,
+      post: async () => ({ outcome: "rejected", evidence: "Refused" }),
+    });
+    await expect(
+      enqueue({ ...document(), sourceId: bill.sourceId, reference: "INV-124" }),
+    ).rejects.toMatchObject({
+      code: "accounting_conflict",
+    });
   });
   it("requires matching read-back and retains idempotent confirmation", async () => {
     const row = await enqueue();

@@ -1,7 +1,8 @@
-import { DEFAULT_TIME_ZONE, newId, todayInZone } from "@knotworking/core";
+import { addDays, DEFAULT_TIME_ZONE, newId, todayInZone, type ModuleId } from "@knotworking/core";
 import {
   accountingXeroCredentials,
   accountingXeroFlows,
+  salesOrderLines,
   workspaceMembers,
   workspaces,
 } from "@knotworking/db";
@@ -11,6 +12,7 @@ import { dispatchQueuedPostings } from "./accounting/dispatcher";
 import { createAccountingAdapterRegistry } from "./accounting/registry";
 import { createXeroConnectionService, type XeroConnectionService } from "./accounting/xero-connection";
 import { xeroCallbackPath } from "./accounting/xero-http";
+import { prepareDespatch } from "./despatch-test-helpers";
 import { APP_URL, TEST_SECRET, makeApp, signIn, type Res, type TestCtx } from "./test-utils";
 
 const ws = "/v1/workspaces/acme";
@@ -25,14 +27,37 @@ const tenantId = newId(),
 
 type Invoice = {
   InvoiceNumber: string;
+  Type: "ACCPAY" | "ACCREC";
   Url: string;
   LineItems: Array<{ LineAmount: number; TaxAmount: number }>;
+};
+type Allocation = { Invoice: { InvoiceID: string }; Amount: number; Date: string };
+type Credit = {
+  CreditNoteNumber: string;
+  CreditNoteID: string;
+  Reference: string;
+  Date: string;
+  Contact: { ContactID: string };
+  Type: "ACCRECCREDIT";
+  Status: string;
+  CurrencyCode: string;
+  LineItems: Invoice["LineItems"];
+  SubTotal: number;
+  TotalTax: number;
+  Total: number;
+  Allocations: Allocation[];
+};
+const totals = (lines: Invoice["LineItems"]) => {
+  const SubTotal = lines.reduce((n, l) => n + l.LineAmount, 0);
+  const TotalTax = lines.reduce((n, l) => n + l.TaxAmount, 0);
+  return { SubTotal, TotalTax, Total: Math.round((SubTotal + TotalTax) * 100) / 100 };
 };
 function mockXero() {
   const bills = new Map<
     string,
-    Invoice & { InvoiceID: string; SubTotal: number; TotalTax: number; Total: number }
+    Invoice & { InvoiceID: string; SubTotal: number; TotalTax: number; Total: number; AmountDue: number }
   >();
+  const credits = new Map<string, Credit>();
   const keys = new Set<string>();
   const state = {
     codeExchanges: 0,
@@ -40,6 +65,10 @@ function mockXero() {
     revoked: false,
     denyRefresh: false,
     loseReply: false,
+    loseAllocationReply: false,
+    /** Xero refuses the allocation PUT, e.g. the invoice was paid after the balance check. */
+    rejectAllocation: false,
+    salesTaxRate: 20,
     wrongOrganisation: false,
     currency: "GBP",
     rejectBill: false,
@@ -148,10 +177,23 @@ function mockXero() {
           Contacts: [{ ContactID: contactId, ContactStatus: state.archivedContact ? "ARCHIVED" : "ACTIVE" }],
         });
       case "/Accounts":
-        return Response.json({ Accounts: [{ Code: "7500", Status: "ACTIVE", Class: "EXPENSE" }] });
+        return Response.json({
+          Accounts: [
+            { Code: "7500", Status: "ACTIVE", Class: "EXPENSE" },
+            { Code: "200", Status: "ACTIVE", Class: "REVENUE" },
+          ],
+        });
       case "/TaxRates":
         return Response.json({
-          TaxRates: [{ TaxType: "INPUT2", Status: "ACTIVE", CanApplyToExpenses: true }],
+          TaxRates: [
+            { TaxType: "INPUT2", Status: "ACTIVE", CanApplyToExpenses: true },
+            {
+              TaxType: "OUTPUT2",
+              Status: "ACTIVE",
+              CanApplyToRevenue: true,
+              EffectiveRate: state.salesTaxRate,
+            },
+          ],
         });
       case "/Invoices":
         if (init?.method !== "PUT") {
@@ -159,10 +201,12 @@ function mockXero() {
           expect(url.searchParams.get("createdByMyApp")).toBe("true");
           // An unrelated bill with the same number and a different source URL isn't evidence.
           return Response.json({
-            Invoices: [...bills.values()].flatMap((bill) => [
-              { ...bill, InvoiceID: newId(), Url: "https://example.invalid" },
-              { ...bill, Url: undefined },
-            ]),
+            Invoices: [...bills.values()]
+              .filter((bill) => url.searchParams.get("where")?.includes(`Type=="${bill.Type}"`))
+              .flatMap((bill) => [
+                { ...bill, InvoiceID: newId(), Url: "https://example.invalid" },
+                { ...bill, Url: undefined },
+              ]),
           });
         }
         state.postCalls++;
@@ -181,23 +225,81 @@ function mockXero() {
           keys.add(key);
           const invoice: Invoice = JSON.parse(String(init.body)).Invoices[0];
           const InvoiceID = newId();
-          const SubTotal = invoice.LineItems.reduce((n, l) => n + l.LineAmount, 0);
-          const TotalTax = invoice.LineItems.reduce((n, l) => n + l.TaxAmount, 0);
-          bills.set(InvoiceID, { ...invoice, InvoiceID, SubTotal, TotalTax, Total: SubTotal + TotalTax });
+          const value = totals(invoice.LineItems);
+          bills.set(InvoiceID, { ...invoice, InvoiceID, ...value, AmountDue: value.Total });
           if (state.loseReply) throw new Error("Simulated response lost after commit");
           return Response.json({ Invoices: [{ InvoiceID, HasErrors: false }] });
         }
+      case "/CreditNotes":
+        if (init?.method === "PUT") {
+          state.postCalls++;
+          const key = headers.get("idempotency-key")!;
+          expect(keys.has(key)).toBe(false);
+          keys.add(key);
+          const credit = JSON.parse(String(init.body)).CreditNotes[0];
+          expect(credit).not.toHaveProperty("InvoiceNumber");
+          expect(credit).not.toHaveProperty("Url");
+          expect(credit).not.toHaveProperty("DueDate");
+          expect(credit.Type).toBe("ACCRECCREDIT");
+          const CreditNoteID = newId();
+          credits.set(CreditNoteID, {
+            ...credit,
+            ...totals(credit.LineItems),
+            CreditNoteID,
+            Allocations: [],
+          });
+          if (state.loseReply) throw new Error("Simulated lost credit response");
+          return Response.json({ CreditNotes: [{ CreditNoteID, HasErrors: false }] });
+        }
+        return Response.json({
+          CreditNotes: [...credits.values()].filter((credit) =>
+            url.searchParams.get("where")?.includes(`CreditNoteNumber=="${credit.CreditNoteNumber}"`),
+          ),
+        });
       default: {
-        const bill = bills.get(url.pathname.split("/").at(-1)!);
-        if (bill) return Response.json({ Invoices: [bill] });
+        const [, , , resource, id, operation] = url.pathname.split("/");
+        if (resource === "Invoices") {
+          const bill = bills.get(id!);
+          if (bill) return Response.json({ Invoices: [bill] });
+        }
+        if (resource === "CreditNotes") {
+          const credit = credits.get(id!);
+          if (credit && !operation) return Response.json({ CreditNotes: [credit] });
+          if (credit && operation === "Allocations" && init?.method === "PUT") {
+            const key = headers.get("idempotency-key")!;
+            expect(keys.has(key)).toBe(false);
+            expect(key.startsWith(`${credit.Reference.split(" ")[1]}-allocation`)).toBe(true);
+            keys.add(key);
+            if (state.rejectAllocation)
+              return Response.json(
+                {
+                  ErrorNumber: 10,
+                  Type: "ValidationException",
+                  Elements: [{ ValidationErrors: [{ Message: "Synthetic allocation failure" }] }],
+                },
+                { status: 400 },
+              );
+            const allocations: Allocation[] = JSON.parse(String(init.body)).Allocations;
+            expect(allocations).toHaveLength(1);
+            const allocation = allocations[0]!;
+            const invoice = bills.get(allocation.Invoice.InvoiceID);
+            expect(invoice?.Type).toBe("ACCREC");
+            expect(allocation.Amount).toBeLessThanOrEqual(invoice!.AmountDue);
+            invoice!.AmountDue -= allocation.Amount;
+            credit.Allocations.push(allocation);
+            credit.Status = "PAID";
+            if (state.loseAllocationReply) throw new Error("Simulated lost allocation response");
+            return Response.json({ Allocations: allocations });
+          }
+        }
         throw new Error(`Unexpected request to ${url.pathname}`);
       }
     }
   });
-  return { state, fetch, keys, bills };
+  return { state, fetch, keys, bills, credits };
 }
 
-describe("connected Xero purchasing against a fake HTTP provider", () => {
+describe("connected Xero accounting against a fake HTTP provider", () => {
   const xero = mockXero();
   let ctx: TestCtx, service: XeroConnectionService, owner: string, otherSession: string, member: string;
   let workspaceId: string, connectionId: string, supplierId: string, itemId: string, locationId: string;
@@ -250,7 +352,7 @@ describe("connected Xero purchasing against a fake HTTP provider", () => {
     await callback(await start());
     await ok(send("POST", `${oauth()}/confirm`, await select()));
   };
-  const setModules = (enabledModules: ("items" | "stock" | "purchasing" | "accounting")[] | null) =>
+  const setModules = (enabledModules: ModuleId[] | null) =>
     ctx.handle.db.update(workspaces).set({ enabledModules }).where(eq(workspaces.id, workspaceId));
   async function disable(disabled: boolean) {
     const { name, companyId, revision } = await getConnection();
@@ -630,5 +732,632 @@ describe("connected Xero purchasing against a fake HTTP provider", () => {
     await connect();
     expect(await dispatchQueuedPostings(ctx.handle.db, provider())).toMatchObject({ posted: 1 });
     expect((await ok(send("GET", prepared.path))).posting).toMatchObject({ state: "posted", attempts: 2 });
+  });
+
+  async function billingCustomer(code: string) {
+    return ok(
+      send("POST", "/customers", { code, name: `Customer ${code}`, address: "10 Fixture Road" }),
+      201,
+    );
+  }
+
+  async function mapCustomer(customerId: string) {
+    for (const [kind, localReference, externalReference] of [
+      ["customer", customerId, contactId],
+      ["account", "revenue", "200"],
+      ["tax", "output", "OUTPUT2"],
+    ]) {
+      await ok(
+        send("PUT", `${connection()}/mappings`, {
+          commandId: newId(),
+          expectedRevision: (await getConnection()).revision,
+          kind,
+          localReference,
+          externalReference,
+          reason: "Reviewed against the fake organisation",
+        }),
+      );
+    }
+  }
+
+  const terms = () => ({
+    commandId: newId(),
+    date: today,
+    dueDate: addDays(today, 30),
+    issuerAddress: "2 Fixture Street",
+  });
+  const draft = (kind: "sales" | "despatch" | "service", sourceId: string) =>
+    send("POST", "/invoicing", { ...terms(), kind, sourceId });
+  const decision = (
+    doc: { id: string; revision: number },
+    action: "issue" | "discard" = "issue",
+    cookie = owner,
+  ) =>
+    send(
+      "POST",
+      `/invoicing/${doc.id}/decision`,
+      {
+        action,
+        commandId: newId(),
+        expectedRevision: doc.revision,
+        reason: "Checked against approved source",
+      },
+      cookie,
+    );
+
+  async function price(
+    doc: { id: string; revision: number; lines: { id: string; unitPrice: string }[] },
+    manual?: string,
+  ) {
+    return ok(
+      send("PATCH", `/invoicing/${doc.id}`, {
+        ...terms(),
+        expectedRevision: doc.revision,
+        pricing: doc.lines.map((line) => ({ id: line.id, unitPrice: manual ?? line.unitPrice, taxRate: 20 })),
+      }),
+    );
+  }
+
+  async function prepareCustomer(
+    doc: { id: string; kind: string; lines: { id: string }[] },
+    allocate = false,
+  ) {
+    const path = `${connection()}/customer-documents/${doc.id}/prepare`;
+    const input = {
+      commandId: newId(),
+      expectedRevision: (await getConnection()).revision,
+      reason: "Finance verified the coding",
+      lines:
+        doc.kind === "credit"
+          ? []
+          : doc.lines.map((line) => ({ id: line.id, accountKey: "revenue", taxKey: "output" })),
+      allocate,
+    };
+    const one = await ok(send("POST", path, input), 201);
+    expect(await ok(send("POST", path, input), 201)).toEqual(one);
+    expect(await ok(send("POST", path, { ...input, commandId: newId() }), 201)).toEqual(one);
+    return { ...one, path: `${connection()}/postings/${one.id}` };
+  }
+
+  it("reserves partial shipments once across sales and despatch, then posts and allocates a linked credit", async () => {
+    await setModules(["customers", "items", "stock", "despatch", "sales", "invoicing", "accounting"]);
+    const customer = await billingCustomer("SHIP-BILL");
+    const finishedItem = await ok(
+      send("POST", "/items", {
+        code: "SHIP-FIXTURE",
+        name: "Fixture tea",
+        type: "finished",
+        unit: "kg",
+      }),
+      201,
+    );
+    const lot = await ok(
+      send("POST", "/stock/receipts", {
+        itemId: finishedItem.id,
+        locationId,
+        lotCode: "SHIP-LOT",
+        quantity: 10,
+        unit: "kg",
+        receivedOn: today,
+        reason: "Fixture stock",
+        expiresOn: addDays(today, 20),
+        expiryType: "best_before",
+      }),
+      201,
+    );
+    const order = await ok(
+      send("POST", "/sales/orders", {
+        commandId: newId(),
+        kind: "order",
+        document: {
+          customerId: customer.id,
+          currency: "GBP",
+          lines: [{ itemId: finishedItem.id, quantity: 10, unit: "kg", unitPrice: 12.5, dueOn: today }],
+        },
+      }),
+      201,
+    );
+    let confirmed = await ok(
+      send("POST", `/sales/orders/${order.id}/confirm`, {
+        commandId: newId(),
+        expectedRevision: order.revision,
+        reason: "Reviewed",
+      }),
+    );
+    await ok(draft("sales", order.id), 409);
+    async function ship(quantity: number) {
+      const delivery = await ok(
+        send("POST", "/despatch", {
+          customerId: customer.id,
+          despatchedOn: today,
+          lines: [{ lotId: lot.id, locationId, quantity, unit: "kg" }],
+        }),
+        201,
+      );
+      const ready = await prepareDespatch(send, delivery.id);
+      expect(ready.error).toBeUndefined();
+      await ok(
+        send("POST", `/despatch/${delivery.id}/confirm`, {
+          commandId: newId(),
+          expectedUpdatedAt: ready.stamp,
+        }),
+      );
+      confirmed = await ok(
+        send("POST", `/sales/orders/${order.id}/fulfilments`, {
+          commandId: newId(),
+          expectedRevision: confirmed.revision,
+          orderLineId: order.lines[0].id,
+          despatchLineId: delivery.lines[0].id,
+          reason: "Matched the physical shipment",
+        }),
+      );
+      return delivery;
+    }
+
+    const first = await ship(4);
+    const candidates = await Promise.all([draft("sales", order.id), draft("sales", order.id)]);
+    expect(candidates.map((response) => response.status).sort()).toEqual([201, 409]);
+    const originalDraft = await candidates.find((response) => response.status === 201)!.json();
+    expect(originalDraft).toMatchObject({
+      sourceId: order.id,
+      net: "50.00",
+      lines: [{ sourceLineId: first.lines[0].id, quantity: "4000", unit: "g" }],
+    });
+    const voidFirst = () =>
+      send("POST", `/despatch/${first.id}/void`, { commandId: newId(), reason: "Recording correction" });
+    expect((await ok(voidFirst(), 409)).error.message).toContain("Discard the invoice draft");
+    const amended = await ok(
+      send("POST", `/sales/orders/${order.id}/amend`, {
+        commandId: newId(),
+        expectedRevision: confirmed.revision,
+        document: {
+          customerId: customer.id,
+          currency: "GBP",
+          lines: [
+            {
+              id: order.lines[0].id,
+              itemId: finishedItem.id,
+              quantity: 11,
+              unit: "kg",
+              unitPrice: 13,
+              dueOn: today,
+            },
+          ],
+        },
+        reason: "Correct order terms",
+      }),
+      409,
+    );
+    expect(amended.error.message).toContain("A reserved sales line");
+    const priced = await price(originalDraft);
+    await ctx.handle.db
+      .update(salesOrderLines)
+      .set({ unitPrice: 13 })
+      .where(eq(salesOrderLines.id, order.lines[0].id));
+    expect((await ok(decision(priced), 409)).error.message).toContain("A sales line changed after drafting");
+    await ctx.handle.db
+      .update(salesOrderLines)
+      .set({ unitPrice: 12.5 })
+      .where(eq(salesOrderLines.id, order.lines[0].id));
+    await ok(draft("despatch", first.id), 409);
+    const invoice = await ok(decision(priced));
+    expect(invoice).toMatchObject({ status: "issued", net: "50.00", tax: "10.00", gross: "60.00" });
+    expect((await ok(voidFirst(), 409)).error.message).toContain("Issue a credit note");
+    await ok(draft("despatch", first.id), 409);
+    await ok(draft("sales", order.id), 409);
+    const second = await ship(6);
+    expect((await ok(draft("despatch", second.id), 409)).error.message).toContain("from the sales order");
+    const secondDraft = await ok(draft("sales", order.id), 201);
+    expect(secondDraft).toMatchObject({
+      currency: "GBP",
+      net: "75.00",
+      lines: [{ sourceLineId: second.lines[0].id, quantity: "6000", priceLocked: true }],
+    });
+    await ok(decision(secondDraft, "discard"));
+    expect(await ok(draft("sales", order.id), 201)).toMatchObject({ net: "75.00" });
+
+    await mapCustomer(customer.id);
+    const posting = await prepareCustomer(invoice);
+    xero.state.salesTaxRate = 5;
+    const rejected = await ok(send("POST", `${posting.path}/send`));
+    expect(rejected.posting.state).toBe("failed");
+    expect(rejected.history.at(-1).evidence).toContain("is not 5%");
+    xero.state.salesTaxRate = 20;
+    await ok(
+      send("POST", `${posting.path}/retry`, {
+        attemptId: rejected.posting.attemptId,
+        reason: "Corrected the Xero tax rate",
+      }),
+    );
+    xero.state.rateLimited = 1;
+    expect((await ok(send("POST", `${posting.path}/send`))).posting.state).toBe("queued");
+    const posted = (await ok(send("POST", `${posting.path}/send`))).posting;
+    expect(posted).toMatchObject({
+      state: "posted",
+      receipt: { net: "50.00", tax: "10.00", gross: "60.00" },
+    });
+    expect(xero.bills.get(posted.externalId)).toMatchObject({
+      InvoiceNumber: invoice.number,
+      Type: "ACCREC",
+      Contact: { ContactID: contactId },
+      Url: `${APP_URL}/acme/invoicing/${invoice.id}?accountingPosting=${posting.id}`,
+      LineItems: [{ AccountCode: "200", TaxType: "OUTPUT2", TaxAmount: 10 }],
+    });
+
+    const correction = {
+      kind: "credit",
+      sourceId: invoice.id,
+      commandId: newId(),
+      date: today,
+      reason: "Customer returned the shipment",
+      lineIds: [invoice.lines[0].id],
+    };
+    const creditDraft = await ok(send("POST", "/invoicing", correction), 201);
+    expect((await ok(voidFirst(), 409)).error.message).toContain("Issue a credit note");
+    const credit = await ok(decision(creditDraft));
+    expect(await ok(voidFirst())).toMatchObject({ status: "voided" });
+    await ok(send("POST", "/invoicing", { ...correction, commandId: newId() }), 409);
+    await ok(
+      send("PATCH", `/invoicing/${invoice.id}`, { ...terms(), expectedRevision: invoice.revision }),
+      409,
+    );
+    expect(await ok(send("GET", `/invoicing/${invoice.id}`))).toMatchObject({
+      credits: [{ id: credit.id, number: credit.number, gross: "60.00", status: "issued" }],
+    });
+    expect(credit).toMatchObject({
+      creditOf: invoice.id,
+      sourceReference: invoice.number,
+      creditReason: correction.reason,
+    });
+    const creditPosting = await prepareCustomer(credit, true);
+    xero.state.loseAllocationReply = true;
+    const sentCredit = await ok(send("POST", `${creditPosting.path}/send`));
+    xero.state.loseAllocationReply = false;
+    // The credit is verified even though the allocation response was lost.
+    expect(sentCredit.posting).toMatchObject({ state: "posted", allocation: "pending" });
+    expect(sentCredit.history.at(-1)).toMatchObject({ action: "allocation_pending" });
+    const [remoteCredit] = [...xero.credits.values()];
+    expect(remoteCredit).toMatchObject({
+      CreditNoteNumber: credit.number,
+      Contact: { ContactID: contactId },
+      Reference: `KW ${creditPosting.id} / ${invoice.number}`,
+      SubTotal: 50,
+      TotalTax: 10,
+      Total: 60,
+      Allocations: [{ Invoice: { InvoiceID: posted.externalId }, Amount: 60, Date: today }],
+    });
+    expect(xero.bills.get(posted.externalId)?.AmountDue).toBe(0);
+    expect(xero.keys.has(`${creditPosting.id}-allocation`)).toBe(true);
+    const remoteCount = xero.state.postCalls;
+    const keyCount = xero.keys.size;
+    await dispatchQueuedPostings(ctx.handle.db, provider());
+    const allocation = (action: string) =>
+      send("POST", `${creditPosting.path}/allocation`, {
+        action,
+        reason: "Verified the allocation after the response was lost",
+      });
+    const recovered = await ok(allocation("allocate"));
+    expect(recovered.posting).toMatchObject({
+      state: "posted",
+      allocation: "allocated",
+      externalId: remoteCredit!.CreditNoteID,
+      receipt: { net: "50.00", tax: "10.00", gross: "60.00" },
+    });
+    expect(recovered.history.at(-1)).toMatchObject({ action: "allocation_verified" });
+    // Reading the existing allocation back made no second allocation.
+    expect(xero.keys.size).toBe(keyCount);
+    expect(xero.state.postCalls).toBe(remoteCount);
+    expect(xero.credits.size).toBe(1);
+    await ok(allocation("record"), 409);
+  }, 30_000);
+
+  it("bills signed-off hours without Stock, preserves the CSV and recovers a lost ACCREC response", async () => {
+    await setModules(["tasks", "time", "customers", "client_services", "invoicing", "accounting"]);
+    const boot = await ok(send("GET", "/bootstrap"));
+    const {
+      user: { id: leadId },
+    } = await ok(ctx.req("/v1/me", { cookie: owner }));
+    const teamId = boot.teams[0].id;
+    const customer = await billingCustomer("SERV-BILL");
+    const quote = await ok(
+      send("POST", "/client-services", {
+        commandId: newId(),
+        customerId: customer.id,
+        title: "Fictional commissioning",
+        scope: "Prepare a fictional process report",
+        currency: "GBP",
+        unitPrice: 100,
+        quotedMinutes: 120,
+        deliveryDate: today,
+      }),
+      201,
+    );
+    await ok(draft("service", quote.id), 409);
+    const decide = (revision: number, action: string, more = {}) =>
+      ok(
+        send("POST", `/client-services/${quote.id}/decision`, {
+          commandId: newId(),
+          expectedRevision: revision,
+          action,
+          reason: "Fixture sign-off",
+          ...more,
+        }),
+      );
+    const issued = await decide(quote.revision, "issue");
+    const accepted = await decide(issued.revision, "accept", { teamId, leadId });
+    const task = await ok(
+      send("POST", "/tasks", { title: "Prepare the report", teamId, projectId: accepted.projectId }),
+      201,
+    );
+    await ok(send("POST", `/tasks/${task.id}/time-entries`, { minutes: 100 }), 201);
+    await decide(accepted.revision, "deliver", { approvedMinutes: 91 });
+    const csv = await send("GET", `/client-services/${quote.id}/billing-draft.csv`);
+    expect(csv.status).toBe(200);
+    expect(await csv.text()).toContain("Hourly,91,100,GBP,151.67");
+    const fromQuote = await ok(draft("service", quote.id), 201);
+    expect(fromQuote).toMatchObject({ sourceId: quote.id, net: "151.67" });
+    await ok(draft("service", quote.id), 409);
+    const invoice = await ok(decision(await price(fromQuote)));
+    await mapCustomer(customer.id);
+    const posting = await prepareCustomer(invoice);
+    xero.state.loseReply = true;
+    const unknown = (await ok(send("POST", `${posting.path}/send`))).posting;
+    xero.state.loseReply = false;
+    expect(unknown).toMatchObject({ state: "unknown", attempts: 1 });
+    const remote = [...xero.bills.values()].find((entry) => entry.Url.includes(invoice.id))!;
+    const count = xero.state.postCalls;
+    const recovered = await ok(
+      send("POST", `${posting.path}/read-back`, {
+        attemptId: unknown.attemptId,
+        reason: "Matched the signed-off job to the Xero invoice",
+      }),
+    );
+    expect(recovered.posting).toMatchObject({
+      state: "posted",
+      externalId: remote.InvoiceID,
+      receipt: { net: "151.67", tax: "30.33", gross: "182.00" },
+    });
+    expect(remote.Url).toBe(`${APP_URL}/acme/invoicing/${invoice.id}?accountingPosting=${posting.id}`);
+    expect(xero.state.postCalls).toBe(count);
+
+    const credit = await ok(
+      decision(
+        await ok(
+          send("POST", "/invoicing", {
+            kind: "credit",
+            sourceId: invoice.id,
+            commandId: newId(),
+            date: today,
+            reason: "Withdraw the fictional service charge",
+            lineIds: [invoice.lines[0].id],
+          }),
+          201,
+        ),
+      ),
+    );
+    const creditPosting = await prepareCustomer(credit);
+    xero.state.loseReply = true;
+    const interrupted = (await ok(send("POST", `${creditPosting.path}/send`))).posting;
+    xero.state.loseReply = false;
+    expect(interrupted).toMatchObject({ state: "unknown", attempts: 1 });
+    const verified = (
+      await ok(
+        send("POST", `${creditPosting.path}/read-back`, {
+          attemptId: interrupted.attemptId,
+          reason: "Read the existing on-account credit back",
+        }),
+      )
+    ).posting;
+    expect(verified).toMatchObject({
+      state: "posted",
+      attempts: 1,
+      receipt: {
+        net: "151.67",
+        tax: "30.33",
+        gross: "182.00",
+      },
+    });
+    expect(xero.credits.get(verified.externalId)?.Allocations).toEqual([]);
+    expect(xero.state.postCalls).toBe(count + 1);
+  }, 30_000);
+
+  it("checks revenue coding at prepare and re-prepares a customer posting Xero rejected", async () => {
+    await setModules(["customers", "invoicing", "accounting"]);
+    const customer = await billingCustomer("RECODE-BILL");
+    await mapCustomer(customer.id);
+    await ok(
+      send("PUT", `${connection()}/mappings`, {
+        commandId: newId(),
+        expectedRevision: (await getConnection()).revision,
+        kind: "account",
+        localReference: "purchases",
+        externalReference: "7500",
+        reason: "Supplier bill coding shares the account mappings",
+      }),
+    );
+    const invoice = await ok(
+      decision(
+        await ok(
+          send("POST", "/invoicing", {
+            ...terms(),
+            kind: "manual",
+            customerId: customer.id,
+            currency: "GBP",
+            lines: [
+              { description: "Fixture survey", unit: "", quantity: "1", unitPrice: "100", taxRate: 20 },
+            ],
+          }),
+          201,
+        ),
+      ),
+    );
+    const path = `${connection()}/customer-documents/${invoice.id}/prepare`;
+    const coded = async (accountKey: string) =>
+      send("POST", path, {
+        commandId: newId(),
+        expectedRevision: (await getConnection()).revision,
+        reason: "Finance verified the coding",
+        lines: [{ id: invoice.lines[0].id, accountKey, taxKey: "output" }],
+        allocate: false,
+      });
+    expect((await ok(coded("purchases"), 409)).error.message).toContain("active Xero revenue account");
+    xero.state.salesTaxRate = 5;
+    expect((await ok(coded("revenue"), 409)).error.message).toContain("effective rate of 20%");
+    xero.state.salesTaxRate = 20;
+    const posting = await prepareCustomer(invoice);
+    const posted = (await ok(send("POST", `${posting.path}/send`))).posting;
+    expect(posted.state).toBe("posted");
+
+    const credit = await ok(
+      decision(
+        await ok(
+          send("POST", "/invoicing", {
+            kind: "credit",
+            sourceId: invoice.id,
+            commandId: newId(),
+            date: today,
+            reason: "Survey cancelled",
+            lineIds: [invoice.lines[0].id],
+          }),
+          201,
+        ),
+      ),
+    );
+    const allocated = await prepareCustomer(credit, true);
+    // The customer paid in Xero before the credit was sent: allocation is no longer possible.
+    xero.bills.get(posted.externalId)!.AmountDue = 0;
+    const rejected = await ok(send("POST", `${allocated.path}/send`));
+    expect(rejected.posting.state).toBe("failed");
+    expect(rejected.history.at(-1).evidence).toContain("outstanding balance");
+    expect((await ok(send("GET", `${connection()}/customer-documents/${credit.id}`))).posting).toMatchObject({
+      id: allocated.id,
+      state: "failed",
+    });
+    const onAccount = await prepareCustomer(credit, false);
+    expect(onAccount).toMatchObject({ id: allocated.id, state: "queued" });
+    const requeued = await ok(send("GET", onAccount.path));
+    expect(requeued.history.map((event: { action: string }) => event.action)).toEqual([
+      "queued",
+      "dispatch_started",
+      "rejected",
+      "reprepared",
+    ]);
+    expect(requeued.history.at(-1).supersededPayload.originalInvoice.allocate).toBe(true);
+    expect(requeued.posting.payload.originalInvoice.allocate).toBe(false);
+    const sent = (await ok(send("POST", `${onAccount.path}/send`))).posting;
+    expect(sent).toMatchObject({ state: "posted", receipt: { gross: "120.00" } });
+    expect(xero.credits.get(sent.externalId)?.Allocations).toEqual([]);
+  });
+
+  it("keeps a verified credit posted when its allocation fails, then allocates or records it", async () => {
+    await setModules(["customers", "invoicing", "accounting"]);
+    const customer = await billingCustomer("ALLOC-BILL");
+    await mapCustomer(customer.id);
+    const invoice = await ok(
+      decision(
+        await ok(
+          send("POST", "/invoicing", {
+            ...terms(),
+            kind: "manual",
+            customerId: customer.id,
+            currency: "GBP",
+            lines: [
+              { description: "Fixture audit", unit: "", quantity: "1", unitPrice: "50", taxRate: 20 },
+              { description: "Fixture report", unit: "", quantity: "1", unitPrice: "25", taxRate: 20 },
+            ],
+          }),
+          201,
+        ),
+      ),
+    );
+    const posted = (await ok(send("POST", `${(await prepareCustomer(invoice)).path}/send`))).posting;
+    expect(posted.state).toBe("posted");
+    const creditFor = async (lineId: string) => {
+      const credit = await ok(
+        decision(
+          await ok(
+            send("POST", "/invoicing", {
+              kind: "credit",
+              sourceId: invoice.id,
+              commandId: newId(),
+              date: today,
+              reason: "Line withdrawn",
+              lineIds: [lineId],
+            }),
+            201,
+          ),
+        ),
+      );
+      return prepareCustomer(credit, true);
+    };
+    const first = await creditFor(invoice.lines[0].id);
+    xero.state.rejectAllocation = true;
+    const sent = await ok(send("POST", `${first.path}/send`));
+    expect(sent.posting).toMatchObject({ state: "posted", allocation: "pending" });
+    expect(sent.history.at(-1).evidence).toContain("did not confirm the allocation");
+    const credit = xero.credits.get(sent.posting.externalId)!;
+    expect(credit.Allocations).toEqual([]);
+    const allocate = (path: string, action = "allocate") =>
+      send("POST", `${path}/allocation`, { action, reason: "Finance reviewed the credit in Xero" });
+    expect((await ok(allocate(first.path), 409)).error.message).toContain("did not confirm the allocation");
+    xero.state.rejectAllocation = false;
+    const allocated = await ok(allocate(first.path));
+    expect(allocated.posting.allocation).toBe("allocated");
+    expect(credit.Allocations).toMatchObject([{ Amount: 60 }]);
+    expect(xero.bills.get(posted.externalId)?.AmountDue).toBe(30);
+    await ok(allocate(first.path), 409);
+
+    // The second credit's invoice balance is paid in Xero after it was sent.
+    const second = await creditFor(invoice.lines[1].id);
+    xero.state.rejectAllocation = true;
+    expect((await ok(send("POST", `${second.path}/send`))).posting.allocation).toBe("pending");
+    xero.state.rejectAllocation = false;
+    xero.bills.get(posted.externalId)!.AmountDue = 0;
+    expect((await ok(allocate(second.path), 409)).error.message).toContain("outstanding balance");
+    const recorded = await ok(allocate(second.path, "record"));
+    expect(recorded.posting).toMatchObject({ state: "posted", allocation: "recorded" });
+    expect(recorded.history.at(-1)).toMatchObject({
+      action: "allocation_recorded",
+      evidence: "Finance reviewed the credit in Xero",
+    });
+    await ok(allocate(posted.id ? `${connection()}/postings/${posted.id}` : ""), 409);
+  });
+
+  it("drafts, approves and downloads a local invoice with Xero disabled", async () => {
+    await disable(true);
+    await setModules(["customers", "invoicing"]);
+    const customer = await billingCustomer("LOCAL-BILL");
+    const request = {
+      ...terms(),
+      kind: "manual",
+      customerId: customer.id,
+      currency: "GBP",
+      lines: [
+        { description: "Local consultation", unit: "hours", quantity: "2.5", unitPrice: "40", taxRate: 20 },
+      ],
+    };
+    const apiCalls = xero.state.apiCalls;
+    const document = await ok(send("POST", "/invoicing", request), 201);
+    expect((await ok(send("POST", "/invoicing", request), 201)).id).toBe(document.id);
+    await ok(send("GET", `/invoicing/${document.id}/pdf`), 400);
+    await ok(decision(document, "issue", member), 403);
+    const invoice = await ok(decision(document));
+    expect(invoice).toMatchObject({
+      status: "issued",
+      number: expect.stringMatching(/^INV-\d{6}$/),
+      net: "100.00",
+      tax: "20.00",
+      gross: "120.00",
+    });
+    const pdf = await send("GET", `/invoicing/${invoice.id}/pdf`);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers.get("content-type")).toBe("application/pdf");
+    expect(pdf.headers.get("content-disposition")).toContain(`${invoice.number}.pdf`);
+    expect(
+      Buffer.from(await pdf.arrayBuffer())
+        .subarray(0, 8)
+        .toString(),
+    ).toMatch(/^%PDF-/);
+    expect(xero.state.apiCalls).toBe(apiCalls);
   });
 });

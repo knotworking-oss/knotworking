@@ -5,7 +5,7 @@ import { defineConfig } from "tsup";
  * only needs the few packages that can't be bundled.
  */
 // Keep in sync with scripts/runtime-package.mjs (installed separately in the Docker image).
-export const runtimeExternals = ["@electric-sql/pglite", "postgres", "nodemailer"];
+export const runtimeExternals = ["@electric-sql/pglite", "postgres", "nodemailer", "pdfkit"];
 
 export default defineConfig({
   entry: ["src/index.ts", "src/migrate.ts"],

@@ -1,3 +1,4 @@
+import { hasModuleLevel } from "@knotworking/core";
 import Link from "next/link";
 import { formatMoney } from "@knotworking/core";
 import { SalesStatusBadge } from "@/components/sales-status-badge";
@@ -51,6 +52,17 @@ export default async function Page({
           <h1 className="text-xl font-medium">
             {order.kind === "quote" ? "Quotation" : "Sales order"} {order.reference}
           </h1>
+          {order.kind === "order" &&
+            (order.status === "confirmed" || (order.status === "cancelled" && distribution)) &&
+            (!boot.modules.some((module) => module.id === "despatch") || distribution) &&
+            hasModuleLevel(boot.modules.find((module) => module.id === "invoicing")?.access, "write") && (
+              <Link
+                className="text-sm underline print:hidden"
+                href={`/${slug}/invoicing/new?source=sales&id=${id}`}
+              >
+                Draft customer invoice
+              </Link>
+            )}
           <SalesStatusBadge status={order.status} />
           <span className="text-sm text-muted-foreground">Revision {order.revision}</span>
         </div>

@@ -1,5 +1,10 @@
 import { newId } from "@knotworking/core";
-import type { AccountingPosting, AccountingPostingState, AccountingReceipt } from "@knotworking/core";
+import type {
+  AccountingAllocationState,
+  AccountingPosting,
+  AccountingPostingState,
+  AccountingReceipt,
+} from "@knotworking/core";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -30,7 +35,10 @@ export const accountingPostings = pgTable(
     kind: text("kind").notNull(),
     payload: jsonb("payload").$type<AccountingPosting>().notNull(),
     payloadHash: text("payload_hash").notNull(),
+    idempotencyKey: uuid("idempotency_key"),
     state: text("state").$type<AccountingPostingState>().notNull().default("queued"),
+    /** A credit note's requested allocation, verified separately from the credit itself. */
+    allocation: text("allocation").$type<AccountingAllocationState>(),
     attemptId: uuid("attempt_id"),
     attempts: integer("attempts").notNull().default(0),
     externalId: text("external_id"),
@@ -39,7 +47,7 @@ export const accountingPostings = pgTable(
     updatedAt: ts("updated_at").notNull().defaultNow(),
   },
   (t) => [
-    // One immutable posting per source and configured accounting connection.
+    // One posting per source and connection. A rejected customer posting can be re-prepared.
     uniqueIndex("accounting_postings_source_key").on(t.workspaceId, t.connectionId, t.kind, t.sourceId),
     uniqueIndex("accounting_postings_external_key").on(t.workspaceId, t.connectionId, t.externalId),
     index("accounting_postings_queue_idx").on(t.workspaceId, t.state, t.createdAt),
@@ -60,6 +68,7 @@ export const accountingPostingEvents = pgTable(
     actor: text("actor").notNull(),
     action: text("action").notNull(),
     evidence: text("evidence").notNull(),
+    supersededPayload: jsonb("superseded_payload").$type<AccountingPosting>(),
     createdAt: ts("created_at").notNull().defaultNow(),
   },
   (t) => [index("accounting_posting_events_history_idx").on(t.workspaceId, t.postingId, t.createdAt)],

@@ -8,6 +8,7 @@ import { Badge } from "@knotworking/ui/components/badge";
 import { useEffect, useState, type FormEvent } from "react";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 import type { getAccountingConnections } from "@/lib/api";
+import { CustomerPreparation } from "./customer-preparation";
 import { InvoicePreparation } from "./invoice-preparation";
 import { XeroConnection } from "./xero-connection";
 import { AccountingQueue } from "./accounting-queue";
@@ -246,6 +247,7 @@ function ConnectionEditor({
   const [pending, setPending] = useState(true);
   const [error, setError] = useState("");
   const [xeroRefresh, setXeroRefresh] = useState(0);
+  const [queueRefresh, setQueueRefresh] = useState(0);
   const params = { slug, id: current.id };
   useEffect(() => {
     let active = true;
@@ -576,11 +578,20 @@ function ConnectionEditor({
         {setup.canPrepareInvoices && (
           <InvoicePreparation key={current.revision} slug={slug} connectionId={current.id} />
         )}
+        {current.provider === "xero" && setup.canPrepareCustomerDocuments && (
+          <CustomerPreparation
+            key={current.revision}
+            slug={slug}
+            connectionId={current.id}
+            onPrepared={() => setQueueRefresh((count) => count + 1)}
+          />
+        )}
         <AccountingQueue
-          key={`queue-${current.revision}`}
+          key={`queue-${current.revision}-${queueRefresh}`}
           slug={slug}
           connectionId={current.id}
           canReadPurchasing={setup.canPrepareInvoices}
+          canReadInvoicing={setup.canPrepareCustomerDocuments}
           onChecked={() => setXeroRefresh((n) => n + 1)}
         />
         <div className="border-t pt-4">

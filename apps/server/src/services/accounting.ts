@@ -27,6 +27,27 @@ export async function findAccountingConnection(db: Executor, ws: string, id: str
   if (!row) throw notFound("Accounting connection");
   return row;
 }
+export async function enabledAccountingMappings(db: Executor, ws: string, connectionId: string) {
+  const rows = await db
+    .select({
+      kind: mappings.kind,
+      localReference: mappings.localReference,
+      externalReference: mappings.externalReference,
+    })
+    .from(mappings)
+    .where(
+      and(eq(mappings.workspaceId, ws), eq(mappings.connectionId, connectionId), eq(mappings.enabled, true)),
+    );
+  const byKind = (kind: string) =>
+    new Map(rows.filter((r) => r.kind === kind).map((r) => [r.localReference, r.externalReference]));
+  return {
+    supplier: byKind("supplier"),
+    customer: byKind("customer"),
+    account: byKind("account"),
+    tax: byKind("tax"),
+  };
+}
+
 export async function assertAccountingConnection(
   db: Executor,
   ws: string,

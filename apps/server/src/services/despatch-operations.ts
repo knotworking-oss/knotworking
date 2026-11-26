@@ -33,6 +33,7 @@ import {
 } from "@knotworking/db";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { ApiError, badRequest, notFound } from "../errors";
+import { assertInvoiceAllowsDespatchCorrection } from "./invoice-sources";
 import { executeLedgerCommand } from "./ledger-command";
 import { findDespatch, linesOf, getDespatch, despatchChange, recipient } from "./despatch";
 import {
@@ -549,6 +550,7 @@ export async function voidDespatchReturn(
       if (!ret) throw notFound("Return receipt");
       if (ret.voidedAt)
         throw new ApiError(409, "return_voided", "This return receipt has already been corrected");
+      await assertInvoiceAllowsDespatchCorrection(tx, ws, [ret.lineId]);
       const { item } = await findLot(tx, ws, ret.lotId);
       const location = await findActiveLocation(tx, ws, ret.locationId);
       await assertAvailable(tx, ret.lotId, location, item, ret.quantity);

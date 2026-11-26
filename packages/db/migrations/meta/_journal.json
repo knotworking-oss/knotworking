@@ -722,6 +722,13 @@
       "when": 1795651186248,
       "tag": "0106_receipt_price_precision",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1795651246248,
+      "tag": "0110_crm",
+      "breakpoints": true
     }
   ]
 }

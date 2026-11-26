@@ -58,6 +58,7 @@ export const moduleIds = [
   "bi",
   "purchase_requests",
   "client_services",
+  "crm",
 ] as const;
 export type ModuleId = (typeof moduleIds)[number];
 
@@ -109,6 +110,18 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
     defaultAccess: "none",
     defaultActive: true,
     syncEntities: ["service_quote"],
+  },
+  crm: {
+    id: "crm",
+    name: "CRM",
+    description:
+      "Leads, opportunities on a configurable pipeline, owners and follow-ups, built on the customer register.",
+    dependsOn: ["customers"],
+    // Quotes and the handoff to an order (Sales) or a delivery project (Client services).
+    enhancedBy: ["sales", "client_services"],
+    defaultAccess: "none",
+    defaultActive: true,
+    syncEntities: ["crm_stage", "crm_lead", "crm_opportunity", "crm_activity"],
   },
   purchase_requests: {
     id: "purchase_requests",

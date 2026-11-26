@@ -50,6 +50,8 @@ const RULES: readonly [RegExp, ModuleId | "platform"][] = [
   [/^\/despatch(\/|$)/, "despatch"],
   [/^\/sales(\/|$)/, "sales"],
   [/^\/client-services(\/|$)/, "client_services"],
+  // CRM: leads, opportunities, pipeline stages and follow-ups.
+  [/^\/crm(\/|$)/, "crm"],
   [/^\/hse\/incidents(\/|$)/, "hse_incidents"],
   [/^\/hse(\/|$)/, "hse"],
   // Demand planning.

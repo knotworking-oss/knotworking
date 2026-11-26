@@ -335,6 +335,7 @@ const SPECIALIST_READERS = new Set([
   "get_supplier_quality",
   "get_site_due",
   "get_checklists_due",
+  "get_crm_pipeline",
   "get_pest_trends",
   "get_label_facts",
   "get_product_label",

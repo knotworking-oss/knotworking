@@ -7,6 +7,9 @@ import {
   type CcpLogReviewStatus,
   type CostingBatchListStatus,
   type CostingPeriod,
+  type CrmActivityListQuery,
+  type CrmLeadListQuery,
+  type CrmOpportunityListQuery,
   type DemandForecast,
   type DemandSource,
   type ItemType,
@@ -129,6 +132,39 @@ export const getServiceQuote = (slug: string, id: string) =>
   load((api) => unwrap(ws(api)["client-services"][":id"].$get({ param: { slug, id } })));
 
 export type ServiceQuote = Awaited<ReturnType<typeof getServiceQuote>>;
+
+export const getCrmPipeline = (slug: string, query: { ownerId?: string }) =>
+  load((api) => unwrap(ws(api).crm.pipeline.$get({ param: { slug }, query })));
+
+export const getCrmStages = (slug: string) =>
+  load((api) => unwrap(ws(api).crm.stages.$get({ param: { slug } })));
+
+export const getCrmLeads = (slug: string, query: Partial<CrmLeadListQuery>) =>
+  load((api) => unwrap(ws(api).crm.leads.$get({ param: { slug }, query })));
+
+export const getCrmLead = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).crm.leads[":id"].$get({ param: { slug, id } })));
+
+export const getCrmOpportunities = (
+  slug: string,
+  query: Pick<Partial<CrmOpportunityListQuery>, "status" | "before">,
+) => load((api) => unwrap(ws(api).crm.opportunities.$get({ param: { slug }, query })));
+
+export const getCrmOpportunity = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).crm.opportunities[":id"].$get({ param: { slug, id } })));
+
+export const getCrmFollowUps = (
+  slug: string,
+  query: Pick<Partial<CrmActivityListQuery>, "owner" | "status">,
+) => load((api) => unwrap(ws(api).crm.activities.$get({ param: { slug }, query })));
+
+export type CrmPipeline = Awaited<ReturnType<typeof getCrmPipeline>>;
+export type CrmStage = Awaited<ReturnType<typeof getCrmStages>>["stages"][number];
+export type CrmLeadSummary = Awaited<ReturnType<typeof getCrmLeads>>["leads"][number];
+export type CrmLead = Awaited<ReturnType<typeof getCrmLead>>;
+export type CrmOpportunity = Awaited<ReturnType<typeof getCrmOpportunity>>;
+export type CrmOpportunitySummary = Awaited<ReturnType<typeof getCrmOpportunities>>["opportunities"][number];
+export type CrmActivity = Awaited<ReturnType<typeof getCrmFollowUps>>["activities"][number];
 
 /**
  * The workspace's time zone (from the bootstrap): server components decide business dates in it

@@ -64,6 +64,7 @@ const ACTOR_TYPES: readonly string[] = [
   "purchase_order_approval_needed",
   "purchase_request_submitted",
   "purchase_request_decided",
+  "crm_follow_up_assigned",
 ];
 
 function summary(n: Notification) {

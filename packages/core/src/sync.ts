@@ -25,6 +25,11 @@ export const syncEntityTypes = [
   /** Enabled modules changed. Clients fetch a new snapshot under the new scope. */
   "workspace_modules",
   "service_quote",
+  // CRM: ids and revisions only; leads, opportunities and follow-ups are read through queries.
+  "crm_stage",
+  "crm_lead",
+  "crm_opportunity",
+  "crm_activity",
   "workspace_member",
   /** A member's level in one module (`member_module_access`). Clients refetch when their own changes. */
   "module_access",

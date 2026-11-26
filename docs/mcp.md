@@ -529,6 +529,7 @@ Food authenticity: `list_authenticity_assessments` and `get_authenticity_assessm
 
 - `list_purchase_requests` and `get_purchase_request` read requests within the person's purchase-request access. The list supports requester, assigned and manager views, a status filter and cursor paging.
 - `list_service_quotes` and `get_service_quote` read customer service quotes with project links, approved billing and decision history. They require Client services access. Quote and delivery decisions are made by signed-in managers in the app.
+- CRM (`module: crm`): `list_crm_leads` and `get_crm_lead` read leads with their customer, opportunities and activities; `list_crm_opportunities` and `get_crm_opportunity` read opportunities with stage, linked quote and handoff; `get_crm_pipeline` summarises open work by stage with weighted totals and recent outcomes; `list_crm_follow_ups` lists follow-ups (`owner: mine` for the token owner's). `save_crm_lead`, `save_crm_opportunity` and `save_crm_follow_up` create or (with an id and `expectedRevision` where the record has one) edit; `convert_crm_lead` turns a qualified lead into a new or existing customer; `record_crm_outcome` records won or lost with a reason, or reopens. Quote links need Sales or Client services read access. Handing a won opportunity off to an order or delivery project is a person's decision in the app: there is no tool for it.
 
 ### Sales (3.4.1)
 

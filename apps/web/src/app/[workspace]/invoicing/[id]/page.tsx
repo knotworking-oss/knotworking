@@ -4,6 +4,7 @@ import { Button } from "@knotworking/ui/components/button";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { getBootstrap, getCustomerDocument, getInvoicingSettings, getMe, getWorkspaceToday } from "@/lib/api";
+import { formatLongDate } from "@/lib/format";
 import { printDateTime } from "@/lib/print";
 import { CreditDraft, InvoiceApproval, InvoiceEditor } from "../invoice-controls";
 
@@ -66,20 +67,22 @@ export default async function Page({ params }: { params: Promise<{ workspace: st
               <dt className="text-muted-foreground">Bill to</dt>
               <dd>{doc.customer.name}</dd>
               <dd className="whitespace-pre-wrap">{doc.customer.address}</dd>
+              {doc.customer.taxNumber && <dd>Tax number {doc.customer.taxNumber}</dd>}
             </div>
             <div>
               <dt className="text-muted-foreground">From</dt>
               <dd>{doc.issuer.name}</dd>
               <dd className="whitespace-pre-wrap">{doc.issuer.address}</dd>
+              {doc.issuer.taxNumber && <dd>Tax number {doc.issuer.taxNumber}</dd>}
             </div>
             <div>
               <dt className="text-muted-foreground">Document date</dt>
-              <dd>{doc.date}</dd>
+              <dd>{formatLongDate(doc.date)}</dd>
             </div>
             {doc.dueDate && (
               <div>
                 <dt className="text-muted-foreground">Due date</dt>
-                <dd>{doc.dueDate}</dd>
+                <dd>{formatLongDate(doc.dueDate)}</dd>
               </div>
             )}
             {doc.sourceReference && (
@@ -138,7 +141,7 @@ export default async function Page({ params }: { params: Promise<{ workspace: st
             <dd>{doc.net}</dd>
             <dt>Tax</dt>
             <dd>{doc.tax}</dd>
-            <dt className="font-semibold">Total</dt>
+            <dt className="font-semibold">{doc.kind === "credit" ? "Total credit" : "Total"}</dt>
             <dd className="font-semibold">
               {doc.currency} {doc.gross}
             </dd>
@@ -170,7 +173,7 @@ export default async function Page({ params }: { params: Promise<{ workspace: st
                       {credit.number ?? "Credit note draft"}
                     </Link>
                     <span className="capitalize">
-                      {credit.status} · {doc.currency} {credit.gross}
+                      {credit.status} · credit {doc.currency} {credit.gross}
                     </span>
                   </li>
                 ))}

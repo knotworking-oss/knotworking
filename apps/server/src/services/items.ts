@@ -1,5 +1,6 @@
 import {
   moduleIds,
+  sellableItemTypes,
   unitDimension,
   type ItemCreateInput,
   type ModuleId,
@@ -406,6 +407,7 @@ async function supplierLinks(db: Executor, itemIds: string[]) {
 export async function listItems(db: Database, workspaceId: string, query: ItemListQuery, withFood = false) {
   const where: (SQL | undefined)[] = [eq(items.workspaceId, workspaceId), isNull(items.deletedAt)];
   if (query.type) where.push(eq(items.type, query.type));
+  if (query.sellable === "true") where.push(inArray(items.type, [...sellableItemTypes]));
   if (query.status !== "all") where.push(eq(items.status, query.status));
   if (query.q) {
     where.push(

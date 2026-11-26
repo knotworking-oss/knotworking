@@ -268,6 +268,8 @@ export const itemListQuerySchema = z.object({
   /** Items that contain (or may contain) this allergen. */
   allergen: z.enum(allergenCodes).optional(),
   supplierId: z.uuid().optional(),
+  /** `true`: only items that can go on a sales order (`sellableItemTypes`). */
+  sellable: z.enum(["true", "false"]).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });

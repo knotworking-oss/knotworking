@@ -243,7 +243,8 @@ function ProjectTemplateForm({ commandId, onClose }: { commandId: string; onClos
                 <li key={task.id} className="flex flex-wrap items-center gap-2">
                   <Input
                     aria-label={`Task ${i + 1} title`}
-                    className="min-w-0 flex-1"
+                    // Its own line on a phone: in the row, the date and badge would squeeze it to nothing.
+                    className="w-full min-w-0 sm:w-auto sm:flex-1"
                     required
                     maxLength={512}
                     value={task.title}

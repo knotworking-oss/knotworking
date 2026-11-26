@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  draftDateIssue,
   draftTaskDate,
   draftTaskOffset,
   draftTasksInput,
@@ -21,6 +22,16 @@ describe("project template drafts", () => {
     expect(draftTaskOffset("2027-03-01", "2027-02-27")).toBe(-2);
     expect(draftTemplateSpan("2027-03-01", rows)).toEqual({ start: "2027-02-27", target: "2027-03-04" });
     expect(draftTemplateSpan("2027-03-01", [])).toBeNull();
+  });
+
+  it("flags due dates outside 0001–9999 the way the API does", () => {
+    const row = (daysFromStart: number) => ({ id: "r", title: "T", daysFromStart, module: null });
+    expect(draftDateIssue("9998-12-31", [row(0), row(365)])).toBeNull();
+    expect(draftDateIssue("9998-12-31", [row(730)])).toMatch(/after 9999-12-31/);
+    expect(draftDateIssue("0001-01-01", [row(-1)])).toMatch(/before 0001-01-01/);
+    expect(draftDateIssue("0050-06-15", [row(0)])).toBeNull();
+    expect(draftTaskDate("0050-06-15", row(0))).toBe("0050-06-15");
+    expect(draftTemplateSpan("9998-12-31", [row(730)])).toBeNull();
   });
 
   it("sends edited rows with their step keys, and custom rows without one", () => {

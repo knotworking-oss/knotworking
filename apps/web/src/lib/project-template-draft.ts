@@ -2,6 +2,7 @@ import {
   addDaysToIsoDate,
   daysBetween,
   planProjectTemplate,
+  projectTemplateDateIssue,
   projectTemplateModules,
   type ModuleAccessLevel,
   type ModuleId,
@@ -45,13 +46,23 @@ export const draftTaskOffset = (milestoneDate: string, dueDate: string) =>
 
 /** First and last due date of the rows (the project's start and target dates). */
 export function draftTemplateSpan(milestoneDate: string, tasks: readonly DraftTemplateTask[]) {
-  if (!tasks.length) return null;
+  if (!tasks.length || draftDateIssue(milestoneDate, tasks)) return null;
   const offsets = tasks.map((t) => t.daysFromStart);
   return {
     start: addDaysToIsoDate(milestoneDate, Math.min(...offsets)),
     target: addDaysToIsoDate(milestoneDate, Math.max(...offsets)),
   };
 }
+
+/**
+ * Why the rows can't be created for this milestone date (a due date outside 0001–9999), or null.
+ * The same check the API makes.
+ */
+export const draftDateIssue = (milestoneDate: string, tasks: readonly DraftTemplateTask[]) =>
+  projectTemplateDateIssue(
+    milestoneDate,
+    tasks.map((t) => t.daysFromStart),
+  );
 
 /** The rows as the API takes them. */
 export const draftTasksInput = (tasks: readonly DraftTemplateTask[]): ProjectTemplateTaskInput[] =>

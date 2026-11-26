@@ -3,6 +3,8 @@
 import {
   modules as moduleDefinitions,
   newId,
+  ISO_DATE_MAX,
+  ISO_DATE_MIN,
   PROJECT_TEMPLATE_MAX_OFFSET_DAYS,
   PROJECT_TEMPLATE_MAX_TASKS,
   projectTemplates,
@@ -28,6 +30,7 @@ import { toast } from "sonner";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 import { formatLongDate } from "@/lib/format";
 import {
+  draftDateIssue,
   draftTaskDate,
   draftTaskOffset,
   draftTasksInput,
@@ -85,6 +88,7 @@ function ProjectTemplateForm({ commandId, onClose }: { commandId: string; onClos
   const [pending, setPending] = useState(false);
   const template = projectTemplates[templateId];
   const span = milestoneDate ? draftTemplateSpan(milestoneDate, tasks) : null;
+  const dateIssue = milestoneDate ? draftDateIssue(milestoneDate, tasks) : null;
   const suggested = suggestedTemplateModules(templateId, modules);
 
   function chooseTemplate(id: ProjectTemplateId) {
@@ -198,9 +202,18 @@ function ProjectTemplateForm({ commandId, onClose }: { commandId: string; onClos
               id="template-date"
               type="date"
               required
+              min={ISO_DATE_MIN}
+              max={ISO_DATE_MAX}
               value={milestoneDate}
+              aria-invalid={dateIssue ? true : undefined}
+              aria-describedby={dateIssue ? "template-date-issue" : undefined}
               onChange={(event) => setMilestoneDate(event.currentTarget.value)}
             />
+            {dateIssue && (
+              <p id="template-date-issue" className="text-sm text-destructive">
+                {dateIssue}
+              </p>
+            )}
           </Field>
 
           <section aria-label="Template preview" className="space-y-3 rounded-md border p-3 text-sm">
@@ -242,12 +255,17 @@ function ProjectTemplateForm({ commandId, onClose }: { commandId: string; onClos
                     type="date"
                     required
                     disabled={!milestoneDate}
+                    min={ISO_DATE_MIN}
+                    max={ISO_DATE_MAX}
                     value={milestoneDate ? draftTaskDate(milestoneDate, task) : ""}
                     onChange={(event) => {
                       const value = event.currentTarget.value;
                       if (!value || !milestoneDate) return;
                       const offset = draftTaskOffset(milestoneDate, value);
-                      if (Math.abs(offset) <= PROJECT_TEMPLATE_MAX_OFFSET_DAYS)
+                      if (
+                        Math.abs(offset) <= PROJECT_TEMPLATE_MAX_OFFSET_DAYS &&
+                        !draftDateIssue(milestoneDate, [{ ...task, daysFromStart: offset }])
+                      )
                         updateTask(task.id, { daysFromStart: offset });
                     }}
                   />
@@ -284,7 +302,7 @@ function ProjectTemplateForm({ commandId, onClose }: { commandId: string; onClos
               <Plus /> Add task
             </Button>
           </section>
-          <Button disabled={pending || !milestoneDate || !tasks.length} type="submit">
+          <Button disabled={pending || !milestoneDate || !tasks.length || !!dateIssue} type="submit">
             {pending ? "Creating…" : "Create project"}
           </Button>
         </FieldGroup>

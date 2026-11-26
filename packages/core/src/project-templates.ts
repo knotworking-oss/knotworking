@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ModuleId } from "./modules";
+import { addDaysToIsoDate, ISO_DATE_MAX, ISO_DATE_MIN, isIsoDateInRange } from "./sops";
 
 /**
  * Built-in project templates (Projects → Use template)
@@ -529,9 +530,28 @@ export function planProjectTemplate(
     .map(({ task }) => task);
 }
 
+/**
+ * Why tasks dated `offsets` days from `startDate` can't be created, or null: every due date must
+ * fall from 0001-01-01 to 9999-12-31 (a five-digit year would sort before 9999). The API and the
+ * preview use the same check.
+ */
+export function projectTemplateDateIssue(startDate: string, offsets: readonly number[]): string | null {
+  if (!isIsoDateInRange(startDate)) return `Choose a date from ${ISO_DATE_MIN} to ${ISO_DATE_MAX}`;
+  if (!offsets.length) return null;
+  for (const offset of [Math.min(...offsets), Math.max(...offsets)]) {
+    const due = addDaysToIsoDate(startDate, offset);
+    if (isIsoDateInRange(due)) continue;
+    // Past 9999 the year is written `+010000`, which sorts before every four-digit year.
+    return due.startsWith("+")
+      ? `A task would be due after ${ISO_DATE_MAX}; choose an earlier date`
+      : `A task would be due before ${ISO_DATE_MIN}; choose a later date`;
+  }
+  return null;
+}
+
 const supportedDate = z.iso
   .date()
-  .refine((date) => date >= "0002-01-01" && date < "9999-01-01", "Choose a supported start date");
+  .refine(isIsoDateInRange, `Choose a date from ${ISO_DATE_MIN} to ${ISO_DATE_MAX}`);
 
 /** One task to create, as the person edited it in the preview. */
 export const projectTemplateTaskSchema = z.object({
@@ -546,26 +566,41 @@ export const projectTemplateTaskSchema = z.object({
 });
 export type ProjectTemplateTaskInput = z.infer<typeof projectTemplateTaskSchema>;
 
-export const projectFromTemplateSchema = z.object({
-  commandId: z.uuid(),
-  templateId: z.enum(projectTemplateIds),
-  name: z.string().trim().min(1).max(256),
-  teamId: z.uuid(),
-  leadId: z.uuid(),
-  /** The milestone date (`dateLabel`) that task dates are relative to. */
-  startDate: supportedDate,
-  /**
-   * The tasks to create, edited from the template's plan. Omitted: the plan for the creator's
-   * modules as it stands.
-   */
-  tasks: z
-    .array(projectTemplateTaskSchema)
-    .min(1, "Keep at least one task")
-    .max(PROJECT_TEMPLATE_MAX_TASKS)
-    .refine((tasks) => {
-      const steps = tasks.flatMap((task) => (task.step ? [task.step] : []));
-      return new Set(steps).size === steps.length;
-    }, "Each template step can be used once")
-    .optional(),
-});
+export const projectFromTemplateSchema = z
+  .object({
+    commandId: z.uuid(),
+    templateId: z.enum(projectTemplateIds),
+    name: z.string().trim().min(1).max(256),
+    teamId: z.uuid(),
+    leadId: z.uuid(),
+    /** The milestone date (`dateLabel`) that task dates are relative to. */
+    startDate: supportedDate,
+    /**
+     * The tasks to create, edited from the template's plan. Omitted: the plan for the creator's
+     * modules as it stands.
+     */
+    tasks: z
+      .array(projectTemplateTaskSchema)
+      .min(1, "Keep at least one task")
+      .max(PROJECT_TEMPLATE_MAX_TASKS)
+      .refine((tasks) => {
+        const steps = tasks.flatMap((task) => (task.step ? [task.step] : []));
+        return new Set(steps).size === steps.length;
+      }, "Each template step can be used once")
+      .optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (!isIsoDateInRange(input.startDate)) return; // already reported
+    if (input.tasks) {
+      input.tasks.forEach((task, i) => {
+        const issue = projectTemplateDateIssue(input.startDate, [task.daysFromStart]);
+        if (issue) ctx.addIssue({ code: "custom", path: ["tasks", i, "daysFromStart"], message: issue });
+      });
+      return;
+    }
+    // The template as it stands: checked with every module's steps, whichever the creator gets.
+    const offsets = planProjectTemplate(input.templateId, () => true).map((step) => step.daysFromStart);
+    const issue = projectTemplateDateIssue(input.startDate, offsets);
+    if (issue) ctx.addIssue({ code: "custom", path: ["startDate"], message: issue });
+  });
 export type ProjectFromTemplateInput = z.infer<typeof projectFromTemplateSchema>;

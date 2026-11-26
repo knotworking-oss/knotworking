@@ -536,7 +536,7 @@ describe("CRM pipeline with Sales and Client services", () => {
     ).toBe("module_forbidden");
     expect(
       await body(await req("GET", `/crm/opportunities/${opportunity.id}/quote-options`, undefined, s.marcus)),
-    ).toEqual({ sales: [], services: [] });
+    ).toEqual({ sales: [], services: [], nextCursor: { sales: null, services: null } });
   });
 
   it("reminds owners of follow-ups as they fall due", async () => {
@@ -1064,6 +1064,71 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
       status: "converted",
       customerId: customer.id,
     });
+  });
+
+  it("offers an older eligible quote behind a page of taken ones, and pages the rest", async () => {
+    const { body, req } = api;
+    const db = s.ctx.handle.db;
+    const picky = await body(
+      await req("POST", "/customers", { code: "PICK", name: "Picky Foods", address: "3 Dock Road" }),
+      201,
+    );
+    const eligible = await salesQuote(false, picky.id);
+    const deal = await make("Picking", { customerId: picky.id });
+    const { stages } = await body(await req("GET", "/crm/stages"));
+    const quoteRow = () => ({
+      id: newId(),
+      workspaceId: s.ids.workspace,
+      kind: "quote" as const,
+      customerId: picky.id,
+      currency: "GBP",
+      recipient: eligible.recipient,
+    });
+    const insertQuotes = async (n: number) => {
+      const rows = Array.from({ length: n }, quoteRow).map((row) => ({
+        ...row,
+        reference: `SQ-${row.id.slice(-12)}`,
+      }));
+      await db.insert(salesOrders).values(rows);
+      return rows;
+    };
+    // 100 newer quotes, half converted to orders and half linked to other deals.
+    const taken = await insertQuotes(100);
+    await db.insert(salesOrders).values(
+      taken.slice(0, 50).map((quote) => {
+        const order = { ...quoteRow(), kind: "order" as const, sourceQuoteId: quote.id };
+        return { ...order, reference: `SO-${order.id.slice(-12)}` };
+      }),
+    );
+    await db.insert(crmOpportunities).values(
+      taken.slice(50).map((quote) => {
+        const id = newId();
+        return {
+          id,
+          workspaceId: s.ids.workspace,
+          reference: `OP-${id.slice(-12)}`,
+          title: "Taken",
+          customerId: picky.id,
+          stageId: stages[0].id,
+          currency: "GBP",
+          salesQuoteId: quote.id,
+        };
+      }),
+    );
+    const options = async (query = "") =>
+      body(await req("GET", `/crm/opportunities/${deal.id}/quote-options${query}`));
+    const first = await options();
+    expect(first.sales.map((q: { id: string }) => q.id)).toEqual([eligible.id]);
+    expect(first.nextCursor).toEqual({ sales: null, services: null });
+    // With more than a page eligible, the next page follows the cursor.
+    const more = await insertQuotes(100);
+    const page = await options();
+    expect(page.sales).toHaveLength(100);
+    expect(page.sales[0].id).toBe(more.at(-1)!.id);
+    expect(page.nextCursor.sales).toBe(more[0]!.id);
+    const next = await options(`?salesBefore=${page.nextCursor.sales}`);
+    expect(next.sales.map((q: { id: string }) => q.id)).toEqual([eligible.id]);
+    expect(next.nextCursor.sales).toBeNull();
   });
 
   it("treats ids from another workspace as missing", async () => {

@@ -11,6 +11,7 @@ import {
   crmOpportunityListSchema,
   crmOpportunityUpdateSchema,
   crmOutcomeSchema,
+  crmQuoteOptionsQuerySchema,
   crmStagesSaveSchema,
 } from "@knotworking/core";
 import { Hono, type Context } from "hono";
@@ -162,8 +163,20 @@ export const crmRoutes = new Hono<WorkspaceEnv>()
       );
     },
   )
-  .get("/crm/opportunities/:id/quote-options", validate("param", id), async (c) =>
-    c.json(await crmQuoteOptions(c.var.db, c.var.workspace.id, c.req.valid("param").id, linksOf(c))),
+  .get(
+    "/crm/opportunities/:id/quote-options",
+    validate("param", id),
+    validate("query", crmQuoteOptionsQuerySchema),
+    async (c) =>
+      c.json(
+        await crmQuoteOptions(
+          c.var.db,
+          c.var.workspace.id,
+          c.req.valid("param").id,
+          c.req.valid("query"),
+          linksOf(c),
+        ),
+      ),
   )
   .post(
     "/crm/opportunities/:id/outcome",

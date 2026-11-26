@@ -16,6 +16,7 @@ import {
   type CrmOpportunityListQuery,
   type CrmOpportunityUpdateInput,
   type CrmOutcomeInput,
+  type CrmQuoteOptionsQuery,
   type CrmStagesSaveInput,
   type ModuleId,
 } from "@knotworking/core";
@@ -35,6 +36,7 @@ import {
   type Executor,
   type Transaction,
 } from "@knotworking/db";
+import { alias } from "drizzle-orm/pg-core";
 import {
   and,
   asc,
@@ -1085,45 +1087,85 @@ export async function handOffCrmOpportunity(
   return getCrmOpportunity(db, workspaceId, id, links);
 }
 
-/** Quotes of the opportunity's customer it could link to, from the modules the caller can read. */
-export async function crmQuoteOptions(db: Database, workspaceId: string, id: string, links: CrmLinks) {
+const QUOTE_PAGE = 100;
+const quoteOrders = alias(salesOrders, "quote_orders");
+
+/**
+ * Quotes of the opportunity's customer it could link to, from the modules the caller can read,
+ * newest first: not cancelled, not linked to another opportunity and not already turned into an
+ * order or a delivery project. Those are left out before each page is cut, so an eligible quote is
+ * never hidden behind ineligible ones; page each list with its `nextCursor`.
+ */
+export async function crmQuoteOptions(
+  db: Database,
+  workspaceId: string,
+  id: string,
+  query: CrmQuoteOptionsQuery,
+  links: CrmLinks,
+) {
   const opportunity = await loadOpportunity(db, workspaceId, id);
-  if (!opportunity.customerId) return { sales: [], services: [] };
-  const linked = await db
-    .select({ sales: crmOpportunities.salesQuoteId, service: crmOpportunities.serviceQuoteId })
-    .from(crmOpportunities)
-    .where(
-      and(
-        eq(crmOpportunities.workspaceId, workspaceId),
-        ne(crmOpportunities.id, id),
-        or(isNotNull(crmOpportunities.salesQuoteId), isNotNull(crmOpportunities.serviceQuoteId)),
-      ),
-    );
-  const taken = new Set(linked.flatMap((l) => [l.sales, l.service].filter((v) => v !== null)));
-  const sales = links.sales
-    ? await db
-        .select({
-          id: salesOrders.id,
-          reference: salesOrders.reference,
-          status: salesOrders.status,
-          currency: salesOrders.currency,
-          validUntil: salesOrders.validUntil,
-        })
-        .from(salesOrders)
+  if (!opportunity.customerId)
+    return { sales: [], services: [], nextCursor: { sales: null, services: null } };
+  const linkedElsewhere = (kind: "sales" | "service", quoteId: SQL) =>
+    notExists(
+      db
+        .select({ id: crmOpportunities.id })
+        .from(crmOpportunities)
         .where(
           and(
-            eq(salesOrders.workspaceId, workspaceId),
-            eq(salesOrders.customerId, opportunity.customerId),
-            eq(salesOrders.kind, "quote"),
-            ne(salesOrders.status, "cancelled"),
+            eq(crmOpportunities.workspaceId, workspaceId),
+            ne(crmOpportunities.id, id),
+            eq(kind === "sales" ? crmOpportunities.salesQuoteId : crmOpportunities.serviceQuoteId, quoteId),
           ),
-        )
-        .orderBy(desc(salesOrders.createdAt))
-        .limit(100)
-    : [];
-  const services = links.services
-    ? (
-        await db
+        ),
+    );
+  const page = <T extends { id: string }>(rows: T[]) => ({
+    rows: rows.slice(0, QUOTE_PAGE),
+    next: rows.length > QUOTE_PAGE ? rows[QUOTE_PAGE - 1]!.id : null,
+  });
+  const sales = page(
+    links.sales
+      ? await db
+          .select({
+            id: salesOrders.id,
+            reference: salesOrders.reference,
+            status: salesOrders.status,
+            revision: salesOrders.revision,
+            currency: salesOrders.currency,
+            validUntil: salesOrders.validUntil,
+          })
+          .from(salesOrders)
+          .where(
+            and(
+              eq(salesOrders.workspaceId, workspaceId),
+              eq(salesOrders.customerId, opportunity.customerId),
+              eq(salesOrders.kind, "quote"),
+              ne(salesOrders.status, "cancelled"),
+              query.salesBefore ? lt(salesOrders.id, query.salesBefore) : undefined,
+              linkedElsewhere("sales", sql`${salesOrders.id}`),
+              // A quote already turned into an order belongs to the deal that won it.
+              notExists(
+                db
+                  .select({ id: quoteOrders.id })
+                  .from(quoteOrders)
+                  .where(
+                    and(
+                      eq(quoteOrders.workspaceId, workspaceId),
+                      eq(quoteOrders.sourceQuoteId, salesOrders.id),
+                      eq(quoteOrders.kind, "order"),
+                      or(ne(quoteOrders.status, "cancelled"), isNotNull(quoteOrders.confirmedAt)),
+                    ),
+                  ),
+              ),
+            ),
+          )
+          .orderBy(desc(salesOrders.id))
+          .limit(QUOTE_PAGE + 1)
+      : [],
+  );
+  const services = page(
+    links.services
+      ? await db
           .select()
           .from(serviceQuotes)
           .where(
@@ -1132,30 +1174,26 @@ export async function crmQuoteOptions(db: Database, workspaceId: string, id: str
               eq(serviceQuotes.customerId, opportunity.customerId),
               ne(serviceQuotes.status, "cancelled"),
               isNull(serviceQuotes.projectId),
+              query.servicesBefore ? lt(serviceQuotes.id, query.servicesBefore) : undefined,
+              linkedElsewhere("service", sql`${serviceQuotes.id}`),
             ),
           )
           .orderBy(desc(serviceQuotes.id))
-          .limit(100)
-      ).map((q) => ({
-        id: q.id,
-        reference: q.reference,
-        title: q.title,
-        status: q.status,
-        currency: q.currency,
-        quoteTotal: serviceQuoteAmount(q.unitPrice, q.quotedMinutes, q.currency),
-      }))
-    : [];
-  // A quote already turned into an order belongs to the deal that won it.
-  const ordered = sales.length
-    ? await db
-        .select({ quoteId: salesOrders.sourceQuoteId })
-        .from(salesOrders)
-        .where(and(eq(salesOrders.workspaceId, workspaceId), liveOrderOf(sales.map((q) => q.id))))
-    : [];
-  for (const order of ordered) if (order.quoteId) taken.add(order.quoteId);
+          .limit(QUOTE_PAGE + 1)
+      : [],
+  );
   return {
-    sales: sales.filter((q) => !taken.has(q.id)),
-    services: services.filter((q) => !taken.has(q.id)),
+    sales: sales.rows,
+    services: services.rows.map((q) => ({
+      id: q.id,
+      reference: q.reference,
+      title: q.title,
+      status: q.status,
+      revision: q.revision,
+      currency: q.currency,
+      quoteTotal: serviceQuoteAmount(q.unitPrice, q.quotedMinutes, q.currency),
+    })),
+    nextCursor: { sales: sales.next, services: services.next },
   };
 }
 

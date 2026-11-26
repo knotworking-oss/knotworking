@@ -644,6 +644,7 @@ export function StageSelect({
 type QuoteOptions = {
   sales: { id: string; reference: string; status: string; currency: string }[];
   services: { id: string; reference: string; title: string; status: string; currency: string }[];
+  nextCursor: { sales: string | null; services: string | null };
 };
 
 /**
@@ -661,12 +662,32 @@ export function QuoteLink({ opportunity }: { opportunity: CrmOpportunity }) {
   if (!opportunity.customerId)
     return <p className="text-sm text-muted-foreground">Convert the lead to link a quote.</p>;
 
+  const fetchOptions = (query: { salesBefore?: string; servicesBefore?: string } = {}) =>
+    unwrap(
+      crmApi().opportunities[":id"]["quote-options"].$get({ param: { slug, id: opportunity.id }, query }),
+    );
   async function open() {
     try {
+      setOptions(await fetchOptions());
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+  /** The next page of one list; the other list stays as it is. */
+  async function more(list: "sales" | "services") {
+    const cursor = options?.nextCursor[list];
+    if (!options || !cursor) return;
+    try {
+      const page = await fetchOptions(
+        list === "sales" ? { salesBefore: cursor } : { servicesBefore: cursor },
+      );
       setOptions(
-        await unwrap(
-          crmApi().opportunities[":id"]["quote-options"].$get({ param: { slug, id: opportunity.id } }),
-        ),
+        (current) =>
+          current && {
+            ...current,
+            [list]: [...current[list], ...page[list]],
+            nextCursor: { ...current.nextCursor, [list]: page.nextCursor[list] },
+          },
       );
     } catch (error) {
       toast.error(errorMessage(error));
@@ -745,6 +766,11 @@ export function QuoteLink({ opportunity }: { opportunity: CrmOpportunity }) {
                     </Button>
                   </div>
                 ))}
+                {options.nextCursor.sales && (
+                  <Button size="sm" variant="ghost" onClick={() => more("sales")}>
+                    Show more Sales quotes
+                  </Button>
+                )}
                 {can("sales", "write") && (
                   <Link href={`/${slug}/sales/new`} className="underline">
                     Draft a new Sales quote
@@ -778,6 +804,11 @@ export function QuoteLink({ opportunity }: { opportunity: CrmOpportunity }) {
                     </Button>
                   </div>
                 ))}
+                {options.nextCursor.services && (
+                  <Button size="sm" variant="ghost" onClick={() => more("services")}>
+                    Show more service quotes
+                  </Button>
+                )}
                 {can("client_services", "write") && (
                   <Link href={`/${slug}/client-services`} className="underline">
                     Draft a new service quote

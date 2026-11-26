@@ -204,6 +204,12 @@ export const crmOpportunityListSchema = z.object({
   before: z.uuid().optional(),
 });
 
+/** Pages of each list in the quote picker: pass a list's `nextCursor` as its `…Before`. */
+export const crmQuoteOptionsQuerySchema = z.object({
+  salesBefore: z.uuid().optional(),
+  servicesBefore: z.uuid().optional(),
+});
+
 export const crmStagesSaveSchema = z
   .object({
     stages: z
@@ -274,6 +280,7 @@ export type CrmOpportunityUpdateInput = z.infer<typeof crmOpportunityUpdateSchem
 export type CrmOutcomeInput = z.infer<typeof crmOutcomeSchema>;
 export type CrmHandoffInput = z.infer<typeof crmHandoffSchema>;
 export type CrmOpportunityListQuery = z.infer<typeof crmOpportunityListSchema>;
+export type CrmQuoteOptionsQuery = z.infer<typeof crmQuoteOptionsQuerySchema>;
 export type CrmStagesSaveInput = z.infer<typeof crmStagesSaveSchema>;
 export type CrmActivityCreateInput = z.infer<typeof crmActivityCreateSchema>;
 export type CrmActivityUpdateInput = z.infer<typeof crmActivityUpdateSchema>;

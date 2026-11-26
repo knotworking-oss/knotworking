@@ -698,13 +698,17 @@ export async function discardRecipeDraft(db: Database, workspaceId: string, acto
 /**
  * Approves the draft (BRCGS document control): it becomes the approved version, the previous one
  * is superseded, and who and when are recorded. The route needs `manage` and refuses API tokens.
+ *
+ * The ingredients' allergen roll-up is recorded as the version's baseline whether or not Food items
+ * is active or readable to the approver (`foodReadable` only decides what the response shows), so
+ * a version approved while it was off is still re-checked against declarations once it is back.
  */
 export async function approveRecipeDraft(
   db: Database,
   workspaceId: string,
   actorId: string,
   id: string,
-  food: { active: boolean; readable: boolean },
+  foodReadable: boolean,
 ) {
   const versionId = await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
@@ -738,14 +742,12 @@ export async function approveRecipeDraft(
       yieldUnit: draft.yieldUnit,
       lines,
     });
-    const itemMap = food.active
-      ? await itemsById(
-          tx,
-          workspaceId,
-          lines.map((line) => line.itemId),
-          true,
-        )
-      : null;
+    const itemMap = await itemsById(
+      tx,
+      workspaceId,
+      lines.map((line) => line.itemId),
+      true,
+    );
 
     const changes: ChangeInput[] = [];
     const [previous] = await tx
@@ -766,9 +768,7 @@ export async function approveRecipeDraft(
         status: "approved",
         approvedAt: new Date(),
         approvedBy: actorId,
-        approvedAllergens: itemMap
-          ? rollUpAllergens(lines.map((l) => ({ item: factsOf(itemMap.get(l.itemId)!) })))
-          : null,
+        approvedAllergens: rollUpAllergens(lines.map((l) => ({ item: factsOf(itemMap.get(l.itemId)!) }))),
       })
       .where(eq(recipeVersions.id, draft.id))
       .returning();
@@ -776,7 +776,7 @@ export async function approveRecipeDraft(
     await recordChanges(tx, workspaceId, actorId, changes);
     return approved!.id;
   });
-  return getRecipeVersion(db, workspaceId, id, versionId, food.readable);
+  return getRecipeVersion(db, workspaceId, id, versionId, foodReadable);
 }
 
 /** Soft delete; a recipe that has ever been approved can only be archived (document control). */

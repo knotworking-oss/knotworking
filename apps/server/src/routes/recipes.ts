@@ -105,10 +105,13 @@ export const recipeRoutes = new Hono<WorkspaceEnv>()
     validate("param", idParam),
     async (c) =>
       c.json(
-        await approveRecipeDraft(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("param").id, {
-          active: c.var.activeModules.includes("food_items"),
-          readable: canRead(c, "food_items"),
-        }),
+        await approveRecipeDraft(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          c.req.valid("param").id,
+          canRead(c, "food_items"),
+        ),
       ),
   )
   .delete("/:id", validate("param", idParam), async (c) => {

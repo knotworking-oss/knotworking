@@ -422,4 +422,42 @@ describe("catalogue and bills of materials", () => {
       mayContain: ["milk"],
     });
   });
+
+  it("records the allergen baseline of a version approved while Food items is off", async () => {
+    await ok("PATCH", "/module-settings", { modules: null });
+    const oats = await item("OATS", "ingredient", "kg", { allergens: ["cereals_gluten"] });
+    const bar = await item("OATBAR", "finished", "each", { allergens: ["cereals_gluten"] });
+    await ok("PATCH", "/module-settings", { modules: genericModules });
+    const recipe = await ok(
+      "POST",
+      "/boms",
+      {
+        code: "OATBAR-BOM",
+        name: "Synthetic oat bar",
+        outputItemId: bar.id,
+        draft: {
+          yieldQuantity: 2,
+          yieldUnit: "each",
+          lines: [{ itemId: oats.id, quantity: 100, unit: "g" }],
+        },
+      },
+      201,
+    );
+    // Hidden from the response while Food items is off, but recorded on the version.
+    expect(await ok("POST", `/boms/${recipe.id}/draft/approve`)).toMatchObject({ approvedAllergens: null });
+
+    await ok("PATCH", "/module-settings", { modules: null });
+    const current = (await ok("GET", `/recipes/${recipe.id}`)).currentVersion;
+    expect(current).toMatchObject({
+      approvedAllergens: { contains: ["cereals_gluten"], mayContain: [] },
+      allergenDrift: null,
+    });
+    // An ingredient's declaration changes after Food items is back: the version is flagged.
+    await ok("PATCH", `/items/${oats.id}`, { mayContain: ["milk"] });
+    expect((await ok("GET", `/recipes/${recipe.id}`)).currentVersion.allergenDrift).toMatchObject({
+      mayContain: { added: ["milk"], removed: [] },
+    });
+    const flagged = await ok("GET", "/recipes?allergenDrift=true&limit=100");
+    expect(flagged.recipes.map((r: { id: string }) => r.id)).toContain(recipe.id);
+  });
 });

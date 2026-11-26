@@ -1,5 +1,6 @@
-import { DEFAULT_TIME_ZONE, newId, todayInZone, type ModuleId } from "@knotworking/core";
+import { addDaysToIsoDate, DEFAULT_TIME_ZONE, newId, todayInZone, type ModuleId } from "@knotworking/core";
 import {
+  crmActivities,
   crmLeads,
   crmOpportunities,
   crmStages,
@@ -1165,6 +1166,62 @@ describe("CRM keeps a won deal's quote and handoff consistent", () => {
       .where(eq(crmOpportunities.id, foreignDeal!.id));
     expect(untouched).toMatchObject({ status: "open", revision: 1 });
   });
+});
+
+describe("CRM follow-up reminders", () => {
+  it("reaches new follow-ups past thousands already reminded or owned by someone without CRM", async () => {
+    const s = await open();
+    try {
+      const { body, req } = client(s);
+      const db = s.ctx.handle.db;
+      const lead = await body(await req("POST", "/crm/leads", { commandId: newId(), name: "Busy" }), 201);
+      const due = (ownerId: string, dueOn: string, n: number) =>
+        db.insert(crmActivities).values(
+          Array.from({ length: n }, (_, i) => ({
+            workspaceId: s.ids.workspace,
+            leadId: lead.id,
+            kind: "task" as const,
+            subject: `Follow-up ${i}`,
+            dueOn,
+            ownerId,
+          })),
+        );
+      const sweep = async () =>
+        (
+          await sweepDueNotifications(db, {
+            activeModules: ["customers", "crm"],
+            workspaceId: s.ids.workspace,
+          })
+        ).created.filter((n) => n.type === "crm_follow_up_due");
+      const fresh = async (subject: string) =>
+        body(
+          await req("POST", "/crm/activities", {
+            commandId: newId(),
+            leadId: lead.id,
+            kind: "call",
+            subject,
+            dueOn: today,
+          }),
+          201,
+        );
+      // Older follow-ups of a member who can't read CRM come first by due date.
+      await due(s.ids.marcus, addDaysToIsoDate(today, -1), 2000);
+      const first = await fresh("Call back today");
+      expect((await sweep()).map((n) => n.data)).toEqual([
+        expect.objectContaining({ title: "Call back today (Busy)" }),
+      ]);
+      // 2,000 older ones are reminded once; a new one still gets its reminder on the next sweep.
+      await due(s.ids.ada, addDaysToIsoDate(today, -2), 2000);
+      expect(await sweep()).toHaveLength(2000);
+      await fresh("Another call today");
+      expect((await sweep()).map((n) => n.data)).toEqual([
+        expect.objectContaining({ title: "Another call today (Busy)" }),
+      ]);
+      expect(first.ownerId).toBe(s.ids.ada);
+    } finally {
+      await s.ctx.handle.close();
+    }
+  }, 120_000);
 });
 
 describe("CRM degrades without its optional modules", () => {

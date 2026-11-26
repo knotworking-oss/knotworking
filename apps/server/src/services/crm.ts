@@ -26,6 +26,7 @@ import {
   crmStages,
   customers,
   lockWorkspaceLog,
+  notifications,
   projects,
   recordChanges,
   salesOrders,
@@ -47,6 +48,7 @@ import {
   lt,
   lte,
   ne,
+  notExists,
   or,
   sql,
   type SQL,
@@ -1360,8 +1362,23 @@ export async function updateCrmActivity(
   return activity;
 }
 
-/** Open, owned follow-ups due between `from` and `to` (inclusive), for the notification sweep. */
-export async function crmFollowUpsDue(db: Executor, workspaceId: string, from: string, to: string) {
+/** The sweep's dedupe key for a follow-up's reminder, one per due date (built in SQL by `crmFollowUpsDue` too). */
+export const crmFollowUpDedupeKey = (id: string, dueOn: string) => `crm:follow_up:${id}:${dueOn}`;
+
+/**
+ * Open follow-ups due between `from` and `to` (inclusive) whose owner is one of `ownerIds` and
+ * hasn't had this reminder yet, oldest due first, for the notification sweep. Eligibility is decided
+ * before the limit, so reminders already sent (or owners who lost CRM access) never crowd out new
+ * ones; anything past the limit comes round on the next sweep.
+ */
+export async function crmFollowUpsDue(
+  db: Executor,
+  workspaceId: string,
+  from: string,
+  to: string,
+  ownerIds: string[],
+) {
+  if (ownerIds.length === 0) return [];
   const rows = await db
     .select()
     .from(crmActivities)
@@ -1369,12 +1386,27 @@ export async function crmFollowUpsDue(db: Executor, workspaceId: string, from: s
       and(
         eq(crmActivities.workspaceId, workspaceId),
         isNull(crmActivities.completedAt),
-        isNotNull(crmActivities.ownerId),
+        inArray(crmActivities.ownerId, ownerIds),
         gte(crmActivities.dueOn, from),
         lte(crmActivities.dueOn, to),
+        notExists(
+          db
+            .select({ id: notifications.id })
+            .from(notifications)
+            .where(
+              and(
+                eq(notifications.workspaceId, crmActivities.workspaceId),
+                eq(notifications.userId, crmActivities.ownerId),
+                eq(
+                  notifications.dedupeKey,
+                  sql`'crm:follow_up:' || ${crmActivities.id}::text || ':' || to_char(${crmActivities.dueOn}, 'YYYY-MM-DD')`,
+                ),
+              ),
+            ),
+        ),
       ),
     )
-    .orderBy(asc(crmActivities.dueOn))
+    .orderBy(asc(crmActivities.dueOn), asc(crmActivities.id))
     .limit(2000);
   return decorateActivities(db, workspaceId, rows);
 }

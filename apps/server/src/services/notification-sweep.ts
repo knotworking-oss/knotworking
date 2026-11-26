@@ -48,7 +48,7 @@ import { generateProgrammeAudits } from "./quality-extras";
 import { reservationChange, releaseExpiredReservations } from "./reservations-core";
 import { findReservedLotProblems, reservedLotDrafts } from "./reservation-alerts";
 import { maintenanceDueItems } from "./maintenance";
-import { crmFollowUpsDue } from "./crm";
+import { crmFollowUpDedupeKey, crmFollowUpsDue } from "./crm";
 import { getSiteDue } from "./site";
 import { workspaceTimeZone } from "./time-zone";
 import { getActiveWorkspaceModules } from "./workspace-modules";
@@ -446,10 +446,10 @@ async function sweepMaintenance(ctx: Ctx) {
 
 /** Open follow-ups falling due or overdue: to their owner, while they can read CRM. */
 async function sweepCrm(ctx: Ctx) {
-  const readers = new Set(audience(ctx.access, "crm", "read"));
-  if (readers.size === 0) return;
-  for (const item of await crmFollowUpsDue(ctx.db, ctx.workspaceId, ctx.cutoff, ctx.today)) {
-    if (!item.ownerId || !readers.has(item.ownerId) || !item.dueOn) continue;
+  const readers = audience(ctx.access, "crm", "read");
+  if (readers.length === 0) return;
+  for (const item of await crmFollowUpsDue(ctx.db, ctx.workspaceId, ctx.cutoff, ctx.today, readers)) {
+    if (!item.ownerId || !item.dueOn) continue;
     const record = item.lead
       ? { crmRecord: "lead" as const, subjectId: item.lead.id, label: item.lead.company || item.lead.name }
       : {
@@ -467,7 +467,7 @@ async function sweepCrm(ctx: Ctx) {
         dueOn: item.dueOn,
         dueState: item.dueOn < ctx.today ? "overdue" : "due",
       },
-      dedupeKey: `crm:follow_up:${item.id}:${item.dueOn}`,
+      dedupeKey: crmFollowUpDedupeKey(item.id, item.dueOn),
     });
   }
 }

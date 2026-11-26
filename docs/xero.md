@@ -62,7 +62,7 @@ They cover session-bound consent, refresh and revoked consent, a refused access 
 TEST_POSTGRES_URL=postgres://… pnpm --filter @knotworking/server exec vitest run --maxWorkers=2 src/accounting-xero.postgres.test.ts
 ```
 
-The same fake transport covers partial shipments, signed-off billable hours, sales and credit read-back, credit allocation, duplicate preparation, rejected tax rates, deferred and interrupted sends, and local PDF output with the Xero connection disabled.
+The same fake transport covers partial shipments, signed-off billable hours, sales and credit read-back, credit allocation (including a failed or lost allocation that is allocated again or recorded as settled), duplicate preparation, revenue account and tax rate checks at preparation, re-preparing a rejected invoice or credit, rejected tax rates, deferred and interrupted sends, and local PDF output with the Xero connection disabled.
 
 ## Demo Company acceptance evidence
 

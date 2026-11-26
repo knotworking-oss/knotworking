@@ -1071,6 +1071,12 @@ Enable `invoicing` alongside `customers` in the installation and workspace. Invo
 - Issuing assigns the next workspace sequence number and enables PDF download. The PDF embeds the bundled Noto Sans font, so Latin (including accented and Polish letters), Greek and Cyrillic names, addresses and descriptions print as entered. Other scripts, such as Chinese or Arabic, are not covered yet. To correct an issued invoice, open it and **Draft credit note**, select whole lines to reverse, and record the reason. The original and its linked credit notes keep their amounts and decision history. Before voiding a reserved dispatch or return receipt, discard the invoice draft or issue credits for all affected invoice lines. Credits retain the original source reservations and do not reopen billable quantities. To replace a credited invoice for the same quantities, raise a manual invoice.
 - A manager can record the workspace's own tax registration number above the invoice list (`GET/PUT /invoicing/settings`; the PUT is `manage` and a person, "Change the seller tax registration number printed on invoices"). New drafts snapshot it and the customer's tax number, and the PDF prints both. Drafted and issued documents keep the numbers they were drafted with.
 - Accounting is optional. With it enabled, an administrator can [prepare issued documents for Xero](accounting.md#preparing-customer-invoices-and-credit-notes). Invoicing content and history use dedicated permission-checked routes and stay out of workspace sync.
+- Open questions, not yet decided:
+  - **Four-eyes approval.** A manager who drafted an invoice can also issue it, as for purchase invoices. Payroll, SOPs, HACCP and quality sign-offs use four-eyes; confirm whether customer invoices should too.
+  - **Service-only orders with Despatch on.** With Despatch enabled, Sales drafts bill only delivery lines linked to the order, so an order with no deliveries (services, fees) cannot be drafted from Sales. Raise a manual invoice for now.
+  - **Database-level immutability.** Issued documents are protected by the application, not by a database trigger or rule, as for supplier bills.
+  - **Chronological numbering.** Numbers follow issue order, not invoice date, so a backdated invoice can carry a higher number than a later-dated one. Check local rules where numbering must follow date order.
+  - **Client Services CSV.** The billing-draft CSV does not mark quotes that are already on an active invoice; choose one billing workflow per job.
 
 ## Accounting integrations
 

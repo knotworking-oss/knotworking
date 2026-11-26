@@ -3,7 +3,7 @@ import { Badge } from "@knotworking/ui/components/badge";
 import { Button } from "@knotworking/ui/components/button";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { getBootstrap, getCustomerDocument, getWorkspaceToday } from "@/lib/api";
+import { getBootstrap, getCustomerDocument, getInvoicingSettings, getMe, getWorkspaceToday } from "@/lib/api";
 import { printDateTime } from "@/lib/print";
 import { CreditDraft, InvoiceApproval, InvoiceEditor } from "../invoice-controls";
 
@@ -11,14 +11,20 @@ const sourcePaths = { sales: "sales", despatch: "despatch", service: "client-ser
 
 export default async function Page({ params }: { params: Promise<{ workspace: string; id: string }> }) {
   const { workspace: slug, id } = await params;
-  const [doc, boot, today] = await Promise.all([
+  const [doc, boot, today, settings, me] = await Promise.all([
     getCustomerDocument(slug, id),
     getBootstrap(slug),
     getWorkspaceToday(slug),
+    getInvoicingSettings(slug),
+    getMe(),
   ]);
   const access = boot.modules.find((module) => module.id === "invoicing")?.access;
   const canWrite = hasModuleLevel(access, "write");
   const canApprove = hasModuleLevel(access, "manage");
+  // Mirrors the server's four-eyes check: the first drafter and the latest drafter or editor.
+  const authors = doc.history.filter((entry) => entry.action === "drafted" || entry.action === "edited");
+  const needsSecondApprover =
+    settings.requireSecondApprover && [authors[0]?.actorId, authors.at(-1)?.actorId].includes(me.user.id);
   const base = `/${slug}/invoicing`;
   const title = doc.number ?? (doc.kind === "invoice" ? "Invoice draft" : "Credit note draft");
   const source = doc.source;
@@ -141,7 +147,12 @@ export default async function Page({ params }: { params: Promise<{ workspace: st
             <InvoiceEditor key={doc.revision} slug={slug} doc={doc} today={today} currency={doc.currency} />
           )}
           {doc.status === "draft" && canApprove && (
-            <InvoiceApproval key={`approval-${doc.revision}`} doc={doc} slug={slug} />
+            <InvoiceApproval
+              key={`approval-${doc.revision}`}
+              doc={doc}
+              slug={slug}
+              needsSecondApprover={needsSecondApprover}
+            />
           )}
           {doc.status === "issued" &&
             doc.kind === "invoice" &&

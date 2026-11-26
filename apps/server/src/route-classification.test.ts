@@ -1086,7 +1086,7 @@ const PERSON_ONLY_ROUTES: Record<string, string> = {
   "POST /v1/workspaces/:slug/purchase-requests/:id/decision": "Decide or withdraw purchase requests",
   "POST /v1/workspaces/:slug/invoicing/:id/decision": "Approve or discard customer invoices and credit notes",
   "PUT /v1/workspaces/:slug/invoicing/settings":
-    "Change the seller tax registration number printed on invoices",
+    "Change invoicing settings: the seller tax registration number and second-approver rule",
   "POST /v1/workspaces/:slug/client-services/:id/decision":
     "Sign client service quote and delivery decisions",
   "POST /v1/workspaces/:slug/crm/opportunities/:id/handoff":

@@ -23,8 +23,8 @@ import {
   type Executor,
   type Transaction,
 } from "@knotworking/db";
-import { and, asc, desc, eq, max, ne } from "drizzle-orm";
-import { badRequest, notFound } from "../errors";
+import { and, asc, desc, eq, inArray, max, ne } from "drizzle-orm";
+import { ApiError, badRequest, notFound } from "../errors";
 import { findCustomer } from "./customers";
 import {
   activeClaims,
@@ -127,6 +127,28 @@ export async function getCustomerDocument(db: Executor, ws: string, id: string) 
   return { ...document, history, credits, creditedLineIds: [...creditedLineIds], warnings };
 }
 
+/** Four-eyes: refuses approval by the person who drafted the document or last edited it. */
+async function assertSecondApprover(tx: Transaction, document: Document, actorId: string) {
+  if (!(await getInvoicingSettings(tx, document.workspaceId)).requireSecondApprover) return;
+  const authors = await tx
+    .select({ actorId: events.actorId })
+    .from(events)
+    .where(
+      and(
+        eq(events.workspaceId, document.workspaceId),
+        eq(events.documentId, document.id),
+        inArray(events.action, ["drafted", "edited"]),
+      ),
+    )
+    .orderBy(asc(events.revision));
+  if ([authors[0]?.actorId, authors.at(-1)?.actorId].includes(actorId))
+    throw new ApiError(
+      409,
+      "second_approver_required",
+      "This workspace needs a second manager to approve: you drafted or last edited this document.",
+    );
+}
+
 async function record(
   tx: Transaction,
   document: Document,
@@ -148,27 +170,39 @@ async function record(
 
 export async function getInvoicingSettings(db: Executor, ws: string) {
   const [row] = await db
-    .select({ taxRegistrationNumber: invoicingSettings.taxRegistrationNumber })
+    .select({
+      taxRegistrationNumber: invoicingSettings.taxRegistrationNumber,
+      requireSecondApprover: invoicingSettings.requireSecondApprover,
+    })
     .from(invoicingSettings)
     .where(eq(invoicingSettings.workspaceId, ws));
-  return { taxRegistrationNumber: row?.taxRegistrationNumber ?? null };
+  return {
+    taxRegistrationNumber: row?.taxRegistrationNumber ?? null,
+    requireSecondApprover: row?.requireSecondApprover ?? false,
+  };
 }
 
-/** Applies to documents drafted afterwards; drafted and issued documents keep their snapshot. */
+/**
+ * The tax number applies to documents drafted afterwards; drafted and issued documents keep their
+ * snapshot. The second-approver rule applies to every later decision, including on existing drafts.
+ */
 export async function saveInvoicingSettings(
   db: Database,
   ws: string,
   actorId: string,
   input: InvoicingSettingsInput,
 ) {
+  const changes = Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined),
+  ) as InvoicingSettingsInput;
   return db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, ws);
     await tx
       .insert(invoicingSettings)
-      .values({ workspaceId: ws, ...input, updatedBy: actorId })
+      .values({ workspaceId: ws, ...changes, updatedBy: actorId })
       .onConflictDoUpdate({
         target: invoicingSettings.workspaceId,
-        set: { ...input, updatedBy: actorId, updatedAt: new Date() },
+        set: { ...changes, updatedBy: actorId, updatedAt: new Date() },
       });
     return getInvoicingSettings(tx, ws);
   });
@@ -422,6 +456,7 @@ export async function decideCustomerDocument(
     let changes: Partial<Document> = { status: "discarded" };
     const now = new Date();
     if (input.action === "issue") {
+      await assertSecondApprover(tx, document, actorId);
       if (document.lines.some((line) => line.pricePending))
         throw badRequest("Review the price for each dispatch line");
       if (document.lines.some((line) => line.taxPending))

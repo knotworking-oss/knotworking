@@ -178,9 +178,13 @@ describe("Invoicing: customer invoices and credit notes", () => {
       send("PUT", "/invoicing/settings", { taxRegistrationNumber }, cookie);
     await grant("write");
     await ok(setting("GB123456789", member), 403);
-    expect(await ok(setting("  GB123456789 "))).toEqual({ taxRegistrationNumber: "GB123456789" });
+    expect(await ok(setting("  GB123456789 "))).toEqual({
+      taxRegistrationNumber: "GB123456789",
+      requireSecondApprover: false,
+    });
     expect(await ok(send("GET", "/invoicing/settings", undefined, member))).toEqual({
       taxRegistrationNumber: "GB123456789",
+      requireSecondApprover: false,
     });
     const id = (
       await ok(
@@ -202,7 +206,7 @@ describe("Invoicing: customer invoices and credit notes", () => {
       customer: { name: "Łódź Spółka – Кириллица", taxNumber: "PL5260250995" },
     });
     // Clearing the setting leaves existing drafts and issued documents unchanged.
-    expect(await ok(setting(""))).toEqual({ taxRegistrationNumber: null });
+    expect(await ok(setting(""))).toEqual({ taxRegistrationNumber: null, requireSecondApprover: false });
     const issued = await ok(decide(drafted));
     expect(issued.issuer.taxNumber).toBe("GB123456789");
     const pdf = await send("GET", `/invoicing/${issued.id}/pdf`);
@@ -689,5 +693,46 @@ describe("Invoicing: customer invoices and credit notes", () => {
       { code: "backdated", latestNumber: cn.number, latestDate: today },
     ]);
     expect(await ok(decide(backdatedCredit))).toMatchObject({ status: "issued", serial: cn.serial + 1 });
+  });
+
+  it("optionally needs a second manager to approve a draft its author drafted or last edited", async () => {
+    const id = await customer("FOUREYES");
+    const body = () => manual(id, [{ quantity: "1", unitPrice: "5", taxRate: 0 }]);
+    const rule = (requireSecondApprover: boolean, cookie = owner) =>
+      send("PUT", "/invoicing/settings", { requireSecondApprover }, cookie);
+    await grant("write");
+    await ok(rule(true, member), 403);
+    await ok(send("PUT", "/invoicing/settings", {}), 400);
+    // Off (the default): the author approves their own draft.
+    expect((await ok(send("GET", "/invoicing/settings"))).requireSecondApprover).toBe(false);
+    expect(await ok(decide(await ok(send("POST", "/invoicing", body()), 201)))).toMatchObject({
+      status: "issued",
+    });
+
+    await ok(send("PUT", "/invoicing/settings", { taxRegistrationNumber: "GB999" }));
+    // A partial update keeps the other setting.
+    expect(await ok(rule(true))).toEqual({ taxRegistrationNumber: "GB999", requireSecondApprover: true });
+    expect(
+      (await ok(send("PUT", "/invoicing/settings", { taxRegistrationNumber: null }))).requireSecondApprover,
+    ).toBe(true);
+    await grant("manage");
+    const mine = await ok(send("POST", "/invoicing", body()), 201);
+    expect((await ok(decide(mine), 409)).error.code).toBe("second_approver_required");
+    expect(await ok(decide(mine, "issue", member))).toMatchObject({ status: "issued" });
+
+    // The last editor is refused too, and so is the original drafter.
+    const theirs = await ok(send("POST", "/invoicing", body(), member), 201);
+    const edited = await ok(
+      send("PATCH", `/invoicing/${theirs.id}`, { ...terms(), expectedRevision: theirs.revision }),
+    );
+    expect((await ok(decide(edited), 409)).error.code).toBe("second_approver_required");
+    expect((await ok(decide(edited, "issue", member), 409)).error.code).toBe("second_approver_required");
+    // Discarding is not an approval.
+    expect(await ok(decide(edited, "discard"))).toMatchObject({ status: "discarded" });
+
+    expect(await ok(rule(false))).toMatchObject({ requireSecondApprover: false });
+    expect(await ok(decide(await ok(send("POST", "/invoicing", body()), 201)))).toMatchObject({
+      status: "issued",
+    });
   });
 });

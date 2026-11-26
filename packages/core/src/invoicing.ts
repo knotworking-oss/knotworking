@@ -75,14 +75,20 @@ export const invoiceDecisionSchema = z.object({
   action: z.enum(["issue", "discard"]),
   reason,
 });
-export const invoicingSettingsSchema = z.object({
-  taxRegistrationNumber: z
-    .string()
-    .trim()
-    .max(40)
-    .transform((v) => v || null)
-    .nullable(),
-});
+/** A partial update: fields left out keep their saved value. */
+export const invoicingSettingsSchema = z
+  .object({
+    taxRegistrationNumber: z
+      .string()
+      .trim()
+      .max(40)
+      .transform((v) => v || null)
+      .nullable()
+      .optional(),
+    /** Four-eyes: whoever drafted or last edited a draft can't approve or issue it. */
+    requireSecondApprover: z.boolean().optional(),
+  })
+  .refine((v) => Object.values(v).some((field) => field !== undefined), "Change at least one setting");
 export type InvoicingSettingsInput = z.infer<typeof invoicingSettingsSchema>;
 export const invoiceListSchema = z.object({
   offset: z.coerce.number().int().min(0).max(1_000_000).default(0),

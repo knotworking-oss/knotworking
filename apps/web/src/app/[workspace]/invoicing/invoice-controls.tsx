@@ -12,6 +12,7 @@ import {
 import { Alert, AlertDescription } from "@knotworking/ui/components/alert";
 import { Button } from "@knotworking/ui/components/button";
 import { Input } from "@knotworking/ui/components/input";
+import { Switch } from "@knotworking/ui/components/switch";
 import { Textarea } from "@knotworking/ui/components/textarea";
 import { TriangleAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -22,16 +23,22 @@ import { SalesPicker } from "../sales/sales-picker";
 
 const api = () => browserApi().v1.workspaces[":slug"].invoicing;
 
-/** The seller's tax registration number, snapshotted onto documents drafted afterwards. */
+/**
+ * The seller's tax registration number, snapshotted onto documents drafted afterwards, and the
+ * optional four-eyes rule for approving drafts.
+ */
 export function InvoicingSettingsForm({
   slug,
   taxRegistrationNumber,
+  requireSecondApprover,
 }: {
   slug: string;
   taxRegistrationNumber: string | null;
+  requireSecondApprover: boolean;
 }) {
   const router = useRouter();
   const [value, setValue] = useState(taxRegistrationNumber ?? "");
+  const [secondApprover, setSecondApprover] = useState(requireSecondApprover);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -40,9 +47,12 @@ export function InvoicingSettingsForm({
     setMessage("");
     try {
       await unwrap(
-        api().settings.$put({ param: { slug }, json: { taxRegistrationNumber: value.trim() || null } }),
+        api().settings.$put({
+          param: { slug },
+          json: { taxRegistrationNumber: value.trim() || null, requireSecondApprover: secondApprover },
+        }),
       );
-      setMessage("Saved. New drafts will show this number.");
+      setMessage("Saved. New drafts show the tax number; the approval rule applies now.");
       router.refresh();
     } catch (err) {
       setMessage(errorMessage(err));
@@ -56,11 +66,16 @@ export function InvoicingSettingsForm({
         Your tax registration number
         <Input value={value} maxLength={40} onChange={(e) => setValue(e.target.value)} />
       </label>
+      <label className="flex items-center gap-2 pb-2">
+        <Switch checked={secondApprover} onCheckedChange={setSecondApprover} />
+        Require a second approver
+      </label>
       <Button type="submit" size="sm" variant="outline" disabled={pending}>
         Save
       </Button>
       <p className="w-full text-xs text-muted-foreground" role="status">
-        {message || "Optional. Printed on invoices and credit notes drafted after you save it."}
+        {message ||
+          "The tax number is optional and printed on invoices and credit notes drafted after you save it. With a second approver required, whoever drafted or last edited a draft can't issue it."}
       </p>
     </form>
   );
@@ -307,7 +322,16 @@ export function InvoiceEditor({
   );
 }
 
-export function InvoiceApproval({ doc, slug }: { doc: CustomerDocument; slug: string }) {
+export function InvoiceApproval({
+  doc,
+  slug,
+  needsSecondApprover,
+}: {
+  doc: CustomerDocument;
+  slug: string;
+  /** The workspace requires a second approver and the viewer drafted or last edited this draft. */
+  needsSecondApprover: boolean;
+}) {
   const router = useRouter();
   const [commandId] = useState(newId);
   const [busy, setBusy] = useState(false);
@@ -346,12 +370,21 @@ export function InvoiceApproval({ doc, slug }: { doc: CustomerDocument; slug: st
           </AlertDescription>
         </Alert>
       ))}
+      {needsSecondApprover && (
+        <Alert>
+          <TriangleAlert />
+          <AlertDescription>
+            This workspace needs a second approver. You drafted or last edited this {kind}, so another
+            Invoicing manager must approve and issue it. You can still discard it.
+          </AlertDescription>
+        </Alert>
+      )}
       <label className={field}>
         Decision reason
         <Textarea name="reason" required maxLength={2000} />
       </label>
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={busy} value="issue">
+        <Button type="submit" disabled={busy || needsSecondApprover} value="issue">
           Approve and issue
         </Button>
         <Button type="submit" variant="outline" disabled={busy} value="discard">

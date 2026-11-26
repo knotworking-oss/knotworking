@@ -1,0 +1,13 @@
+ALTER TABLE "customers" ADD COLUMN "tax_number" text;
+--> statement-breakpoint
+CREATE TABLE "invoicing_settings" (
+	"workspace_id" uuid PRIMARY KEY NOT NULL,
+	"tax_registration_number" text,
+	"updated_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "invoicing_settings" ADD CONSTRAINT "invoicing_settings_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "invoicing_settings" ADD CONSTRAINT "invoicing_settings_updated_by_users_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;

@@ -8,11 +8,15 @@ import {
   type InvoiceEditInput,
   type InvoiceLine,
   type InvoiceManualLine,
+  type InvoiceParty,
+  type InvoicingSettingsInput,
 } from "@knotworking/core";
 import {
   customerDocumentClaims as claims,
   customerDocumentEvents as events,
   customerDocuments as documents,
+  invoicingSettings,
+  lockWorkspaceLog,
   workspaces,
   type Database,
   type Executor,
@@ -114,6 +118,37 @@ async function record(
   });
   return document;
 }
+
+export async function getInvoicingSettings(db: Executor, ws: string) {
+  const [row] = await db
+    .select({ taxRegistrationNumber: invoicingSettings.taxRegistrationNumber })
+    .from(invoicingSettings)
+    .where(eq(invoicingSettings.workspaceId, ws));
+  return { taxRegistrationNumber: row?.taxRegistrationNumber ?? null };
+}
+
+/** Applies to documents drafted afterwards; drafted and issued documents keep their snapshot. */
+export async function saveInvoicingSettings(
+  db: Database,
+  ws: string,
+  actorId: string,
+  input: InvoicingSettingsInput,
+) {
+  return db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, ws);
+    await tx
+      .insert(invoicingSettings)
+      .values({ workspaceId: ws, ...input, updatedBy: actorId })
+      .onConflictDoUpdate({
+        target: invoicingSettings.workspaceId,
+        set: { ...input, updatedBy: actorId, updatedAt: new Date() },
+      });
+    return getInvoicingSettings(tx, ws);
+  });
+}
+
+const withTaxNumber = (party: InvoiceParty, taxNumber: string | null) =>
+  taxNumber ? { ...party, taxNumber } : party;
 
 function decimalUnits(value: string, digits: number) {
   const [whole, fraction = ""] = value.split(".");
@@ -221,9 +256,13 @@ export async function draftCustomerDocument(
         .from(workspaces)
         .where(eq(workspaces.id, ws));
       if (!workspace) throw notFound("Workspace");
+      const { taxRegistrationNumber } = await getInvoicingSettings(tx, ws);
       const common = {
         workspaceId: ws,
-        issuer: { name: workspace.name, address: input.issuerAddress ?? "" },
+        issuer: withTaxNumber(
+          { name: workspace.name, address: input.issuerAddress ?? "" },
+          taxRegistrationNumber,
+        ),
         kind: "invoice" as const,
         date: input.date,
         dueDate: input.dueDate,
@@ -235,7 +274,7 @@ export async function draftCustomerDocument(
         fields = {
           ...common,
           customerId: customer.id,
-          customer: { name: customer.name, address: customer.address },
+          customer: withTaxNumber({ name: customer.name, address: customer.address }, customer.taxNumber),
           currency: input.currency,
           ...total(manualLines(input.lines), input.currency),
         };
@@ -251,7 +290,7 @@ export async function draftCustomerDocument(
         fields = {
           ...common,
           customerId: source.customerId,
-          customer: source.customer,
+          customer: withTaxNumber(source.customer, (await findCustomer(tx, ws, source.customerId)).taxNumber),
           currency: source.currency,
           sourceId: input.sourceId,
           sourceReference: source.reference,

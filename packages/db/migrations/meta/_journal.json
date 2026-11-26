@@ -729,6 +729,13 @@
       "when": 1795649916219,
       "tag": "0122_credit_allocation_state",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1795649916220,
+      "tag": "0123_invoice_tax_numbers",
+      "breakpoints": true
     }
   ]
 }

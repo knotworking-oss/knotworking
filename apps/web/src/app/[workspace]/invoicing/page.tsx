@@ -2,7 +2,8 @@ import { hasModuleLevel, invoiceListSchema } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
-import { getBootstrap, getCustomerDocuments } from "@/lib/api";
+import { getBootstrap, getCustomerDocuments, getInvoicingSettings } from "@/lib/api";
+import { InvoicingSettingsForm } from "./invoice-controls";
 
 export default async function Page({
   params,
@@ -14,8 +15,13 @@ export default async function Page({
   const [{ workspace: slug }, query] = await Promise.all([params, searchParams]);
   const parsed = invoiceListSchema.safeParse(query);
   const offset = parsed.success ? parsed.data.offset : 0;
-  const [page, boot] = await Promise.all([getCustomerDocuments(slug, String(offset)), getBootstrap(slug)]);
-  const canWrite = hasModuleLevel(boot.modules.find((module) => module.id === "invoicing")?.access, "write");
+  const [page, boot, settings] = await Promise.all([
+    getCustomerDocuments(slug, String(offset)),
+    getBootstrap(slug),
+    getInvoicingSettings(slug),
+  ]);
+  const access = boot.modules.find((module) => module.id === "invoicing")?.access;
+  const canWrite = hasModuleLevel(access, "write");
   const base = `/${slug}/invoicing`;
   return (
     <>
@@ -32,6 +38,9 @@ export default async function Page({
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
+          {hasModuleLevel(access, "manage") && (
+            <InvoicingSettingsForm slug={slug} taxRegistrationNumber={settings.taxRegistrationNumber} />
+          )}
           {page.documents.length ? (
             <ul className="divide-y rounded-lg border">
               {page.documents.map((doc) => (

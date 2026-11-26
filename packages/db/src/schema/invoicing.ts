@@ -119,3 +119,16 @@ export const customerDocumentEvents = pgTable(
     uniqueIndex("customer_document_events_revision_key").on(t.workspaceId, t.documentId, t.revision),
   ],
 );
+
+/** Per-workspace invoicing details printed on every issued document. */
+export const invoicingSettings = pgTable("invoicing_settings", {
+  workspaceId: workspaceRef().primaryKey(),
+  /** The seller's VAT or other tax registration number; null when not registered. */
+  taxRegistrationNumber: text("tax_registration_number"),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});

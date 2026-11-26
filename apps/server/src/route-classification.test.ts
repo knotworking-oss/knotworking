@@ -316,6 +316,8 @@ const ROUTES: Record<string, Classification> = {
   "POST /v1/workspaces/:slug/assets/:id/restore": "token-ok",
   "GET /v1/workspaces/:slug/invoicing": "token-ok",
   "POST /v1/workspaces/:slug/invoicing": "token-ok",
+  "GET /v1/workspaces/:slug/invoicing/settings": "token-ok",
+  "PUT /v1/workspaces/:slug/invoicing/settings": "token-forbidden",
   "GET /v1/workspaces/:slug/invoicing/:id": "token-ok",
   "PATCH /v1/workspaces/:slug/invoicing/:id": "token-ok",
   "POST /v1/workspaces/:slug/invoicing/:id/decision": "token-forbidden",
@@ -1025,6 +1027,8 @@ const PERSON_ONLY_ROUTES: Record<string, string> = {
   "POST /v1/workspaces/:slug/checklists/actions/:id/resolve": "Resolve checklist follow-ups",
   "POST /v1/workspaces/:slug/purchase-requests/:id/decision": "Decide or withdraw purchase requests",
   "POST /v1/workspaces/:slug/invoicing/:id/decision": "Approve or discard customer invoices and credit notes",
+  "PUT /v1/workspaces/:slug/invoicing/settings":
+    "Change the seller tax registration number printed on invoices",
   "POST /v1/workspaces/:slug/client-services/:id/decision":
     "Sign client service quote and delivery decisions",
   "GET /v1/workspaces/:slug/workforce/me": "Manage personal leave and sickness requests",

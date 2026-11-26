@@ -63,8 +63,12 @@ function document(extra: Partial<Document> = {}): Document {
     serial: 42,
     revision: 2,
     customerId: newId(),
-    customer: { name: "Łódź Spółka – Кириллица", address: "ul. Piotrkowska 1, 90-001 Łódź" },
-    issuer: { name: "Ørsted & Søn Ltd", address: "1 Fixture Street" },
+    customer: {
+      name: "Łódź Spółka – Кириллица",
+      address: "ul. Piotrkowska 1, 90-001 Łódź",
+      taxNumber: "PL5260250995",
+    },
+    issuer: { name: "Ørsted & Søn Ltd", address: "1 Fixture Street", taxNumber: "GB123456789" },
     date: "2026-11-20",
     dueDate: "2026-12-20",
     currency: "PLN",
@@ -109,6 +113,8 @@ describe("customer document PDF", () => {
       "Łódź Spółka – Кириллица",
       "ul. Piotrkowska 1, 90-001 Łódź",
       "Ørsted & Søn Ltd",
+      "Tax registration number  GB123456789",
+      "Customer tax number  PL5260250995",
       "Herbata – Чай «Ёлка» (kg)",
       "Total  PLN 24.60",
     ])

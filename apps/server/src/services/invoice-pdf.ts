@@ -76,8 +76,10 @@ export async function customerDocumentPdf(document: Document): Promise<Buffer> {
   heading();
   pdf.text(`From  ${document.issuer.name}`);
   if (document.issuer.address) pdf.text(document.issuer.address);
+  if (document.issuer.taxNumber) pdf.text(`Tax registration number  ${document.issuer.taxNumber}`);
   pdf.moveDown(0.6).text(`Bill to  ${document.customer.name}`);
   if (document.customer.address) pdf.text(document.customer.address);
+  if (document.customer.taxNumber) pdf.text(`Customer tax number  ${document.customer.taxNumber}`);
   pdf.moveDown(0.6).text(`Issued  ${document.date}`);
   if (document.dueDate) pdf.text(`Due  ${document.dueDate}`);
   if (document.sourceReference) pdf.text(`Reference  ${document.sourceReference}`);

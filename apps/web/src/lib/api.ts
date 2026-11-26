@@ -1705,3 +1705,5 @@ export const getCustomerDocuments = (slug: string, offset: string) =>
 export const getCustomerDocument = (slug: string, id: string) =>
   load((api) => unwrap(ws(api).invoicing[":id"].$get({ param: { slug, id } })));
 export type CustomerDocument = Awaited<ReturnType<typeof getCustomerDocument>>;
+export const getInvoicingSettings = (slug: string) =>
+  load((api) => unwrap(ws(api).invoicing.settings.$get({ param: { slug } })));

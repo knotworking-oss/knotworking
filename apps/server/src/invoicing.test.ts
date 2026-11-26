@@ -173,6 +173,47 @@ describe("Invoicing: customer invoices and credit notes", () => {
     expect(await ok(decide(drafted, "issue", member))).toMatchObject({ status: "issued" });
   });
 
+  it("snapshots the seller's and customer's tax numbers onto new drafts", async () => {
+    const setting = (taxRegistrationNumber: string | null, cookie = owner) =>
+      send("PUT", "/invoicing/settings", { taxRegistrationNumber }, cookie);
+    await grant("write");
+    await ok(setting("GB123456789", member), 403);
+    expect(await ok(setting("  GB123456789 "))).toEqual({ taxRegistrationNumber: "GB123456789" });
+    expect(await ok(send("GET", "/invoicing/settings", undefined, member))).toEqual({
+      taxRegistrationNumber: "GB123456789",
+    });
+    const id = (
+      await ok(
+        send("POST", "/customers", {
+          code: "TAXNO",
+          name: "Łódź Spółka – Кириллица",
+          address: "ul. Piotrkowska 1",
+          taxNumber: "PL5260250995",
+        }),
+        201,
+      )
+    ).id;
+    const drafted = await ok(
+      send("POST", "/invoicing", manual(id, [{ quantity: "1", unitPrice: "1", taxRate: 0 }])),
+      201,
+    );
+    expect(drafted).toMatchObject({
+      issuer: { taxNumber: "GB123456789" },
+      customer: { name: "Łódź Spółka – Кириллица", taxNumber: "PL5260250995" },
+    });
+    // Clearing the setting leaves existing drafts and issued documents unchanged.
+    expect(await ok(setting(""))).toEqual({ taxRegistrationNumber: null });
+    const issued = await ok(decide(drafted));
+    expect(issued.issuer.taxNumber).toBe("GB123456789");
+    const pdf = await send("GET", `/invoicing/${issued.id}/pdf`);
+    expect(pdf.status).toBe(200);
+    const later = await ok(
+      send("POST", "/invoicing", manual(id, [{ quantity: "1", unitPrice: "1", taxRate: 0 }])),
+      201,
+    );
+    expect(later.issuer).not.toHaveProperty("taxNumber");
+  });
+
   it("rounds half up per line in 0-, 2- and 3-decimal currencies", async () => {
     const id = await customer("ROUNDING");
     const yen = await ok(

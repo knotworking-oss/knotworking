@@ -4,6 +4,7 @@ import {
   invoiceEditSchema,
   invoiceListSchema,
   invoiceSourceModules,
+  invoicingSettingsSchema,
 } from "@knotworking/core";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -17,7 +18,9 @@ import {
   editCustomerDocument,
   findCustomerDocument,
   getCustomerDocument,
+  getInvoicingSettings,
   listCustomerDocuments,
+  saveInvoicingSettings,
 } from "../services/invoicing";
 import { validate } from "../validate";
 
@@ -39,6 +42,15 @@ export const invoicingRoutes = new Hono<WorkspaceEnv>()
       201,
     );
   })
+  .get("/invoicing/settings", async (c) => c.json(await getInvoicingSettings(c.var.db, c.var.workspace.id)))
+  .put(
+    "/invoicing/settings",
+    requireModuleLevel("invoicing", "manage"),
+    forbidTokens,
+    validate("json", invoicingSettingsSchema),
+    async (c) =>
+      c.json(await saveInvoicingSettings(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json"))),
+  )
   .get("/invoicing/:id", validate("param", idParam), async (c) => {
     return c.json(await getCustomerDocument(c.var.db, c.var.workspace.id, c.req.valid("param").id));
   })

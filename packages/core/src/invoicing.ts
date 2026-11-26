@@ -75,6 +75,15 @@ export const invoiceDecisionSchema = z.object({
   action: z.enum(["issue", "discard"]),
   reason,
 });
+export const invoicingSettingsSchema = z.object({
+  taxRegistrationNumber: z
+    .string()
+    .trim()
+    .max(40)
+    .transform((v) => v || null)
+    .nullable(),
+});
+export type InvoicingSettingsInput = z.infer<typeof invoicingSettingsSchema>;
 export const invoiceListSchema = z.object({
   offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
 });
@@ -95,4 +104,5 @@ export type InvoiceLine = InvoiceManualLine & {
   /** Shipment, sales line or original invoice line which produced this line. */
   sourceLineId: string | null;
 };
-export type InvoiceParty = { name: string; address: string };
+/** `taxNumber`: the VAT or other tax registration number at drafting, when one was recorded. */
+export type InvoiceParty = { name: string; address: string; taxNumber?: string };

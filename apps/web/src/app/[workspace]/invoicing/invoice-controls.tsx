@@ -19,6 +19,50 @@ import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 import { SalesPicker } from "../sales/sales-picker";
 
 const api = () => browserApi().v1.workspaces[":slug"].invoicing;
+
+/** The seller's tax registration number, snapshotted onto documents drafted afterwards. */
+export function InvoicingSettingsForm({
+  slug,
+  taxRegistrationNumber,
+}: {
+  slug: string;
+  taxRegistrationNumber: string | null;
+}) {
+  const router = useRouter();
+  const [value, setValue] = useState(taxRegistrationNumber ?? "");
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState("");
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setMessage("");
+    try {
+      await unwrap(
+        api().settings.$put({ param: { slug }, json: { taxRegistrationNumber: value.trim() || null } }),
+      );
+      setMessage("Saved. New drafts will show this number.");
+      router.refresh();
+    } catch (err) {
+      setMessage(errorMessage(err));
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <form onSubmit={save} className="flex flex-wrap items-end gap-3 rounded-lg border p-3 text-sm">
+      <label className={field}>
+        Your tax registration number
+        <Input value={value} maxLength={40} onChange={(e) => setValue(e.target.value)} />
+      </label>
+      <Button type="submit" size="sm" variant="outline" disabled={pending}>
+        Save
+      </Button>
+      <p className="w-full text-xs text-muted-foreground" role="status">
+        {message || "Optional. Printed on invoices and credit notes drafted after you save it."}
+      </p>
+    </form>
+  );
+}
 const blank = () => ({ id: newId(), description: "", unit: "", quantity: "1", unitPrice: "", taxRate: "0" });
 const field = "grid gap-1.5 text-sm";
 const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";

@@ -301,6 +301,7 @@ export const personOnlyActions: readonly PersonOnlyAction[] = [
   personOnly("attendance", "Change attendance settings", "safety"),
   personOnly("purchasing", "Change invoice match tolerances", "safety"),
   personOnly("purchasing", "Change purchase order approval and over-delivery settings", "safety"),
+  personOnly("invoicing", "Change the seller tax registration number printed on invoices", "safety"),
   personOnly("costing", "Change standard costs and absorption rates", "safety"),
 ];
 

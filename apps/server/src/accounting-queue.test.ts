@@ -283,6 +283,50 @@ describe("accounting dispatch and the finance review queue", () => {
     );
   });
 
+  it("takes connections in turn, so a stuck connection doesn't starve the others", async () => {
+    const lapsed = await connect("xero");
+    const broken = await connect("xero");
+    const healthy = await connect("xero");
+    const stuck = [
+      await prepared(lapsed, "RR-1"),
+      await prepared(lapsed, "RR-2"),
+      await prepared(broken, "RR-3"),
+      await prepared(broken, "RR-4"),
+    ];
+    const fresh = await prepared(healthy, "RR-5");
+    const uneven = createAccountingAdapterRegistry({
+      async xero(binding) {
+        if (binding.connectionId === broken.id) throw new Error("APP_URL must not have a path");
+        const adapter = (await fakeXero(binding))!;
+        if (binding.connectionId !== lapsed.id) return adapter;
+        return {
+          ...adapter,
+          async post() {
+            return { outcome: "deferred" as const, evidence: "Reconnect to Xero" };
+          },
+        };
+      },
+    });
+    const log = { error() {} };
+    // Oldest first across the installation would spend this pass on the lapsed and broken
+    // connections' postings and never reach the healthy one.
+    expect(await dispatchQueuedPostings(ctx.handle.db, uneven, { limit: 3, log })).toEqual({
+      posted: 1,
+      failed: 0,
+      unknown: 0,
+      skipped: 1,
+      deferred: 1,
+    });
+    expect((await item(healthy, fresh)).posting.state).toBe("posted");
+    for (const [connection, id] of [
+      [lapsed, stuck[0]],
+      [lapsed, stuck[1]],
+      [broken, stuck[2]],
+      [broken, stuck[3]],
+    ])
+      expect((await item(connection, id!)).posting).toMatchObject({ state: "queued" });
+  });
+
   it("is for signed-in administrators only", async () => {
     expect((await send("GET", `/accounting/connections/${xero.id}/postings`, undefined, marcus)).status).toBe(
       403,

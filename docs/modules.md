@@ -1142,6 +1142,7 @@ Enable `invoicing` alongside `customers` in the installation and workspace. Invo
 - Open questions, not yet decided:
   - **Four-eyes approval.** A manager who drafted an invoice can also issue it, as for purchase invoices. Payroll, SOPs, HACCP and quality sign-offs use four-eyes; confirm whether customer invoices should too.
   - **Service-only orders with Despatch on.** With Despatch enabled, Sales drafts bill only delivery lines linked to the order, so an order with no deliveries (services, fees) cannot be drafted from Sales. Raise a manual invoice for now.
+  - **Work in progress sold but not despatched.** Work-in-progress items can go on a sales order but can't be despatched (only finished goods and merchandise can). With Despatch enabled, Sales drafts bill only despatched lines, so a confirmed work-in-progress line can never be drafted from its order. Raise a manual invoice for it for now; the choice is between making work in progress despatchable and letting Invoicing bill non-despatchable order lines directly.
   - **Database-level immutability.** Issued documents are protected by the application, not by a database trigger or rule, as for supplier bills.
   - **Chronological numbering.** Numbers follow issue order, not invoice date, so a backdated invoice can carry a higher number than a later-dated one. Check local rules where numbering must follow date order.
   - **Client Services CSV.** The billing-draft CSV does not mark quotes that are already on an active invoice; choose one billing workflow per job.

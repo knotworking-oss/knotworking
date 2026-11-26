@@ -12,7 +12,7 @@ import { z } from "zod";
 import { ApiError, notFound } from "../errors";
 import { assertAccountingConnection } from "../services/accounting";
 import { getActiveWorkspaceModules } from "../services/workspace-modules";
-import type { AccountingAdapter } from "./adapter";
+import type { AccountingAdapter, AccountingAllocationResult } from "./adapter";
 
 const conflict = (message: string) => new ApiError(409, "accounting_conflict", message);
 const evidenceSchema = z.string().trim().min(1).max(4000);
@@ -207,6 +207,7 @@ export async function confirmAccountingPosting(
   actor: string,
   input: unknown,
   evidence: string,
+  allocation?: AccountingAllocationResult,
 ) {
   const receipt = accountingReceiptSchema.parse(input);
   return db.transaction(async (tx) => {
@@ -240,12 +241,30 @@ export async function confirmAccountingPosting(
         ),
       );
     if (duplicate) throw conflict("External transaction already belongs to another posting");
+    const requested = row.payload.kind === "customer_credit_note" && row.payload.originalInvoice.allocate;
     const [updated] = await tx
       .update(postings)
-      .set({ state: "posted", externalId: receipt.externalId, receipt, updatedAt: new Date() })
+      .set({
+        state: "posted",
+        externalId: receipt.externalId,
+        receipt,
+        allocation: requested ? (allocation?.allocated ? "allocated" : "pending") : null,
+        updatedAt: new Date(),
+      })
       .where(eq(postings.id, id))
       .returning();
     await event(tx, ws, id, attemptId, actor, "reconciled", evidence);
+    if (requested && !allocation?.allocated)
+      await event(
+        tx,
+        ws,
+        id,
+        attemptId,
+        actor,
+        "allocation_pending",
+        allocation?.evidence ??
+          "The credit is verified; its allocation to the original invoice has not been read back yet",
+      );
     return updated!;
   });
 }
@@ -273,6 +292,41 @@ export async function recordAccountingOutcome(
       .where(eq(postings.id, id))
       .returning();
     await event(tx, ws, id, attemptId, actor, outcome, evidence);
+    return updated!;
+  });
+}
+
+/**
+ * Settles a posted credit's pending allocation: `allocated` after the adapter read the allocation
+ * back, or `recorded` when a person states how finance settled it in the ledger instead.
+ */
+export async function recordAccountingAllocation(
+  db: Database,
+  ws: string,
+  id: string,
+  actor: string,
+  allocation: "allocated" | "recorded",
+  evidence: string,
+) {
+  return db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, ws);
+    const row = await find(tx, ws, id);
+    if (row.state !== "posted" || row.allocation !== "pending")
+      throw conflict("Only a posted credit with a pending allocation can be settled");
+    const [updated] = await tx
+      .update(postings)
+      .set({ allocation, updatedAt: new Date() })
+      .where(eq(postings.id, id))
+      .returning();
+    await event(
+      tx,
+      ws,
+      id,
+      row.attemptId,
+      actor,
+      allocation === "allocated" ? "allocation_verified" : "allocation_recorded",
+      evidence,
+    );
     return updated!;
   });
 }
@@ -354,6 +408,7 @@ export async function dispatchAccountingPosting(
       actor,
       result.receipt,
       "Adapter supplied ledger read-back",
+      result.allocation,
     );
   return recordAccountingOutcome(db, ws, id, row.attemptId!, actor, result.outcome, result.evidence);
 }

@@ -515,3 +515,270 @@ describe("Xero purchase invoice HTTP adapter (fake transport)", () => {
     });
   });
 });
+
+function customerFixture() {
+  const connectionId = newId(),
+    companyId = newId(),
+    contact = newId(),
+    invoiceId = newId(),
+    creditId = newId();
+  const common = {
+    version: 1 as const,
+    provider: "xero",
+    connectionId,
+    companyId,
+    sourceRevision: 2,
+    date: "2026-11-15",
+    currency: "GBP",
+    customerReference: contact,
+    lines: [
+      {
+        accountReference: "200",
+        taxReference: "OUTPUT2",
+        description: "Łódź tea",
+        net: "50.00",
+        tax: "10.00",
+      },
+    ],
+    net: "50.00",
+    tax: "10.00",
+    gross: "60.00",
+  };
+  const invoice: AccountingPosting = {
+    ...common,
+    kind: "customer_invoice",
+    sourceId: newId(),
+    reference: "INV-000001",
+    dueDate: "2026-12-15",
+  };
+  const credit = (allocate: boolean): AccountingPosting => ({
+    ...common,
+    kind: "customer_credit_note",
+    sourceId: newId(),
+    reference: "CN-000001",
+    originalInvoice: { externalId: invoiceId, reference: "INV-000001", allocate },
+  });
+  const state = {
+    amountDue: 60,
+    salesRate: 20,
+    allocationStatus: 200,
+    sent: {} as Record<string, any>,
+    allocations: [] as { Invoice: { InvoiceID: string }; Amount: number }[],
+    keys: [] as string[],
+  };
+  const totals = { SubTotal: 50, TotalTax: 10, Total: 60, HasErrors: false, CurrencyCode: "GBP" };
+  const fetch = vi.fn(async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+    const url = String(input).replace("https://api.xero.com/api.xro/2.0", "");
+    const headers = new Headers(init?.headers);
+    if (url === "/Organisation")
+      return Response.json({
+        Organisations: [{ OrganisationID: companyId, Name: "Test", BaseCurrency: "GBP" }],
+      });
+    if (url.startsWith("/Contacts/"))
+      return Response.json({ Contacts: [{ ContactID: contact, ContactStatus: "ACTIVE" }] });
+    if (url === "/Accounts")
+      return Response.json({
+        Accounts: [
+          { Code: "200", Class: "REVENUE", Status: "ACTIVE" },
+          { Code: "5000", Class: "EXPENSE", Status: "ACTIVE" },
+        ],
+      });
+    if (url === "/TaxRates")
+      return Response.json({
+        TaxRates: [
+          { TaxType: "OUTPUT2", Status: "ACTIVE", CanApplyToRevenue: true, EffectiveRate: state.salesRate },
+          { TaxType: "INPUT2", Status: "ACTIVE", CanApplyToRevenue: false, EffectiveRate: 20 },
+        ],
+      });
+    if (init?.method === "PUT") {
+      state.keys.push(headers.get("idempotency-key")!);
+      const body = JSON.parse(String(init.body));
+      if (url.includes("/Allocations")) {
+        if (state.allocationStatus !== 200)
+          return Response.json(
+            { Type: "ValidationException", Elements: [{ ValidationErrors: [{ Message: "Refused" }] }] },
+            { status: state.allocationStatus },
+          );
+        state.allocations.push(...body.Allocations);
+        state.amountDue -= body.Allocations[0].Amount;
+        return Response.json({ Allocations: body.Allocations });
+      }
+      if (url.startsWith("/Invoices")) {
+        state.sent = body.Invoices[0];
+        return Response.json({ Invoices: [{ InvoiceID: invoiceId }] });
+      }
+      state.sent = body.CreditNotes[0];
+      return Response.json({ CreditNotes: [{ CreditNoteID: creditId }] });
+    }
+    if (url === `/Invoices/${invoiceId}`)
+      return Response.json({
+        Invoices: [
+          {
+            InvoiceNumber: "INV-000001",
+            DueDate: "2026-12-15",
+            ...state.sent,
+            ...totals,
+            InvoiceID: invoiceId,
+            Type: "ACCREC",
+            Status: "AUTHORISED",
+            Contact: { ContactID: contact },
+            Date: "2026-11-15",
+            AmountDue: state.amountDue,
+          },
+        ],
+      });
+    if (url === `/CreditNotes/${creditId}`)
+      return Response.json({
+        CreditNotes: [{ ...state.sent, ...totals, CreditNoteID: creditId, Allocations: state.allocations }],
+      });
+    throw new Error(`Unexpected provider request ${url}`);
+  });
+  const adapter = createXeroAdapter({
+    connectionId,
+    companyId,
+    baseCurrency: "GBP",
+    appUrl: "https://knotworking.example",
+    workspaceSlug: "acme",
+    getAccessToken: async () => "test-token",
+    fetch,
+  });
+  const writes = () => fetch.mock.calls.filter(([, init]) => init?.method === "PUT");
+  return { invoice, credit, state, adapter, writes, invoiceId, creditId, contact };
+}
+
+describe("Xero customer invoice and credit note HTTP adapter (fake transport)", () => {
+  it("sends an authorised ACCREC with the issued number, source URL and exact tax, then reads it back", async () => {
+    const f = customerFixture();
+    const postingKey = newId(),
+      idempotencyKey = newId();
+    const result = await f.adapter.post({
+      postingKey,
+      idempotencyKey,
+      attemptId: newId(),
+      document: f.invoice,
+    });
+    expect(result).toMatchObject({
+      outcome: "posted",
+      receipt: { externalId: f.invoiceId, postingKey, net: "50.00", tax: "10.00", gross: "60.00" },
+    });
+    expect(result).not.toHaveProperty("allocation");
+    expect(f.state.sent).toMatchObject({
+      Type: "ACCREC",
+      Status: "AUTHORISED",
+      InvoiceNumber: "INV-000001",
+      DueDate: "2026-12-15",
+      Url: `https://knotworking.example/acme/invoicing/${f.invoice.sourceId}?accountingPosting=${postingKey}`,
+      Contact: { ContactID: f.contact },
+      LineAmountTypes: "Exclusive",
+      LineItems: [
+        { Description: "Łódź tea", AccountCode: "200", TaxType: "OUTPUT2", LineAmount: 50, TaxAmount: 10 },
+      ],
+    });
+    // A re-prepared posting sends under its new idempotency key, not the posting key.
+    expect(f.state.keys).toEqual([idempotencyKey]);
+  });
+
+  it("refuses an expense account or a tax rate that differs from the line before any write", async () => {
+    const f = customerFixture();
+    const expense = {
+      ...f.invoice,
+      lines: [{ ...f.invoice.lines[0]!, accountReference: "5000" }],
+    };
+    expect(await f.adapter.post({ postingKey: newId(), attemptId: newId(), document: expense })).toEqual({
+      outcome: "rejected",
+      evidence: "Line 1 needs a Xero revenue account",
+    });
+    // Lookups are shared for a minute within one adapter, so use a fresh one.
+    const g = customerFixture();
+    g.state.salesRate = 5;
+    expect(
+      await g.adapter.post({ postingKey: newId(), attemptId: newId(), document: g.invoice }),
+    ).toMatchObject({
+      outcome: "rejected",
+      evidence: expect.stringContaining("is not 5%"),
+    });
+    expect(g.writes()).toHaveLength(0);
+    expect(f.writes()).toHaveLength(0);
+  });
+
+  it("reports revenue accounts and revenue tax rates for checks at preparation", async () => {
+    const coding = await customerFixture().adapter.customerCoding!();
+    expect([...coding!.revenueAccounts]).toEqual(["200"]);
+    expect([...coding!.taxRates]).toEqual([["OUTPUT2", 20]]);
+  });
+
+  it("sends an ACCRECCREDIT on account with the posting key in its Reference and no invoice-only fields", async () => {
+    const f = customerFixture();
+    const postingKey = newId();
+    const result = await f.adapter.post({ postingKey, attemptId: newId(), document: f.credit(false) });
+    expect(result).toMatchObject({ outcome: "posted", receipt: { externalId: f.creditId, gross: "60.00" } });
+    expect(result).not.toHaveProperty("allocation");
+    expect(f.state.sent).toMatchObject({
+      Type: "ACCRECCREDIT",
+      CreditNoteNumber: "CN-000001",
+      Reference: `KW ${postingKey} / INV-000001`,
+    });
+    expect(f.state.sent).not.toHaveProperty("Url");
+    expect(f.state.sent).not.toHaveProperty("DueDate");
+    expect(f.writes()).toHaveLength(1);
+  });
+
+  it("refuses an allocated credit, without a write, when the invoice lacks the outstanding balance", async () => {
+    const f = customerFixture();
+    f.state.amountDue = 59.99;
+    expect(
+      await f.adapter.post({ postingKey: newId(), attemptId: newId(), document: f.credit(true) }),
+    ).toMatchObject({ outcome: "rejected", evidence: expect.stringContaining("outstanding balance") });
+    expect(f.writes()).toHaveLength(0);
+  });
+
+  it("posts a verified credit when its allocation fails, then allocates it under a new key", async () => {
+    const f = customerFixture();
+    const postingKey = newId();
+    const document = f.credit(true);
+    f.state.allocationStatus = 400;
+    const result = await f.adapter.post({ postingKey, attemptId: newId(), document });
+    expect(result).toMatchObject({
+      outcome: "posted",
+      receipt: { externalId: f.creditId },
+      allocation: { allocated: false, evidence: expect.stringContaining("did not confirm the allocation") },
+    });
+    expect(f.state.keys).toEqual([postingKey, `${postingKey}-allocation`]);
+    // Read-back confirms the credit itself; the allocation is settled separately.
+    expect(await f.adapter.readBack!({ postingKey, document, externalId: f.creditId })).toMatchObject({
+      externalId: f.creditId,
+    });
+    f.state.allocationStatus = 200;
+    expect(await f.adapter.allocate!({ postingKey, document, externalId: f.creditId })).toEqual({
+      allocated: true,
+      evidence: "Allocated the credit and read the allocation back from Xero",
+    });
+    expect(f.state.keys[2]).toMatch(new RegExp(`^${postingKey}-allocation-[0-9a-f-]{36}$`));
+    expect(f.state.allocations).toEqual([
+      { Invoice: { InvoiceID: f.invoiceId }, Amount: 60, Date: "2026-11-15" },
+    ]);
+    // Asking again reads the allocation back and writes nothing.
+    expect(await f.adapter.allocate!({ postingKey, document, externalId: f.creditId })).toMatchObject({
+      allocated: true,
+    });
+    expect(f.writes()).toHaveLength(3);
+  });
+
+  it("leaves the allocation pending when the invoice was paid after the credit posted", async () => {
+    const f = customerFixture();
+    const postingKey = newId();
+    const document = f.credit(true);
+    f.state.allocationStatus = 429;
+    expect(await f.adapter.post({ postingKey, attemptId: newId(), document })).toMatchObject({
+      outcome: "posted",
+      allocation: { allocated: false },
+    });
+    f.state.allocationStatus = 200;
+    f.state.amountDue = 0;
+    expect(await f.adapter.allocate!({ postingKey, document, externalId: f.creditId })).toMatchObject({
+      allocated: false,
+      evidence: expect.stringContaining("no longer has enough outstanding balance"),
+    });
+    expect(f.writes()).toHaveLength(2);
+  });
+});

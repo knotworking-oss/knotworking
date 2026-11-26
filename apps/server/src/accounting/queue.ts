@@ -8,7 +8,12 @@ import {
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { ApiError, notFound } from "../errors";
 import { findAccountingConnection } from "../services/accounting";
-import { confirmAccountingPosting, dispatchAccountingPosting, retryAccountingPosting } from "./outbox";
+import {
+  confirmAccountingPosting,
+  dispatchAccountingPosting,
+  recordAccountingAllocation,
+  retryAccountingPosting,
+} from "./outbox";
 import type { AccountingAdapterRegistry, AccountingBinding } from "./registry";
 
 /**
@@ -51,6 +56,7 @@ const summary = (row: typeof postings.$inferSelect) => ({
   attempts: row.attempts,
   attemptId: row.attemptId,
   externalId: row.externalId,
+  allocation: row.allocation,
   sourceId: row.sourceId,
   kind: row.payload.kind,
   reference: row.payload.reference,
@@ -97,6 +103,7 @@ export async function listAccountingQueue(
     adapterInstalled: !connection.disabled && !!adapter,
     canReadBack: !!adapter?.readBack,
     canFindExisting: !!adapter?.findExisting,
+    canAllocate: !!adapter?.allocate,
   };
 }
 
@@ -227,6 +234,56 @@ export async function readBackAccountingQueueItem(
     `user:${actorId}`,
     receipt,
     `Read back transaction ${receipt.externalId}: ${input.reason}`.slice(0, 4000),
+  );
+  return getAccountingQueueItem(db, ws.id, connectionId, id);
+}
+
+/**
+ * Settles a posted credit's pending allocation. `allocate` reads the credit back and allocates it
+ * only if the allocation is not already there; `record` states how finance settled it in the ledger
+ * (for example, the invoice was paid first, so the credit stays on account or was refunded).
+ */
+export async function allocateAccountingQueueItem(
+  db: Database,
+  ws: { id: string; slug: string; currency: string },
+  connectionId: string,
+  id: string,
+  actorId: string,
+  registry: AccountingAdapterRegistry,
+  input: { action: "allocate" | "record"; reason: string },
+) {
+  const { connection, value } = await binding(db, ws, connectionId);
+  const row = await findPosting(db, ws.id, connectionId, id);
+  if (row.state !== "posted" || row.allocation !== "pending" || !row.externalId)
+    throw new ApiError(
+      409,
+      "accounting_conflict",
+      "Only a posted credit with a pending allocation can be settled",
+    );
+  const actor = `user:${actorId}`;
+  if (input.action === "record") {
+    await recordAccountingAllocation(db, ws.id, id, actor, "recorded", input.reason);
+    return getAccountingQueueItem(db, ws.id, connectionId, id);
+  }
+  if (connection.disabled)
+    throw new ApiError(409, "accounting_conflict", "Accounting connection is disabled");
+  const adapter = await registry.resolve(value);
+  if (!adapter) throw notInstalled();
+  if (!adapter.allocate)
+    throw new ApiError(409, "allocation_unsupported", "This accounting adapter can't allocate credits");
+  const result = await adapter.allocate({
+    postingKey: row.id,
+    document: row.payload,
+    externalId: row.externalId,
+  });
+  if (!result.allocated) throw new ApiError(409, "allocation_not_verified", result.evidence);
+  await recordAccountingAllocation(
+    db,
+    ws.id,
+    id,
+    actor,
+    "allocated",
+    `${result.evidence}: ${input.reason}`.slice(0, 4000),
   );
   return getAccountingQueueItem(db, ws.id, connectionId, id);
 }

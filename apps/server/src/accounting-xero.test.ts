@@ -66,6 +66,8 @@ function mockXero() {
     denyRefresh: false,
     loseReply: false,
     loseAllocationReply: false,
+    /** Xero refuses the allocation PUT, e.g. the invoice was paid after the balance check. */
+    rejectAllocation: false,
     salesTaxRate: 20,
     wrongOrganisation: false,
     currency: "GBP",
@@ -266,8 +268,17 @@ function mockXero() {
           if (credit && operation === "Allocations" && init?.method === "PUT") {
             const key = headers.get("idempotency-key")!;
             expect(keys.has(key)).toBe(false);
-            expect(key).toBe(`${credit.Reference.split(" ")[1]}-allocation`);
+            expect(key.startsWith(`${credit.Reference.split(" ")[1]}-allocation`)).toBe(true);
             keys.add(key);
+            if (state.rejectAllocation)
+              return Response.json(
+                {
+                  ErrorNumber: 10,
+                  Type: "ValidationException",
+                  Elements: [{ ValidationErrors: [{ Message: "Synthetic allocation failure" }] }],
+                },
+                { status: 400 },
+              );
             const allocations: Allocation[] = JSON.parse(String(init.body)).Allocations;
             expect(allocations).toHaveLength(1);
             const allocation = allocations[0]!;
@@ -1000,9 +1011,11 @@ describe("connected Xero accounting against a fake HTTP provider", () => {
     });
     const creditPosting = await prepareCustomer(credit, true);
     xero.state.loseAllocationReply = true;
-    const unknown = (await ok(send("POST", `${creditPosting.path}/send`))).posting;
+    const sentCredit = await ok(send("POST", `${creditPosting.path}/send`));
     xero.state.loseAllocationReply = false;
-    expect(unknown).toMatchObject({ state: "unknown", externalId: null });
+    // The credit is verified even though the allocation response was lost.
+    expect(sentCredit.posting).toMatchObject({ state: "posted", allocation: "pending" });
+    expect(sentCredit.history.at(-1)).toMatchObject({ action: "allocation_pending" });
     const [remoteCredit] = [...xero.credits.values()];
     expect(remoteCredit).toMatchObject({
       CreditNoteNumber: credit.number,
@@ -1016,20 +1029,26 @@ describe("connected Xero accounting against a fake HTTP provider", () => {
     expect(xero.bills.get(posted.externalId)?.AmountDue).toBe(0);
     expect(xero.keys.has(`${creditPosting.id}-allocation`)).toBe(true);
     const remoteCount = xero.state.postCalls;
+    const keyCount = xero.keys.size;
     await dispatchQueuedPostings(ctx.handle.db, provider());
-    const recovered = await ok(
-      send("POST", `${creditPosting.path}/read-back`, {
-        attemptId: unknown.attemptId,
-        reason: "Verified the allocated credit after the response was lost",
-      }),
-    );
+    const allocation = (action: string) =>
+      send("POST", `${creditPosting.path}/allocation`, {
+        action,
+        reason: "Verified the allocation after the response was lost",
+      });
+    const recovered = await ok(allocation("allocate"));
     expect(recovered.posting).toMatchObject({
       state: "posted",
+      allocation: "allocated",
       externalId: remoteCredit!.CreditNoteID,
       receipt: { net: "50.00", tax: "10.00", gross: "60.00" },
     });
+    expect(recovered.history.at(-1)).toMatchObject({ action: "allocation_verified" });
+    // Reading the existing allocation back made no second allocation.
+    expect(xero.keys.size).toBe(keyCount);
     expect(xero.state.postCalls).toBe(remoteCount);
     expect(xero.credits.size).toBe(1);
+    await ok(allocation("record"), 409);
   }, 30_000);
 
   it("bills signed-off hours without Stock, preserves the CSV and recovers a lost ACCREC response", async () => {
@@ -1228,6 +1247,80 @@ describe("connected Xero accounting against a fake HTTP provider", () => {
     const sent = (await ok(send("POST", `${onAccount.path}/send`))).posting;
     expect(sent).toMatchObject({ state: "posted", receipt: { gross: "120.00" } });
     expect(xero.credits.get(sent.externalId)?.Allocations).toEqual([]);
+  });
+
+  it("keeps a verified credit posted when its allocation fails, then allocates or records it", async () => {
+    await setModules(["customers", "invoicing", "accounting"]);
+    const customer = await billingCustomer("ALLOC-BILL");
+    await mapCustomer(customer.id);
+    const invoice = await ok(
+      decision(
+        await ok(
+          send("POST", "/invoicing", {
+            ...terms(),
+            kind: "manual",
+            customerId: customer.id,
+            currency: "GBP",
+            lines: [
+              { description: "Fixture audit", unit: "", quantity: "1", unitPrice: "50", taxRate: 20 },
+              { description: "Fixture report", unit: "", quantity: "1", unitPrice: "25", taxRate: 20 },
+            ],
+          }),
+          201,
+        ),
+      ),
+    );
+    const posted = (await ok(send("POST", `${(await prepareCustomer(invoice)).path}/send`))).posting;
+    expect(posted.state).toBe("posted");
+    const creditFor = async (lineId: string) => {
+      const credit = await ok(
+        decision(
+          await ok(
+            send("POST", "/invoicing", {
+              kind: "credit",
+              sourceId: invoice.id,
+              commandId: newId(),
+              date: today,
+              reason: "Line withdrawn",
+              lineIds: [lineId],
+            }),
+            201,
+          ),
+        ),
+      );
+      return prepareCustomer(credit, true);
+    };
+    const first = await creditFor(invoice.lines[0].id);
+    xero.state.rejectAllocation = true;
+    const sent = await ok(send("POST", `${first.path}/send`));
+    expect(sent.posting).toMatchObject({ state: "posted", allocation: "pending" });
+    expect(sent.history.at(-1).evidence).toContain("did not confirm the allocation");
+    const credit = xero.credits.get(sent.posting.externalId)!;
+    expect(credit.Allocations).toEqual([]);
+    const allocate = (path: string, action = "allocate") =>
+      send("POST", `${path}/allocation`, { action, reason: "Finance reviewed the credit in Xero" });
+    expect((await ok(allocate(first.path), 409)).error.message).toContain("did not confirm the allocation");
+    xero.state.rejectAllocation = false;
+    const allocated = await ok(allocate(first.path));
+    expect(allocated.posting.allocation).toBe("allocated");
+    expect(credit.Allocations).toMatchObject([{ Amount: 60 }]);
+    expect(xero.bills.get(posted.externalId)?.AmountDue).toBe(30);
+    await ok(allocate(first.path), 409);
+
+    // The second credit's invoice balance is paid in Xero after it was sent.
+    const second = await creditFor(invoice.lines[1].id);
+    xero.state.rejectAllocation = true;
+    expect((await ok(send("POST", `${second.path}/send`))).posting.allocation).toBe("pending");
+    xero.state.rejectAllocation = false;
+    xero.bills.get(posted.externalId)!.AmountDue = 0;
+    expect((await ok(allocate(second.path), 409)).error.message).toContain("outstanding balance");
+    const recorded = await ok(allocate(second.path, "record"));
+    expect(recorded.posting).toMatchObject({ state: "posted", allocation: "recorded" });
+    expect(recorded.history.at(-1)).toMatchObject({
+      action: "allocation_recorded",
+      evidence: "Finance reviewed the credit in Xero",
+    });
+    await ok(allocate(posted.id ? `${connection()}/postings/${posted.id}` : ""), 409);
   });
 
   it("drafts, approves and downloads a local invoice with Xero disabled", async () => {

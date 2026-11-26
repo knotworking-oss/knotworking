@@ -1,10 +1,12 @@
 import {
   accountingPostingSchema,
   accountingReceiptSchema,
+  newId,
   type AccountingPosting,
   type AccountingReceipt,
 } from "@knotworking/core";
 import { z } from "zod";
+import type { AccountingAllocationResult } from "../adapter";
 import type { InstalledAccountingAdapter } from "../registry";
 
 import { ApiError } from "../../errors";
@@ -545,7 +547,7 @@ export function createXeroAdapter(options: {
     const matches = CreditNotes.filter((note) => note.CreditNoteNumber === reference);
     if (matches.length !== 1) return null;
     const id = matches[0]!.CreditNoteID;
-    return verifyDocument(await documentResponse(request, document, id), postingKey, document, id);
+    return verifyDocument(await documentResponse(request, document, id), postingKey, document, id, false);
   }
 
   async function originalInvoice(request: Request, document: Credit) {
@@ -588,17 +590,19 @@ export function createXeroAdapter(options: {
   async function allocateCredit(
     request: Request,
     document: Credit,
-    postingKey: string,
+    idempotencyKey: string,
     data: unknown,
     creditId: string,
   ) {
     const credit = single(data, "CreditNotes", creditFields);
     if (verifiedAllocation(credit, document)) return data;
     if (credit.Allocations?.some((item) => !item.IsDeleted))
-      throw new Error("This credit already has allocations");
+      throw new PreflightIssue(
+        "This credit already has a different allocation in Xero. Finish it there, then record how it was settled.",
+      );
     await request(`/CreditNotes/${creditId}/Allocations?summarizeErrors=false`, {
       method: "PUT",
-      headers: { "Idempotency-Key": `${postingKey}-allocation` },
+      headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify({
         Allocations: [
           {
@@ -612,6 +616,56 @@ export function createXeroAdapter(options: {
     return documentResponse(request, document, creditId);
   }
 
+  const allocationUnverified =
+    "Xero did not confirm the allocation. Check the credit in Xero, then allocate again or record how it was settled.";
+  /** Never throws: an unverified allocation leaves the posted credit's allocation pending. */
+  async function allocate(input: {
+    postingKey: string;
+    document: AccountingPosting;
+    externalId: string;
+  }): Promise<AccountingAllocationResult> {
+    try {
+      const document = prepare(input.postingKey, input.document);
+      if (document.kind !== "customer_credit_note" || !document.originalInvoice.allocate)
+        return { allocated: false, evidence: "No allocation was requested for this document" };
+      const request = session();
+      if (!(await verifyOrganisation(request)))
+        return {
+          allocated: false,
+          evidence: "The Xero organisation or base currency differs from this setup",
+        };
+      const data = await documentResponse(request, document, input.externalId);
+      verifyDocument(data, input.postingKey, document, input.externalId, false);
+      if (verifiedAllocation(single(data, "CreditNotes", creditFields), document))
+        return { allocated: true, evidence: "Read the allocation to the original invoice back from Xero" };
+      const original = await originalInvoice(request, document);
+      if (original.AmountDue === undefined || original.AmountDue < Number(document.gross))
+        return {
+          allocated: false,
+          evidence:
+            "The original Xero invoice no longer has enough outstanding balance. Settle the credit in Xero, then record how it was settled.",
+        };
+      // A new key: Xero may have cached a refused earlier allocation under the previous one.
+      const allocated = await allocateCredit(
+        request,
+        document,
+        `${input.postingKey}-allocation-${newId()}`,
+        data,
+        input.externalId,
+      );
+      verifyDocument(allocated, input.postingKey, document, input.externalId);
+      return { allocated: true, evidence: "Allocated the credit and read the allocation back from Xero" };
+    } catch (error) {
+      if (error instanceof PreflightIssue) return { allocated: false, evidence: error.message };
+      if (error instanceof XeroHttpError && error.status === 429)
+        return {
+          allocated: false,
+          evidence: "Xero's rate limit was reached. Try the allocation again later.",
+        };
+      return { allocated: false, evidence: allocationUnverified };
+    }
+  }
+
   async function readBack(input: { postingKey: string; document: AccountingPosting; externalId?: string }) {
     try {
       const document = prepare(input.postingKey, input.document);
@@ -622,11 +676,13 @@ export function createXeroAdapter(options: {
         return document.kind === "customer_credit_note"
           ? await findCredit(request, input.postingKey, document)
           : await findInvoice(request, input.postingKey, document);
+      // The allocation is verified separately (`allocate`): a credit that exists is posted.
       return verifyDocument(
         await documentResponse(request, document, input.externalId),
         input.postingKey,
         document,
         input.externalId,
+        false,
       );
     } catch {
       return null;
@@ -663,6 +719,7 @@ export function createXeroAdapter(options: {
     },
     readBack,
     findExisting: readBack,
+    allocate,
     async post(input) {
       let written = false;
       let accepted = false;
@@ -751,10 +808,35 @@ export function createXeroAdapter(options: {
         if (!id || !hasId || result.HasErrors || result.StatusAttributeString === "ERROR")
           return unavailable(true);
         accepted = true;
-        let data = await documentResponse(request, document, id);
+        const data = await documentResponse(request, document, id);
         if (credit && document.originalInvoice.allocate) {
-          verifyDocument(data, input.postingKey, document, id, false);
-          data = await allocateCredit(request, document, input.postingKey, data, id);
+          // The credit exists once verified. Allocation is a second write: if it fails or its
+          // response is lost, the credit is still posted and its allocation stays pending.
+          const receipt = verifyDocument(data, input.postingKey, document, id, false);
+          try {
+            const allocated = await allocateCredit(
+              request,
+              document,
+              `${input.postingKey}-allocation`,
+              data,
+              id,
+            );
+            verifyDocument(allocated, input.postingKey, document, id);
+            return {
+              outcome: "posted" as const,
+              receipt,
+              allocation: { allocated: true, evidence: "Allocation read back from Xero" },
+            };
+          } catch (error) {
+            return {
+              outcome: "posted" as const,
+              receipt,
+              allocation: {
+                allocated: false,
+                evidence: error instanceof PreflightIssue ? error.message : allocationUnverified,
+              },
+            };
+          }
         }
         return { outcome: "posted" as const, receipt: verifyDocument(data, input.postingKey, document, id) };
       } catch (error) {

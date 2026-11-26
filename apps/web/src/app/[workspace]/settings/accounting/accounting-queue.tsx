@@ -43,6 +43,15 @@ const actionLabels: Record<string, string> = {
   unknown: "Outcome uncertain",
   deferred: "Not sent yet, back in the queue",
   retry_requested: "Retry requested",
+  reprepared: "Prepared again after rejection",
+  allocation_pending: "Credit posted, allocation not verified",
+  allocation_verified: "Allocation confirmed in accounting system",
+  allocation_recorded: "Allocation settled in accounting system",
+};
+const allocationLabels: Record<string, string> = {
+  pending: "Allocation to the original invoice is pending.",
+  allocated: "Allocated to the original invoice.",
+  recorded: "Allocation recorded as settled in the accounting system.",
 };
 
 /** The finance review of one connection's outbox: queued, uncertain, rejected and posted invoices. */
@@ -125,6 +134,16 @@ export function AccountingQueue({
             param: params(p.id),
             json: { attemptId: p.attemptId!, reason },
           }),
+        ),
+      ),
+    );
+  }
+  function settleAllocation(action: "allocate" | "record") {
+    const p = item!.posting;
+    void run(async () =>
+      settle(
+        await unwrap(
+          postings()[":postingId"].allocation.$post({ param: params(p.id), json: { action, reason } }),
         ),
       ),
     );
@@ -276,6 +295,7 @@ export function AccountingQueue({
           {p.externalId && (
             <p className="mt-1 text-muted-foreground">Accounting transaction {p.externalId}</p>
           )}
+          {p.allocation && <p className="mt-1 text-muted-foreground">{allocationLabels[p.allocation]}</p>}
           <ol className="mt-3 flex flex-col gap-2">
             {item.history.map((h) => (
               <li key={h.id}>
@@ -307,6 +327,44 @@ export function AccountingQueue({
               <div>
                 <Button type="submit" disabled={pending}>
                   Retry
+                </Button>
+              </div>
+            </form>
+          )}
+          {p.state === "posted" && p.allocation === "pending" && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                settleAllocation("allocate");
+              }}
+              className="mt-3 flex flex-col gap-3 border-t pt-3"
+            >
+              <Field>
+                <FieldLabel htmlFor="allocation-reason">Review note</FieldLabel>
+                <Input
+                  id="allocation-reason"
+                  required
+                  maxLength={2000}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+                <FieldDescription>
+                  The credit is posted. Allocating reads it back first and allocates only if the allocation is
+                  not already there. If the original invoice was paid or settled another way, record what
+                  finance did in the accounting system instead.
+                </FieldDescription>
+              </Field>
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={pending || !list?.canAllocate}>
+                  Allocate to original invoice
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pending || !reason.trim()}
+                  onClick={() => settleAllocation("record")}
+                >
+                  Record as settled
                 </Button>
               </div>
             </form>

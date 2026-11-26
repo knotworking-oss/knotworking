@@ -1,5 +1,5 @@
 import type { AccountingPosting, AccountingReceipt } from "@knotworking/core";
-import type { AccountingAdapter } from "./adapter";
+import type { AccountingAdapter, AccountingAllocationResult } from "./adapter";
 
 /** The configured destination an adapter is built for. */
 export interface AccountingBinding {
@@ -27,6 +27,15 @@ export type InstalledAccountingAdapter = AccountingAdapter & {
     postingKey: string;
     document: AccountingPosting;
   }): Promise<AccountingReceipt | null>;
+  /**
+   * Reads a posted credit back and finishes its requested allocation if it is not there yet. Never
+   * throws; `allocated: false` leaves the allocation pending with the evidence shown to finance.
+   */
+  allocate?(input: {
+    postingKey: string;
+    document: AccountingPosting;
+    externalId: string;
+  }): Promise<AccountingAllocationResult>;
   readBack?(input: {
     postingKey: string;
     document: AccountingPosting;

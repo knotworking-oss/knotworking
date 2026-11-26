@@ -6,6 +6,7 @@ import {
   accountingInvoicePrepareSchema,
   accountingMappingSchema,
   accountingQueueListSchema,
+  accountingAllocationSchema,
   accountingReadBackSchema,
   accountingRetrySchema,
   accountingPageSchema,
@@ -36,6 +37,7 @@ import {
 import {
   getAccountingQueueItem,
   listAccountingQueue,
+  allocateAccountingQueueItem,
   readBackAccountingQueueItem,
   retryAccountingQueueItem,
   sendAccountingPostingNow,
@@ -275,6 +277,25 @@ export const accountingRoutes = new Hono<WorkspaceEnv>()
           connectionId,
           postingId,
           c.var.user.id,
+          c.req.valid("json"),
+        ),
+      );
+    },
+  )
+  .post(
+    "/accounting/connections/:id/postings/:postingId/allocation",
+    validate("param", postingParam),
+    validate("json", accountingAllocationSchema),
+    async (c) => {
+      const { id: connectionId, postingId } = c.req.valid("param");
+      return c.json(
+        await allocateAccountingQueueItem(
+          c.var.db,
+          c.var.workspace,
+          connectionId,
+          postingId,
+          c.var.user.id,
+          c.var.accountingAdapters,
           c.req.valid("json"),
         ),
       );

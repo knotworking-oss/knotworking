@@ -89,7 +89,7 @@ describe("Provider-neutral durable posting boundary (test adapters only)", () =>
   afterAll(async () => {
     await handle?.close();
   });
-  const enqueue = async (input = document(), workspace = ws) => {
+  const enqueue = async (input: AccountingPosting = document(), workspace = ws) => {
     await handle.db
       .insert(accountingConnections)
       .values({
@@ -258,7 +258,7 @@ describe("Provider-neutral durable posting boundary (test adapters only)", () =>
       customerReference: "CUS001",
       dueDate: "2026-12-15",
     };
-    const row = await enqueue(invoice as never);
+    const row = await enqueue(invoice);
     const seen: (string | undefined)[] = [];
     const rejecting: AccountingAdapter = {
       ...binding,
@@ -280,7 +280,7 @@ describe("Provider-neutral durable posting boundary (test adapters only)", () =>
     expect(requeued.payload.lines[0]!.taxReference).toBe("T2");
     // The queued, re-coded posting is now the one to reconcile; a different snapshot conflicts again.
     expect((await enqueue(recoded)).id).toBe(row.id);
-    await expect(enqueue(invoice as never)).rejects.toMatchObject({ code: "accounting_conflict" });
+    await expect(enqueue(invoice)).rejects.toMatchObject({ code: "accounting_conflict" });
     const { history: events } = await history(row.id);
     expect(events.map((event) => event.action)).toEqual([
       "queued",

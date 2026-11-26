@@ -84,6 +84,12 @@ export const accountingPostingSchema = z
   });
 export type AccountingPosting = z.infer<typeof accountingPostingSchema>;
 export type AccountingPostingState = "queued" | "unknown" | "failed" | "posted";
+/**
+ * A posted credit note's requested allocation to its original invoice, tracked apart from the credit:
+ * `pending` until read back from the ledger, `allocated` once verified, `recorded` when finance settled
+ * it in the ledger another way (for example after the invoice was paid). Null when none was requested.
+ */
+export type AccountingAllocationState = "pending" | "allocated" | "recorded";
 
 /** Read-back from the destination ledger, not an HTTP success or an invented ID. */
 export const accountingReceiptSchema = z
@@ -207,6 +213,10 @@ export const accountingRetrySchema = z
 /** Reconcile the current uncertain attempt from a transaction found in the accounting system. */
 export const accountingReadBackSchema = z
   .object({ attemptId: z.uuid(), externalId: label.optional(), reason: z.string().trim().min(1).max(2000) })
+  .strict();
+/** Finish a posted credit's pending allocation (`allocate`), or record that finance settled it in the ledger. */
+export const accountingAllocationSchema = z
+  .object({ action: z.enum(["allocate", "record"]), reason: z.string().trim().min(1).max(2000) })
   .strict();
 /** Catalogue entries are candidates, not installed or authenticated connections. */
 export const accountingProviderCandidates = [

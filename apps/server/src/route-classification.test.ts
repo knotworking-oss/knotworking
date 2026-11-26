@@ -126,6 +126,7 @@ const ROUTES: Record<string, Classification> = {
   "POST /v1/workspaces/:slug/accounting/connections/:id/postings/:postingId/send": "token-forbidden",
   "POST /v1/workspaces/:slug/accounting/connections/:id/postings/:postingId/retry": "token-forbidden",
   "POST /v1/workspaces/:slug/accounting/connections/:id/postings/:postingId/read-back": "token-forbidden",
+  "POST /v1/workspaces/:slug/accounting/connections/:id/postings/:postingId/allocation": "token-forbidden",
   "GET /v1/workspaces/:slug/accounting/connections/:id/customer-documents": "token-forbidden",
   "GET /v1/workspaces/:slug/accounting/connections/:id/customer-documents/:invoiceId": "token-forbidden",
   "POST /v1/workspaces/:slug/accounting/connections/:id/customer-documents/:invoiceId/prepare":

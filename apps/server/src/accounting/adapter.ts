@@ -1,5 +1,8 @@
 import type { AccountingPosting, AccountingReceipt } from "@knotworking/core";
 
+/** Whether a credit's requested allocation was read back. The credit itself is in the receipt. */
+export type AccountingAllocationResult = { allocated: boolean; evidence: string };
+
 /** An adapter instance is bound to one configured destination. Credentials and SDK objects
  * stay in the implementation; the shared queue knows only canonical accounting documents.
  * Implementations may use a cloud API, a local bridge, or a verified file exchange.
@@ -18,7 +21,9 @@ export interface AccountingAdapter {
     attemptId: string;
     document: AccountingPosting;
   }): Promise<
-    | { outcome: "posted"; receipt: AccountingReceipt }
+    // A credit whose allocation was requested carries `allocation`: a credit verified without its
+    // allocation is still posted, and the allocation stays pending for a separate retry.
+    | { outcome: "posted"; receipt: AccountingReceipt; allocation?: AccountingAllocationResult }
     // Only return rejected if the destination definitively performed NO write.
     | { outcome: "rejected"; evidence: string }
     | { outcome: "unknown"; evidence: string }

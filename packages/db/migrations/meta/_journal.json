@@ -722,6 +722,13 @@
       "when": 1795649916218,
       "tag": "0121_customer_posting_revisions",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1795649916219,
+      "tag": "0122_credit_allocation_state",
+      "breakpoints": true
     }
   ]
 }

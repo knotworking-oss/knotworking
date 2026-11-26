@@ -1,5 +1,10 @@
 import { newId } from "@knotworking/core";
-import type { AccountingPosting, AccountingPostingState, AccountingReceipt } from "@knotworking/core";
+import type {
+  AccountingAllocationState,
+  AccountingPosting,
+  AccountingPostingState,
+  AccountingReceipt,
+} from "@knotworking/core";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -32,6 +37,8 @@ export const accountingPostings = pgTable(
     payloadHash: text("payload_hash").notNull(),
     idempotencyKey: uuid("idempotency_key"),
     state: text("state").$type<AccountingPostingState>().notNull().default("queued"),
+    /** A credit note's requested allocation, verified separately from the credit itself. */
+    allocation: text("allocation").$type<AccountingAllocationState>(),
     attemptId: uuid("attempt_id"),
     attempts: integer("attempts").notNull().default(0),
     externalId: text("external_id"),

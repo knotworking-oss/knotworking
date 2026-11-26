@@ -433,7 +433,12 @@ describe("routings and job cards", () => {
     await ok("POST", `${cut}/quantities`, { good: 1, unit: "each", overPlanned: true }, 201);
     for (const card of [cut, weld, asm]) {
       if (card !== cut) await ok("POST", `${card}/quantities`, { good: 2, unit: "each" }, 201);
-      if (card === asm) await ok("POST", `${asm}/output`, { quantity: 2, unit: "each" }, 201);
+      if (card === asm) {
+        // Completing the last operation before its output is posted would strand the batch: the
+        // completed card takes no output and the batch takes it from no other.
+        await refused("POST", `${asm}/complete`, {}, 409, "output_not_posted");
+        await ok("POST", `${asm}/output`, { quantity: 2, unit: "each" }, 201);
+      }
       await ok("POST", `${card}/complete`, {});
     }
     expect((await ok("POST", `/production/batches/${id}/complete`, {})).status).toBe("completed");

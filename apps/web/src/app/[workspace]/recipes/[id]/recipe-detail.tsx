@@ -36,16 +36,15 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { AllergenBadges } from "@/components/item-badges";
 import { AllergenDriftAlert, AllergenMismatchAlert, RecipeVersionBadge } from "@/components/recipe-badges";
-import { formatLongDate } from "@/lib/format";
+import { formatLongDate, formatMoney } from "@/lib/format";
 import type { Recipe, RecipeVersion } from "@/lib/api";
 import { browserApi, errorMessage, unwrap, unwrapEmpty } from "@/lib/auth-client";
 import { useWorkspace } from "@/lib/workspace-store";
 import { DraftEditor, type DraftStart } from "./draft-editor";
-import { useWorkspaceTimeZone } from "@/lib/workspace-time";
+import { useWorkspaceCurrency, useWorkspaceTimeZone } from "@/lib/workspace-time";
 import { VersionCompare } from "./version-compare";
 import { recipeTerms } from "@/lib/recipe-terms";
 
-const money = (value: number) => value.toLocaleString("en-GB", { maximumFractionDigits: 4 });
 const BATCHES = "batches";
 
 /** A recipe: its current approved version, any draft beside it, the history, and the draft editor. */
@@ -328,6 +327,7 @@ function VersionCard({
   actions?: React.ReactNode;
 }) {
   const timeZone = useWorkspaceTimeZone();
+  const currency = useWorkspaceCurrency();
   const showFood = useWorkspace().can("food_items");
   const terms = recipeTerms(showFood);
   const [mode, setMode] = useState<string>(BATCHES);
@@ -389,11 +389,11 @@ function VersionCard({
         <div className="flex flex-wrap items-end gap-6 text-sm">
           <div>
             <p className="text-muted-foreground">Cost per batch</p>
-            <p className="text-lg font-semibold">{money(rollup.cost.batchCost)}</p>
+            <p className="text-lg font-semibold">{formatMoney(rollup.cost.batchCost, currency)}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Cost per {units[rollup.cost.outputUnit].label}</p>
-            <p className="text-lg font-semibold">{costPerUnit === null ? "—" : money(costPerUnit)}</p>
+            <p className="text-lg font-semibold">{formatMoney(costPerUnit, currency)}</p>
           </div>
           {!rollup.cost.costComplete && (
             <p className="text-label-orange">

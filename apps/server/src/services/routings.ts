@@ -1363,16 +1363,21 @@ export async function assertJobCardsComplete(tx: Executor, batch: BatchRow) {
   await assertOutputWithinGood(tx, batch, last, (await progressOf(tx, [last])).get(last.id)!.good);
 }
 
+/** The batch's output on record, net of reversals, in the output item's stock unit. */
+async function netOutput(tx: Executor, batch: BatchRow) {
+  const [produced] = await tx
+    .select({ total: sql<string>`coalesce(sum(${productionRecords.quantity}), 0)` })
+    .from(productionRecords)
+    .where(and(eq(productionRecords.batchId, batch.id), eq(productionRecords.kind, "output")));
+  return roundQuantity(num(produced?.total));
+}
+
 /**
  * The batch's finished stock can't be more than its last operation passed as good, however it was
  * posted (output posted before the cards were made, or while Routings was off, counts too).
  */
 async function assertOutputWithinGood(tx: Executor, batch: BatchRow, last: CardRow, good: number) {
-  const [produced] = await tx
-    .select({ total: sql<string>`coalesce(sum(${productionRecords.quantity}), 0)` })
-    .from(productionRecords)
-    .where(and(eq(productionRecords.batchId, batch.id), eq(productionRecords.kind, "output")));
-  const net = roundQuantity(num(produced?.total));
+  const net = await netOutput(tx, batch);
   if (net <= good) return;
   const output = await findItem(tx, batch.workspaceId, batch.outputItemId);
   const made = stockAmount(net, output);
@@ -1800,7 +1805,8 @@ export async function resolveJobCardException(
 
 /**
  * Completes an operation: the one before it must be complete, no exception may be open, and it
- * must have reported something. Running timers on it stop now.
+ * must have reported something. The last operation, once it passed anything as good, needs the
+ * batch's output posted first. Running timers on it stop now.
  */
 export async function completeJobCard(
   db: Database,
@@ -1832,7 +1838,18 @@ export async function completeJobCard(
     if (!(mine.good > 0 || mine.scrap > 0)) {
       throw new ApiError(409, "nothing_reported", "Report the good and scrap quantities before completing");
     }
-    if (cards.at(-1)?.id === card.id) await assertOutputWithinGood(tx, batch, card, mine.good);
+    if (cards.at(-1)?.id === card.id) {
+      // A completed card takes no more records and the batch takes its output only from this card,
+      // so completing it with good units but no output would leave the batch unable to post any.
+      if (mine.good > 0 && (await netOutput(tx, batch)) <= 0) {
+        throw new ApiError(
+          409,
+          "output_not_posted",
+          `Post the output first: batch ${batch.batchCode} has no output on record, and this last operation posts it`,
+        );
+      }
+      await assertOutputWithinGood(tx, batch, card, mine.good);
+    }
     const now = new Date();
     await stopTimers(tx, [card.id], now);
     const [row] = await tx

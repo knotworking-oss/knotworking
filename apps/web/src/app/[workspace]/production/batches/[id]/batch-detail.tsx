@@ -74,6 +74,7 @@ import { ExpiryBadge, formatAmount, LotStatusBadge } from "@/components/stock-ba
 import type { ProductionBatchDetail, ProductionLine, StockLocation } from "@/lib/api";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 import { useWorkspace } from "@/lib/workspace-store";
+import { recipeTerms } from "@/lib/recipe-terms";
 import { useFormatDateTime } from "@/lib/workspace-time";
 
 type Batch = ProductionBatchDetail;
@@ -107,6 +108,7 @@ export function BatchDetail({
   currentVersion,
   openDeviations,
   readiness,
+  outputCardId = null,
 }: {
   slug: string;
   batch: Batch;
@@ -122,10 +124,16 @@ export function BatchDetail({
   };
   /** The recipe's approved version, when the batch is planned on a superseded one. */
   currentVersion: { id: string; versionNumber: number } | null;
+  /**
+   * The last operation's job card while Routings is on and the batch has live cards: the batch's
+   * output is posted there (direct output is refused, `409 use_job_card`).
+   */
+  outputCardId?: string | null;
 }) {
   const dateTime = useFormatDateTime();
   const router = useRouter();
   const { can } = useWorkspace();
+  const terms = recipeTerms(can("food_items"));
   const canWrite = can("production", "write");
   const canManage = can("production", "manage");
   // Releasing a lot is the stock module's QA sign-off: `manage` on stock, a signed-in person.
@@ -201,9 +209,17 @@ export function BatchDetail({
               <Button variant="outline" onClick={() => setAction({ kind: "consume" })}>
                 <PackageMinus data-icon="inline-start" /> Record consumption
               </Button>
-              <Button variant="outline" onClick={() => setAction({ kind: "output" })}>
-                <PackagePlus data-icon="inline-start" /> Record output
-              </Button>
+              {outputCardId ? (
+                <Button variant="outline" asChild>
+                  <Link href={`/${slug}/routings/job-cards/${outputCardId}`}>
+                    <PackagePlus data-icon="inline-start" /> Post output on the last job card
+                  </Link>
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={() => setAction({ kind: "output" })}>
+                  <PackagePlus data-icon="inline-start" /> Record output
+                </Button>
+              )}
             </>
           )}
           {canManage && running && (
@@ -229,7 +245,7 @@ export function BatchDetail({
           <TriangleAlert />
           <AlertTitle>Version {batch.recipeVersion?.versionNumber} has been superseded</AlertTitle>
           <AlertDescription>
-            A batch can only start on the recipe&apos;s approved version.
+            A batch can only start on the {terms.singular}&apos;s approved version.
             {currentVersion && canWrite && (
               <Button
                 size="sm"
@@ -430,7 +446,7 @@ export function BatchDetail({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-4">Ingredient</TableHead>
+                <TableHead className="pl-4">{terms.lineTitle}</TableHead>
                 <TableHead>Per batch</TableHead>
                 <TableHead className="text-right">Required</TableHead>
                 <TableHead className="text-right">Consumed</TableHead>
@@ -476,7 +492,7 @@ export function BatchDetail({
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">Lot</TableHead>
-                  <TableHead>Ingredient</TableHead>
+                  <TableHead>{terms.lineTitle}</TableHead>
                   <TableHead className="text-right">Reserved</TableHead>
                   <TableHead className="text-right">Still held</TableHead>
                   <TableHead>Status</TableHead>
@@ -652,7 +668,7 @@ export function BatchDetail({
           {outstanding.length > 0 && (
             <Alert>
               <TriangleAlert />
-              <AlertTitle>Less consumed than the recipe needs</AlertTitle>
+              <AlertTitle>Less consumed than the {terms.singular} needs</AlertTitle>
               <AlertDescription>
                 {outstanding
                   .map((m) => `${m.item.name}: ${formatAmount(m.outstanding!)} outstanding`)
@@ -688,7 +704,7 @@ export function BatchDetail({
           title={`Cancel batch ${batch.batchCode}`}
           description={
             running
-              ? "Ingredients already consumed stay consumed. Reverse any output first; reverse consumption to return unused stock."
+              ? `${terms.lines} already consumed stay consumed. Reverse any output first; reverse consumption to return unused stock.`
               : "The batch stays on record as cancelled."
           }
           submitLabel="Cancel batch"
@@ -1006,6 +1022,7 @@ interface LotRow {
  * what was actually used.
  */
 function ConsumeDialog({ slug, batch, onClose }: { slug: string; batch: Batch; onClose: () => void }) {
+  const terms = recipeTerms(useWorkspace().can("food_items"));
   /** Use-by dates are checked against today in the workspace's time zone. */
   const today = useWorkspaceToday();
   const [rows, setRows] = useState<LotRow[] | null>(null);
@@ -1091,7 +1108,7 @@ function ConsumeDialog({ slug, batch, onClose }: { slug: string; batch: Batch; o
           !first
             ? `No lot has the code "${wanted}"`
             : first.problem === "not_in_recipe"
-              ? `Lot ${first.lotCode} is ${first.item.name}, which is not an ingredient of this batch`
+              ? `Lot ${first.lotCode} is ${first.item.name}, which is not ${/^[aeiou]/.test(terms.line) ? "an" : "a"} ${terms.line} of this batch`
               : first.problem === "lot_not_available"
                 ? `Lot ${first.lotCode} is ${lotStatusLabels[first.status].toLowerCase()}, not released`
                 : first.problem === "lot_expired"
@@ -1132,7 +1149,7 @@ function ConsumeDialog({ slug, batch, onClose }: { slug: string; batch: Batch; o
   return (
     <ActionDialog
       title="Record consumption"
-      description="Quantities actually used, per lot and location, in each ingredient's own unit. Prefilled first expired, first out for what is still outstanding."
+      description={`Quantities actually used, per lot and location, in each ${terms.line}'s own unit. Prefilled first expired, first out for what is still outstanding.`}
       submitLabel={`Record ${lines.length || ""} line${lines.length === 1 ? "" : "s"}`}
       wide
       disabled={lines.length === 0}
@@ -1177,7 +1194,8 @@ function ConsumeDialog({ slug, batch, onClose }: { slug: string; batch: Batch; o
             />
           </div>
           <FieldDescription>
-            Picks that lot and fills in what the ingredient still needs. Change the quantity if you used less.
+            Picks that lot and fills in what the {terms.line} still needs. Change the quantity if you used
+            less.
           </FieldDescription>
         </Field>
       )}
@@ -1197,7 +1215,7 @@ function ConsumeDialog({ slug, batch, onClose }: { slug: string; batch: Batch; o
                 </span>
               </div>
               {mine.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No released stock of this ingredient.</p>
+                <p className="text-sm text-muted-foreground">No released stock of this {terms.line}.</p>
               ) : (
                 <ul className="flex flex-col gap-1">
                   {mine.map((r) => (
@@ -1418,6 +1436,7 @@ function OutputDialog({
  * first out. Reserving never blocks consumption and is released as the batch uses it.
  */
 function ReserveDialog({ slug, batch, onClose }: { slug: string; batch: Batch; onClose: () => void }) {
+  const terms = recipeTerms(useWorkspace().can("food_items"));
   const router = useRouter();
   const today = useWorkspaceToday();
   type Row = {
@@ -1504,7 +1523,7 @@ function ReserveDialog({ slug, batch, onClose }: { slug: string; batch: Batch; o
       const res = await unwrap(route.$post({ param, json: { allOutstanding: true } }));
       const short = res.shortfalls.length;
       if (short > 0)
-        toast.warning(`Reserved what is free; ${short} ingredient${short === 1 ? " is" : "s are"} short`);
+        toast.warning(`Reserved what is free; ${short} ${terms.line}${short === 1 ? " is" : "s are"} short`);
       else toast.success("Everything outstanding is reserved");
       onClose();
       router.refresh();
@@ -1563,7 +1582,7 @@ function ReserveDialog({ slug, batch, onClose }: { slug: string; batch: Batch; o
               </div>
               {mine.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No unreserved released stock of this ingredient.
+                  No unreserved released stock of this {terms.line}.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1">

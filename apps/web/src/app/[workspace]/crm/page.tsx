@@ -4,6 +4,7 @@ import { Button } from "@knotworking/ui/components/button";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { formatLongDate } from "@/lib/format";
 import { getCrmPipeline, getMe, type CrmOpportunitySummary } from "@/lib/api";
 import { OpportunityEditor, StageSelect } from "./crm-controls";
 import { leadLabel, opportunityValue } from "./crm-format";
@@ -32,7 +33,9 @@ export default async function CrmPipelinePage({
       </p>
       <p className="flex flex-wrap justify-between gap-2 tabular-nums">
         <span>{opportunityValue(o)}</span>
-        {o.expectedCloseDate && <span className="text-muted-foreground">Close {o.expectedCloseDate}</span>}
+        {o.expectedCloseDate && (
+          <span className="text-muted-foreground">Close {formatLongDate(o.expectedCloseDate)}</span>
+        )}
       </p>
       <StageSelect opportunity={o} stages={stages} />
     </li>
@@ -43,7 +46,7 @@ export default async function CrmPipelinePage({
         actions={
           <>
             <Button asChild size="sm" variant="outline">
-              <Link href={mine ? base : `${base}?owner=mine`}>{mine ? "Everyone's" : "Mine"}</Link>
+              <Link href={mine ? base : `${base}?owner=mine`}>{mine ? "Everyone" : "Mine"}</Link>
             </Button>
             <OpportunityEditor stages={stages} />
           </>

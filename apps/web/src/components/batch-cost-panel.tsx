@@ -22,6 +22,7 @@ import {
 import { stackedTable } from "@/components/stacked-table";
 import { formatAmount } from "@/components/stock-badges";
 import type { BatchCostDetail } from "@/lib/api";
+import { recipeTerms } from "@/lib/recipe-terms";
 
 function Figure({ label, children, note }: { label: string; children: ReactNode; note?: ReactNode }) {
   return (
@@ -43,13 +44,17 @@ export function BatchCostPanel({
   currency,
   cost,
   compact = false,
+  foodItems = true,
 }: {
   slug: string;
   /** The workspace's currency. */
   currency: string;
   cost: BatchCostDetail;
   compact?: boolean;
+  /** Food items readable: recipe and ingredient wording, else bill of materials and material. */
+  foodItems?: boolean;
 }) {
+  const terms = recipeTerms(foodItems);
   const unit = cost.outputUnit;
   const { variance } = cost;
   return (
@@ -246,7 +251,7 @@ export function BatchCostPanel({
               <Table className={stackedTable}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="pl-4">Ingredient</TableHead>
+                    <TableHead className="pl-4">{terms.lineTitle}</TableHead>
                     <TableHead className="text-right">Plan needed</TableHead>
                     <TableHead className="text-right">Used</TableHead>
                     <TableHead className="text-right">Actual cost</TableHead>
@@ -260,7 +265,9 @@ export function BatchCostPanel({
                       <TableCell className="pl-4" data-primary>
                         <span className="font-medium">{m.item.code}</span>{" "}
                         <span className="text-muted-foreground">{m.item.name}</span>
-                        {!m.inRecipe && <span className="ml-1 text-xs text-label-orange">Not in recipe</span>}
+                        {!m.inRecipe && (
+                          <span className="ml-1 text-xs text-label-orange">Not in {terms.singular}</span>
+                        )}
                       </TableCell>
                       <TableCell data-label="Plan needed" className="text-right tabular-nums">
                         {m.required ? formatAmount(m.required) : "—"}

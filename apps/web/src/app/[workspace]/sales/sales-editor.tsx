@@ -242,7 +242,10 @@ export function SalesEditor({
                 kind="items"
                 value={l.itemId}
                 label={l.label}
-                onChange={(itemId, label) => patch(l.key, { itemId, label })}
+                onChange={(itemId, label, item) =>
+                  // The line's unit defaults to the item's own, which always converts.
+                  patch(l.key, { itemId, label, ...(item?.unit ? { unit: item.unit } : {}) })
+                }
               />
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <label className="space-y-1 text-sm">

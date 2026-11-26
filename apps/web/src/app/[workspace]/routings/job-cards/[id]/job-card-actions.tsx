@@ -39,12 +39,21 @@ export function JobCardActions({
   card,
   batchRunning,
   pick,
+  output = null,
 }: {
   slug: string;
   card: JobCard;
   batchRunning: boolean;
   /** Suggested lots for the batch's outstanding materials (empty without Stock or Production write). */
   pick: readonly PickLine[];
+  /**
+   * For the last operation's output: the batch's output location (`null` when none was chosen)
+   * and the active stock locations to choose from.
+   */
+  output?: {
+    locationId: string | null;
+    locations: readonly { id: string; name: string }[];
+  } | null;
 }) {
   const { can } = useWorkspace();
   const router = useRouter();
@@ -59,6 +68,8 @@ export function JobCardActions({
   const [kind, setKind] = useState<JobCardExceptionKind>("machine");
   const [description, setDescription] = useState("");
   const [lotCode, setLotCode] = useState("");
+  const batchLocation = output?.locations.find((l) => l.id === output.locationId);
+  const [locationId, setLocationId] = useState(batchLocation?.id ?? output?.locations[0]?.id ?? "");
   const [use, setUse] = useState<Record<string, string>>({});
   const param = { slug, id: card.id };
   const unit = card.outputItem.unit;
@@ -352,9 +363,9 @@ export function JobCardActions({
       {open === "output" && (
         <HaccpDialog
           title="Post the batch's output"
-          description={`Into a new lot in quarantine at the batch's output location; at most what this operation passed as good (${card.good.display} ${card.good.displayUnit}, ${card.output?.display ?? 0} already posted).`}
+          description={`Into a new lot in quarantine; at most what this operation passed as good (${card.good.display} ${card.good.displayUnit}, ${card.output?.display ?? 0} already posted).`}
           submitLabel="Post"
-          disabled={!(Number(good) > 0)}
+          disabled={!(Number(good) > 0) || (!!output && !locationId)}
           onClose={close}
           onSubmit={async () => {
             await unwrap(
@@ -363,6 +374,7 @@ export function JobCardActions({
                 json: {
                   quantity: Number(good),
                   unit,
+                  ...(output && locationId ? { locationId } : {}),
                   ...(lotCode.trim() ? { lotCode: lotCode.trim() } : {}),
                 },
               }),
@@ -392,6 +404,20 @@ export function JobCardActions({
               />
               <FieldDescription>Default: the batch code.</FieldDescription>
             </Field>
+            {output && (
+              <SelectField
+                id="jc-output-location"
+                label="Location"
+                value={locationId}
+                onChange={setLocationId}
+                options={output.locations.map((l) => [l.id, l.name] as const)}
+                description={
+                  batchLocation
+                    ? "Default: the batch's output location."
+                    : "The batch has no active output location: choose where the output goes."
+                }
+              />
+            )}
           </div>
         </HaccpDialog>
       )}

@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { formatCost } from "@/components/costing-badges";
 import { PageHeader } from "@/components/page-header";
+import { stackedTable } from "@/components/stacked-table";
 import { getWorkCentres, getWorkspaceCurrency } from "@/lib/api";
 import { NewWorkCentre, WorkCentreActions } from "./work-centre-controls";
 
@@ -42,7 +43,7 @@ export default async function WorkCentresPage({
           </nav>
           {workCentres.length ? (
             <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full text-sm">
+              <table className={`w-full text-sm ${stackedTable}`}>
                 <thead className="bg-muted/50 text-left">
                   <tr>
                     <th className="p-2">Work centre</th>
@@ -56,7 +57,7 @@ export default async function WorkCentresPage({
                 <tbody>
                   {workCentres.map((centre) => (
                     <tr key={centre.id} className="border-t">
-                      <td className="p-2">
+                      <td className="p-2" data-primary>
                         <span className="font-medium">{centre.name}</span>{" "}
                         <span className="font-mono text-xs">{centre.code}</span>
                         {centre.status === "archived" && (
@@ -68,13 +69,19 @@ export default async function WorkCentresPage({
                           <span className="block text-xs text-muted-foreground">{centre.description}</span>
                         )}
                       </td>
-                      <td className="p-2 text-right tabular-nums">{centre.hoursPerDay}</td>
-                      <td className="p-2 text-right tabular-nums">{centre.stations}</td>
-                      <td className="p-2 text-right tabular-nums">{centre.capacityHoursPerDay}</td>
-                      <td className="p-2 text-right tabular-nums">
+                      <td className="p-2 text-right tabular-nums" data-label="Hours a day">
+                        {centre.hoursPerDay}
+                      </td>
+                      <td className="p-2 text-right tabular-nums" data-label="Stations">
+                        {centre.stations}
+                      </td>
+                      <td className="p-2 text-right tabular-nums" data-label="Capacity (h/day)">
+                        {centre.capacityHoursPerDay}
+                      </td>
+                      <td className="p-2 text-right tabular-nums" data-label="Cost per hour">
                         {formatCost(centre.costPerHour, currency)}
                       </td>
-                      <td className="p-2 text-right">
+                      <td className="p-2 text-right" data-actions>
                         <WorkCentreActions slug={slug} centre={centre} />
                       </td>
                     </tr>

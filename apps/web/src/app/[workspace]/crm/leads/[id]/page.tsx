@@ -60,7 +60,10 @@ export default async function CrmLeadPage({
                 <div>
                   <dt className="text-muted-foreground">Customer</dt>
                   <dd>
-                    <Link href={`/${slug}/customers/${lead.customer.id}`} className="underline">
+                    <Link
+                      href={`/${slug}/customers?${new URLSearchParams({ q: lead.customer.code })}`}
+                      className="underline"
+                    >
                       {lead.customer.code} · {lead.customer.name}
                     </Link>
                   </dd>

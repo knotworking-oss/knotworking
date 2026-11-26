@@ -576,11 +576,11 @@ function ConnectionEditor({
           )}
         </div>
         {setup.canPrepareInvoices && (
-          <InvoicePreparation key={current.revision} slug={slug} connectionId={current.id} />
+          <InvoicePreparation key={`invoices-${current.revision}`} slug={slug} connectionId={current.id} />
         )}
         {current.provider === "xero" && setup.canPrepareCustomerDocuments && (
           <CustomerPreparation
-            key={current.revision}
+            key={`customers-${current.revision}`}
             slug={slug}
             connectionId={current.id}
             onPrepared={() => setQueueRefresh((count) => count + 1)}

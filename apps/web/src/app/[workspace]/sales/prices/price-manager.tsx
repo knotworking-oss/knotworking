@@ -1,7 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { newId, formatMoney, salesPriceSchema, unitCodes } from "@knotworking/core";
+import { newId, formatMoney, salesPriceSchema, unitCodes, type UnitCode } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import { Input } from "@knotworking/ui/components/input";
 import { Textarea } from "@knotworking/ui/components/textarea";
@@ -24,6 +24,7 @@ export function PriceManager({
     { can } = useWorkspace();
   const [customer, setCustomer] = useState("");
   const [item, setItem] = useState("");
+  const [unit, setUnit] = useState<UnitCode>("kg");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [commandId, setCommandId] = useState(newId);
@@ -107,8 +108,9 @@ export function PriceManager({
               slug={slug}
               kind="items"
               value={item}
-              onChange={(id) => {
+              onChange={(id, _label, row) => {
                 setItem(id);
+                if (row?.unit) setUnit(row.unit);
                 setCommandId(newId());
               }}
             />
@@ -121,7 +123,8 @@ export function PriceManager({
                 Per unit
                 <select
                   name="unit"
-                  defaultValue="kg"
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value as UnitCode)}
                   className="h-9 w-full rounded-md border bg-background px-3"
                 >
                   {unitCodes.map((u) => (

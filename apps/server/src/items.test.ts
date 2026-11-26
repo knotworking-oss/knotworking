@@ -251,6 +251,13 @@ describe("items module", () => {
       expect((await list("")).total).toBe(2);
       expect((await list("status=all")).total).toBe(3);
       expect((await list("status=archived")).items.map((i) => i.code)).toEqual(["FLR-001"]);
+
+      // The sales pickers ask for sellable items only, so the total counts what they can list.
+      await as(ada).send("POST", "/items", { code: "CAKE-1", name: "Cake", type: "finished", unit: "each" });
+      const sellable = await list("sellable=true");
+      expect(sellable.items.map((i) => i.code)).toEqual(["CAKE-1"]);
+      expect(sellable.total).toBe(1);
+      expect((await list("sellable=false")).total).toBe(3);
     });
 
     it("writes the sync log, hidden from members without the module", async () => {

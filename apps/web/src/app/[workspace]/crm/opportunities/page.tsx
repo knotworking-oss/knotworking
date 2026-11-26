@@ -4,6 +4,7 @@ import { Button } from "@knotworking/ui/components/button";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { formatLongDate } from "@/lib/format";
 import { getCrmOpportunities, getCrmStages } from "@/lib/api";
 import { OpportunityEditor } from "../crm-controls";
 import { leadLabel, opportunityValue } from "../crm-format";
@@ -56,7 +57,7 @@ export default async function CrmOpportunitiesPage({
                       <span className="block font-medium break-words">{o.title}</span>
                       <span className="text-muted-foreground">
                         {o.reference} · {o.customer?.name ?? (o.lead ? leadLabel(o.lead) : "")}
-                        {o.expectedCloseDate ? ` · Close ${o.expectedCloseDate}` : ""}
+                        {o.expectedCloseDate ? ` · Close ${formatLongDate(o.expectedCloseDate)}` : ""}
                       </span>
                     </span>
                     <span className="flex items-center gap-3">

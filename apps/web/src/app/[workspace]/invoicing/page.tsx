@@ -2,6 +2,7 @@ import { hasModuleLevel, invoiceListSchema } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
+import { formatLongDate } from "@/lib/format";
 import { getBootstrap, getCustomerDocuments, getInvoicingSettings } from "@/lib/api";
 import { InvoicingSettingsForm } from "./invoice-controls";
 
@@ -47,6 +48,14 @@ export default async function Page({
           )}
           {page.documents.length ? (
             <ul className="divide-y rounded-lg border">
+              <li
+                aria-hidden
+                className="hidden gap-2 bg-muted/60 p-3 text-xs font-medium text-muted-foreground sm:grid sm:grid-cols-[2fr_1fr_1fr]"
+              >
+                <span>Document · Customer</span>
+                <span>Status · Date</span>
+                <span className="text-right">Total incl. tax</span>
+              </li>
               {page.documents.map((doc) => (
                 <li key={doc.id}>
                   <Link
@@ -63,9 +72,10 @@ export default async function Page({
                     <span className="capitalize">
                       {doc.status}
                       <br />
-                      <span className="text-muted-foreground">{doc.date}</span>
+                      <span className="text-muted-foreground">{formatLongDate(doc.date)}</span>
                     </span>
                     <span className="tabular-nums sm:text-right">
+                      {doc.kind === "credit" && <span className="text-muted-foreground">Credit </span>}
                       {doc.currency} {doc.gross}
                     </span>
                   </Link>

@@ -110,10 +110,7 @@ function BoardCard({ task, column }: { task: TaskSummary; column: string }) {
         className="peer absolute inset-0 z-0 rounded-xl focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
         {...handleProps}
         onClick={selection.onClick}
-        onKeyDown={(event) => {
-          selection.onKeyDown(event);
-          if (!event.defaultPrevented) handleProps.onKeyDown?.(event);
-        }}
+        {...(selection.selecting ? { onKeyDown: selection.onKeyDown } : {})}
       />
       <CardContent task={task} menus={menus} />
     </div>

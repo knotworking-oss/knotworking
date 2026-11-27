@@ -8,7 +8,7 @@ export const taskViewSpecSchema = z.strictObject({
   filter: taskFilterSchema
     .nullable()
     .refine((filter) => JSON.stringify(filter).length <= 8192, "The filter is too long"),
-  layout: z.enum(["list", "board"]),
+  layout: z.enum(["list", "board", "calendar"]),
   sort: z.enum(taskOrderings),
 });
 export type TaskViewSpec = z.infer<typeof taskViewSpecSchema>;

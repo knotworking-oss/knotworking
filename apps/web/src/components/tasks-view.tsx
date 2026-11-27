@@ -20,6 +20,7 @@ import { TaskFilterBar } from "./task-filter-bar";
 import type { SavedTaskView } from "@/lib/api";
 import { SaveTaskViewDialog } from "./save-task-view-dialog";
 import { BulkTaskSelection } from "./bulk-task-controls";
+import { TaskCalendar } from "./task-calendar";
 
 /**
  * Tasks for one page, live from the workspace store.
@@ -39,7 +40,7 @@ export function TasksView({
   assignedToMe?: boolean;
   /** Only this project's tasks (grouped by state category). */
   projectId?: string;
-  view: "list" | "board";
+  view: "list" | "board" | "calendar";
   ordering: TaskOrdering;
   emptyDescription?: string;
   savedView?: SavedTaskView;
@@ -138,18 +139,27 @@ export function TasksView({
         }
       />
       <OlderTasksControl history={history} />
-      <BulkTaskSelection
-        key={JSON.stringify([teamId, projectId, assignedToMe, rawFilter, view])}
-        tasks={groups
-          .filter((group) => view !== "board" || group.type !== "canceled")
-          .flatMap((group) => group.tasks)}
-      >
-        {view === "board" ? (
-          <TaskBoard groups={groups} onDrop={onDrop} onCreate={onCreate} />
-        ) : (
-          <TaskList groups={groups} onDrop={onDrop} onCreate={onCreate} emptyDescription={emptyDescription} />
-        )}
-      </BulkTaskSelection>
+      {view === "calendar" ? (
+        <TaskCalendar tasks={groups.flatMap((group) => group.tasks)} />
+      ) : (
+        <BulkTaskSelection
+          key={JSON.stringify([teamId, projectId, assignedToMe, rawFilter, view])}
+          tasks={groups
+            .filter((group) => view !== "board" || group.type !== "canceled")
+            .flatMap((group) => group.tasks)}
+        >
+          {view === "board" ? (
+            <TaskBoard groups={groups} onDrop={onDrop} onCreate={onCreate} />
+          ) : (
+            <TaskList
+              groups={groups}
+              onDrop={onDrop}
+              onCreate={onCreate}
+              emptyDescription={emptyDescription}
+            />
+          )}
+        </BulkTaskSelection>
+      )}
     </>
   );
 }

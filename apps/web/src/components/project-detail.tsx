@@ -44,7 +44,7 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
         : projectTime(tasks, idx.loggedMinutes).get(id),
     [tasks, idx, id],
   );
-  const mode = view === "board" || view === "timeline" ? view : "list";
+  const mode = view === "board" || view === "calendar" || view === "timeline" ? view : "list";
   const ordering = parseOrdering(order);
 
   if (!project) {

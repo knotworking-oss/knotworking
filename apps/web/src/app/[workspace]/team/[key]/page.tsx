@@ -34,7 +34,7 @@ export default async function TeamTasksPage({ params, searchParams }: Props) {
   const boot = await getBootstrap(slug);
   const team = boot.teams.find((t) => t.key === key.toUpperCase());
   if (!team) notFound();
-  const mode = view === "board" ? "board" : "list";
+  const mode = view === "board" || view === "calendar" ? view : "list";
   const ordering = parseOrdering(order);
 
   return (

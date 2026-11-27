@@ -136,10 +136,7 @@ function TaskRow({ task, column }: { task: TaskSummary; column: string }) {
         className="peer absolute inset-0 z-0 focus-visible:outline-none"
         {...handleProps}
         onClick={selection.onClick}
-        onKeyDown={(event) => {
-          selection.onKeyDown(event);
-          if (!event.defaultPrevented) handleProps.onKeyDown?.(event);
-        }}
+        {...(selection.selecting ? { onKeyDown: selection.onKeyDown } : {})}
       />
       <RowContent task={task} menus={menus} />
     </li>

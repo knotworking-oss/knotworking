@@ -17,7 +17,7 @@ export default async function SavedViewPage({ params, searchParams }: Props) {
   const boot = await getBootstrap(workspace);
   const saved = boot.taskViews.find((row) => row.id === id);
   if (!saved) notFound();
-  const layout = view === "board" || view === "list" ? view : saved.spec.layout;
+  const layout = view === "board" || view === "list" || view === "calendar" ? view : saved.spec.layout;
   const ordering = taskOrderings.find((value) => value === order) ?? saved.spec.sort;
   return (
     <>

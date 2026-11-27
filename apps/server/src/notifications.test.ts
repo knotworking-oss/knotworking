@@ -102,7 +102,7 @@ describe("notifications", () => {
       const theirs = await notifyTaskCommented(tx, boot.workspace.id, ids.ada, row!, "Any update?");
       return { mine, theirs };
     });
-    expect(rows.mine).toEqual([]); // commenting on your own task
+    expect(rows.mine).toMatchObject([{ userId: ids.ada }]); // the author isn't notified about their own comment
     expect(rows.theirs).toHaveLength(1);
     const latest = (await inbox(priya)).notifications[0];
     expect(latest).toMatchObject({
@@ -133,6 +133,33 @@ describe("notifications", () => {
       taskId: task.id,
       data: { snippet: "Any update?" },
     });
+  });
+
+  it("follows commenters and preserves an explicit unfollow", async () => {
+    const task = await createTask(ada, { title: "Following example", assigneeId: ids.marcus });
+    const path = `/tasks/${task.id}/following`;
+    const comment = (cookie: string) =>
+      call(`/tasks/${task.id}/comments`, cookie, {
+        method: "POST",
+        json: {
+          body: {
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Update" }] }],
+          },
+        },
+      });
+    expect(await (await call(path, ada)).json()).toEqual({ following: true, count: 2 });
+    expect(await (await call(path, priya)).json()).toEqual({ following: false, count: 2 });
+    expect((await comment(priya)).status).toBe(201);
+    expect(await (await call(path, priya)).json()).toEqual({ following: true, count: 3 });
+    const update = await call(path, marcus, { method: "PUT", json: { following: false } });
+    expect(update.status).toBe(200);
+    expect(await update.json()).toEqual({ following: false, count: 2 });
+    expect((await comment(marcus)).status).toBe(201);
+    expect(await (await call(path, marcus)).json()).toEqual({ following: false, count: 2 });
+    const before = (await inbox(marcus)).unreadCount;
+    expect((await comment(ada)).status).toBe(201);
+    expect((await inbox(marcus)).unreadCount).toBe(before);
   });
 
   it("keeps notifications out of the workspace sync log", async () => {

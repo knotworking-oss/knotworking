@@ -20,8 +20,9 @@ import { createProjectFromTemplate } from "../services/project-templates";
 import { createProject, deleteProject, listProjects, updateProject } from "../services/projects";
 import { listTaskActivity } from "../services/task-activity";
 import { bulkChangeTasks } from "../services/task-bulk";
+import { getTaskFollowing, setTaskFollowing } from "../services/task-followers";
 import { createTaskRelation, deleteTaskRelation } from "../services/task-relations";
-import { createTask, deleteTask, getTask, queryTasks, updateTask } from "../services/tasks";
+import { createTask, deleteTask, duplicateTask, getTask, queryTasks, updateTask } from "../services/tasks";
 import { validate } from "../validate";
 import { commentRoutes } from "./comments";
 import { taskViewRoutes } from "./task-views";
@@ -62,6 +63,24 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
         await listTaskActivity(c.var.db, c.var.workspace.id, c.req.valid("param").id, c.req.valid("query")),
       ),
   )
+  .get("/tasks/:id/following", validate("param", idParam), async (c) =>
+    c.json(await getTaskFollowing(c.var.db, c.var.workspace.id, c.req.valid("param").id, c.var.user.id)),
+  )
+  .put(
+    "/tasks/:id/following",
+    validate("param", idParam),
+    validate("json", z.object({ following: z.boolean() })),
+    async (c) =>
+      c.json(
+        await setTaskFollowing(
+          c.var.db,
+          c.var.workspace.id,
+          c.req.valid("param").id,
+          c.var.user.id,
+          c.req.valid("json").following,
+        ),
+      ),
+  )
   .get("/tasks/:id/backlinks", validate("param", idParam), async (c) =>
     c.json(
       await listBacklinks(
@@ -95,6 +114,19 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
         emailNotifier(c.var),
         c.var.credential.kind,
       ),
+    ),
+  )
+  .post("/tasks/:id/duplicate", requireWriter, validate("param", idParam), async (c) =>
+    c.json(
+      await duplicateTask(
+        c.var.db,
+        c.var.workspace.id,
+        c.var.user.id,
+        c.req.valid("param").id,
+        emailNotifier(c.var),
+        c.var.credential.kind,
+      ),
+      201,
     ),
   )
   .patch(

@@ -29,6 +29,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type { TaskRelation, TaskSummary } from "@/lib/api";
+import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 import { isOverdue } from "@/lib/format";
 import { isOverlayOpen, isTypingTarget } from "@/lib/keyboard";
 import { orderTasks } from "@/lib/model";
@@ -444,6 +445,7 @@ export function TaskActions({ initial, teamKey }: { initial: TaskSummary; teamKe
   const router = useRouter();
   const { slug, canEditTasks: canEdit, deleteTask } = useWorkspace();
   const [confirming, setConfirming] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
 
   const copy = async (text: string, what: string) => {
     try {
@@ -454,6 +456,22 @@ export function TaskActions({ initial, teamKey }: { initial: TaskSummary; teamKe
     }
   };
   const link = () => `${window.location.origin}/${slug}/task/${task.id}`;
+  async function duplicate() {
+    setDuplicating(true);
+    try {
+      const created = await unwrap(
+        browserApi().v1.workspaces[":slug"].tasks[":id"].duplicate.$post({
+          param: { slug, id: task.id },
+        }),
+      );
+      router.push(`/${slug}/task/${created.id}`);
+      toast.success("Task duplicated");
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setDuplicating(false);
+    }
+  }
 
   return (
     <>
@@ -481,6 +499,9 @@ export function TaskActions({ initial, teamKey }: { initial: TaskSummary; teamKe
           {canEdit && (
             <>
               <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={duplicating} onSelect={() => void duplicate()}>
+                <Copy /> Duplicate task
+              </DropdownMenuItem>
               <DropdownMenuItem variant="destructive" onSelect={() => setConfirming(true)}>
                 <Trash2 /> Delete task
               </DropdownMenuItem>

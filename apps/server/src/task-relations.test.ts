@@ -16,6 +16,7 @@ describe("task start dates and dependencies", () => {
   let ada: string; // owner
   let marcus: string; // demoted to guest
   let teamId: string;
+  let legacyTaskId: string;
 
   beforeAll(async () => {
     ctx = await makeApp({ seed: true });
@@ -24,7 +25,9 @@ describe("task start dates and dependencies", () => {
     const marcusId = members.find((m: { email: string }) => m.email.startsWith("marcus@")).userId;
     await ctx.req(`${W}/members/${marcusId}`, { method: "PATCH", cookie: ada, json: { role: "guest" } });
     marcus = (await signIn(ctx, "marcus@knotworking.dev")).cookie;
-    teamId = (await boot()).teams[0].id;
+    const initial = await boot();
+    teamId = initial.teams[0].id;
+    legacyTaskId = initial.tasks[0].id;
   }, 60_000);
   afterAll(() => ctx.handle.close());
 
@@ -43,6 +46,27 @@ describe("task start dates and dependencies", () => {
   };
   const relate = (blockingTaskId: string, blockedTaskId: string, extra: object = {}) =>
     call("POST", "/task-relations", { blockingTaskId, blockedTaskId, ...extra });
+
+  it("duplicates task properties into a fresh task", async () => {
+    const original = await newTask("Duplicate me", {
+      priority: 2,
+      description: textToDoc("Copy this"),
+      startDate: "2026-12-01",
+      dueDate: "2026-12-02",
+    });
+    const res = await call("POST", `/tasks/${original.id}/duplicate`);
+    expect(res.status).toBe(201);
+    const copy = await res.json();
+    expect(copy.id).not.toBe(original.id);
+    expect(copy).toMatchObject({
+      title: "Duplicate me (copy)",
+      priority: 2,
+      description: textToDoc("Copy this"),
+      startDate: "2026-12-01",
+      dueDate: "2026-12-02",
+      parentId: null,
+    });
+  });
 
   it("rolls bulk mutations back together and records successful changes", async () => {
     const snapshot = await boot();
@@ -79,7 +103,7 @@ describe("task start dates and dependencies", () => {
 
   it("pages task activity, recording real changes and both ends of dependencies", async () => {
     const seeded = await boot();
-    const oldActivity = await call("GET", `/tasks/${seeded.tasks[0].id}/activity`);
+    const oldActivity = await call("GET", `/tasks/${legacyTaskId}/activity`);
     expect(oldActivity.status).toBe(200);
     expect(await oldActivity.json()).toEqual({ events: [], nextCursor: null });
     const a = await newTask("Plan");

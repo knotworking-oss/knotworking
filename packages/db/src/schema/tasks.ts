@@ -16,6 +16,7 @@ import type {
 import { sql } from "drizzle-orm";
 import {
   check,
+  boolean,
   date,
   index,
   integer,
@@ -197,6 +198,23 @@ export const taskViews = pgTable(
       sql`${t.scope} in ('personal', 'team', 'workspace') and (${t.scope} = 'team') = (${t.teamId} is not null)`,
     ),
   ],
+);
+
+export const taskFollowers = pgTable(
+  "task_followers",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    following: boolean("following").notNull(),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("task_followers_task_user_key").on(t.taskId, t.userId)],
 );
 
 /**

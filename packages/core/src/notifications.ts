@@ -83,12 +83,12 @@ export const notificationTypeInfo: Record<
   task_assigned: { label: "Task assigned", description: "A task is assigned to you", module: "tasks" },
   task_status_changed: {
     label: "Task status changed",
-    description: "Someone moves a task assigned to you",
+    description: "Someone moves a task you follow",
     module: "tasks",
   },
   task_commented: {
     label: "Task comments",
-    description: "Someone comments on a task assigned to you",
+    description: "Someone comments on a task you follow",
     module: "tasks",
   },
   mentioned: { label: "Mentions", description: "Someone @-mentions you in a task or page", module: null },

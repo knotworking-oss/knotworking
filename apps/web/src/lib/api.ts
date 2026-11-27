@@ -190,6 +190,10 @@ export const getTaskTimeEntries = cache((slug: string, id: string) =>
   load((api) => unwrap(ws(api).tasks[":id"]["time-entries"].$get({ param: { slug, id } }))),
 );
 
+export const getTaskFollowing = cache((slug: string, id: string) =>
+  load((api) => unwrap(ws(api).tasks[":id"].following.$get({ param: { slug, id } }))),
+);
+
 /** Comments are fetched per task, not bootstrapped (see docs/architecture.md). */
 export const getTaskComments = cache((slug: string, id: string) =>
   load((api) => unwrap(ws(api).tasks[":id"].comments.$get({ param: { slug, id } }))),

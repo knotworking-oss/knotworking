@@ -66,6 +66,15 @@ const pages: Record<string, ModuleId> = {
 export function shouldRefreshModulePage(pathname: string, changes: readonly SyncChange[]): boolean {
   const [, , section, subsection] = pathname.split("/");
   if (
+    section === "task" &&
+    changes.some(
+      (c) =>
+        (c.entity === "task_follower" && c.entityId === subsection) ||
+        (c.entity === "comment" && c.data?.taskId === subsection),
+    )
+  )
+    return true;
+  if (
     section === "projects" ||
     section === "task" ||
     (section === "settings" && (subsection === "teams" || subsection === "labels"))

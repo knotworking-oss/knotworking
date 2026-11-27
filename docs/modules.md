@@ -193,6 +193,12 @@ The task Calendar offers month and week views. A task appears on each day from i
 
 Choose **Select tasks** on a list or board to update priority, status, assignee, project or labels, or delete a selection. Shift-click selects a range, and X toggles the focused row in selection mode. One bulk request can change up to 200 tasks atomically. A bulk status change requires tasks from one team. The API accepts the selection and its action at `POST /tasks/bulk`.
 
+## Task followers
+
+Task creators, assignees and commenters follow the task automatically. Anyone with Tasks read access can follow or unfollow for themselves. An explicit unfollow persists when they comment or get assigned again. Status and comment notifications go to followers, and assignment notifications still go to the new assignee. The task page fetches the current person's preference and the follower count on demand at `GET /tasks/:id/following`. `PUT` on the same route updates their preference.
+
+Use **Duplicate task** from a task's actions menu to create a new task in its team's default workflow state. The copy carries its description, project, labels, assignee, priority, dates and estimate. It starts with its own history and can be edited independently.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

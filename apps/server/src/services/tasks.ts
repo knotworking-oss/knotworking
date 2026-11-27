@@ -32,6 +32,7 @@ import {
 } from "./notifications";
 import { assertNoCycle, assertRefs } from "./refs";
 import { recordTaskActivity, taskActivityChanges } from "./task-activity";
+import { autoFollowTask } from "./task-followers";
 import { taskFilterSql, taskQueryLabelIds, taskQueryOrder } from "./task-query";
 import { withinTaskWindow } from "./task-window";
 import { deleteRelationsOfTask, listTaskRelations } from "./task-relations";
@@ -202,6 +203,49 @@ export async function getTask(db: Database, workspaceId: string, taskId: string,
   };
 }
 
+export async function duplicateTask(
+  db: Database,
+  workspaceId: string,
+  actorId: string,
+  taskId: string,
+  onNotified: NotifiedCallback,
+  source: TaskActivitySource,
+) {
+  let notifications: NotificationRow[] = [];
+  const copy = await db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, workspaceId);
+    const [original] = await tx
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId), isNull(tasks.deletedAt)));
+    if (!original) throw notFound("Task");
+    const labelIds = (await labelIdsFor(tx, [taskId])).get(taskId) ?? [];
+    return createTask(
+      tx,
+      workspaceId,
+      actorId,
+      {
+        title: `${original.title.slice(0, 505)} (copy)`,
+        teamId: original.teamId,
+        priority: original.priority as TaskCreateInput["priority"],
+        projectId: original.projectId,
+        assigneeId: original.assigneeId,
+        startDate: original.startDate,
+        dueDate: original.dueDate,
+        estimateMinutes: original.estimateMinutes,
+        ...(original.description ? { description: original.description } : {}),
+        labelIds,
+      },
+      (rows) => {
+        notifications = rows;
+      },
+      source,
+    );
+  });
+  if (notifications.length) onNotified(notifications);
+  return copy;
+}
+
 async function resolveState(tx: Transaction, teamId: string, stateId: string | undefined) {
   if (stateId) {
     const [state] = await tx
@@ -323,6 +367,7 @@ export async function createTask(
       })),
     ]);
     await recordTaskActivity(tx, workspaceId, [task!.id], actorId, source, { kind: "created" });
+    await autoFollowTask(tx, workspaceId, task!.id, [actorId, task!.assigneeId]);
     notified = [
       ...(await notifyTaskCreated(tx, workspaceId, actorId, task!)),
       ...(await notifyMentioned(tx, workspaceId, actorId, { task: task! }, null, task!.description)),
@@ -438,6 +483,8 @@ export async function updateTask(
         changes: activityChanges,
       });
     }
+    if (task!.assigneeId !== current.task.assigneeId)
+      await autoFollowTask(tx, workspaceId, taskId, [current.task.assigneeId, task!.assigneeId]);
     notified = await notifyTaskUpdated(tx, workspaceId, actorId, current.task, task!, newState);
     // Only a description edit can add mentions; the diff against the stored text keeps autosaves quiet.
     if (fields.description !== undefined)

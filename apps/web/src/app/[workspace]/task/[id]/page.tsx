@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/page-header";
 import { TaskAttachments } from "@/components/task-attachments";
 import { TaskActivity } from "@/components/task-activity";
 import { TaskComments } from "@/components/task-comments";
+import { TaskFollowing } from "@/components/task-following";
 import { TaskDescription } from "@/components/task-description";
 import { TaskTime } from "@/components/task-time";
 import {
@@ -24,6 +25,7 @@ import {
   getTaskAttachments,
   getTaskBacklinks,
   getTaskComments,
+  getTaskFollowing,
   getTaskTimeEntries,
   type TaskSummary,
 } from "@/lib/api";
@@ -41,7 +43,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function TaskPage({ params }: Props) {
   const { workspace: slug, id } = await params;
   const bootstrap = getBootstrap(slug);
-  const [boot, task, { comments }, { attachments }, backlinks, time] = await Promise.all([
+  const [boot, task, { comments }, { attachments }, backlinks, time, following] = await Promise.all([
     bootstrap,
     getTask(slug, id),
     getTaskComments(slug, id),
@@ -50,6 +52,7 @@ export default async function TaskPage({ params }: Props) {
     bootstrap.then((boot) =>
       boot.modules.some((m) => m.id === "time" && m.access !== "none") ? getTaskTimeEntries(slug, id) : null,
     ),
+    getTaskFollowing(slug, id),
   ]);
   const idx = indexWorkspace(boot);
   // The task's team is missing from the bootstrap when it has been archived.
@@ -64,7 +67,14 @@ export default async function TaskPage({ params }: Props) {
 
   return (
     <>
-      <PageHeader actions={<TaskActions initial={initial} teamKey={team.key} />}>
+      <PageHeader
+        actions={
+          <>
+            <TaskFollowing key={task.id} taskId={task.id} initial={following} />
+            <TaskActions initial={initial} teamKey={team.key} />
+          </>
+        }
+      >
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>

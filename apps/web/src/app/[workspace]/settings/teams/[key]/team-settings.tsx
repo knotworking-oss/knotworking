@@ -94,6 +94,7 @@ const featureLabels: Record<TeamFeature, string> = {
   cycles: "Cycles",
   triage: "Triage",
   estimates: "Point estimates",
+  shortReferences: "Short task references",
 };
 
 function PlannerFeaturesCard({ slug, team, canManage }: { slug: string; team: Team; canManage: boolean }) {
@@ -127,7 +128,10 @@ function PlannerFeaturesCard({ slug, team, canManage }: { slug: string; team: Te
     <Card>
       <CardHeader>
         <CardTitle>Planner features</CardTitle>
-        <CardDescription>These preferences take effect as each capability becomes available.</CardDescription>
+        <CardDescription>
+          Short references apply to new tasks. Other preferences take effect as their features become
+          available.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={save} className="flex flex-col items-start gap-3">

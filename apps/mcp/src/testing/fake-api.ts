@@ -519,6 +519,7 @@ export function createFakeApi() {
         (!f.teamId || t.teamId === f.teamId) &&
         (!f.projectId || t.projectId === f.projectId) &&
         (!f.assigneeId || t.assigneeId === f.assigneeId) &&
+        (!f.reference || t.reference === f.reference) &&
         (!f.stateType || typeOf(t.stateId) === f.stateType),
     );
     const groupKey = (task: (typeof matches)[number]) => {

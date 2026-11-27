@@ -252,18 +252,19 @@ export function registerTaskTools(ctx: WorkspaceToolContext) {
       input: {
         workspace: workspaceParam,
         filter: z.string().max(8192).optional(),
+        reference: taskListQuerySchema.shape.reference,
         sort: taskListQuerySchema.shape.sort,
         group: taskListQuerySchema.shape.group,
         cursor: taskListQuerySchema.shape.cursor,
         limit: z.number().int().min(1).max(500).optional(),
       },
     },
-    async ({ workspace, filter, sort, group, cursor, limit }, api) => {
+    async ({ workspace, filter, reference, sort, group, cursor, limit }, api) => {
       const slug = await slugOf(api, workspace);
       return api.call(
         api.client.v1.workspaces[":slug"].tasks.$get({
           param: { slug },
-          query: { filter, sort, group, cursor, limit: limit?.toString() },
+          query: { filter, reference, sort, group, cursor, limit: limit?.toString() },
         }),
       );
     },

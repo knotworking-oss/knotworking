@@ -122,6 +122,12 @@ export const taskListQuerySchema = z.object({
   sort: z.enum(taskOrderings).optional(),
   group: z.enum(taskGroupFields).optional(),
   title: z.string().trim().min(2).max(200).optional(),
+  reference: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z][A-Z0-9]{1,9}-[1-9]\d{0,9}$/)
+    .optional(),
   includeRelations: z.literal("true").optional(),
   cursor: z
     .string()

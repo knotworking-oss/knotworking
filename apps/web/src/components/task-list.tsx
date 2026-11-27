@@ -195,7 +195,12 @@ function RowContent({
       >
         <StatusChip stateId={task.stateId} showName={false} className={control} disabled={!canEdit} />
       </StatusPicker>
-      <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
+      <span className="min-w-0 flex-1 truncate font-medium">
+        {task.reference && (
+          <span className="mr-2 text-xs font-normal text-muted-foreground">{task.reference}</span>
+        )}
+        {task.title}
+      </span>
       {blockers > 0 && <BlockedBadge count={blockers} />}
       {menus && (
         <LabelsPicker

@@ -1,5 +1,6 @@
 import {
   sortKeyBetween,
+  hasTeamFeature,
   olderClosedTaskFilter,
   taskDatesInOrder,
   type TaskActivitySource,
@@ -11,6 +12,7 @@ import {
 import {
   taskLabels,
   taskRelations,
+  taskReferenceCounters,
   tasks,
   labels,
   lockWorkspaceLog,
@@ -124,7 +126,11 @@ export async function queryTasks(db: Executor, workspaceId: string, input: TaskL
         input.closedBefore
           ? taskFilterSql({ version: 1, expression: olderClosedTaskFilter(input.closedBefore) })
           : undefined,
-        input.title ? sql`strpos(lower(${tasks.title}), lower(${input.title})) > 0` : undefined,
+        input.title
+          ? sql`(strpos(lower(${tasks.title}), lower(${input.title})) > 0
+          or strpos(lower(${tasks.reference}), lower(${input.title})) > 0)`
+          : undefined,
+        input.reference ? eq(tasks.reference, input.reference) : undefined,
         paging.after,
       ),
     )
@@ -297,6 +303,18 @@ async function assertLabels(tx: Transaction, workspaceId: string, labelIds: stri
   if (found.length !== new Set(labelIds).size) throw badRequest("Unknown labelIds");
 }
 
+async function assignTaskReference(tx: Transaction, workspaceId: string, prefix: string) {
+  const [counter] = await tx
+    .insert(taskReferenceCounters)
+    .values({ workspaceId, prefix, lastNumber: 1 })
+    .onConflictDoUpdate({
+      target: [taskReferenceCounters.workspaceId, taskReferenceCounters.prefix],
+      set: { lastNumber: sql`${taskReferenceCounters.lastNumber} + 1` },
+    })
+    .returning({ number: taskReferenceCounters.lastNumber });
+  return `${prefix}-${counter!.number}`;
+}
+
 /**
  * `onNotified` runs after the transaction commits with the notifications the
  * write created (used for email delivery); the rows themselves are inserted in
@@ -314,7 +332,7 @@ export async function createTask(
   const result = await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
     const [team] = await tx
-      .select({ id: teams.id })
+      .select({ id: teams.id, key: teams.key, features: teams.features })
       .from(teams)
       .where(and(eq(teams.id, input.teamId), eq(teams.workspaceId, workspaceId), isNull(teams.deletedAt)));
     if (!team) throw badRequest("Unknown teamId");
@@ -341,6 +359,9 @@ export async function createTask(
         workspaceId,
         teamId: team.id,
         title: input.title,
+        reference: hasTeamFeature(team, "shortReferences")
+          ? await assignTaskReference(tx, workspaceId, team.key)
+          : null,
         description: input.description ?? null,
         stateId: state.id,
         priority: input.priority ?? 0,

@@ -201,7 +201,7 @@ Comment writes still go through a transaction that calls `recordChanges` (`comme
 - An expression can nest `and` and `or` groups up to five levels, with 16 children per group and 64 nodes total. The filter parameter is limited to 8,192 characters before URL encoding.
 - `sort` accepts `manual`, `priority`, `created` and `updated`. Omitting it uses the legacy ordering by manual key then newest creation time. Every sort has an ID tie-breaker.
 - `group` accepts `teamId`, `projectId`, `assigneeId`, `stateId`, `stateType`, `priority`, `labelIds` and `dueWeek`. The label group uses the first label ID. Due weeks start on Monday. Groups order by key with unset values first. The page's `groups` array contains `{ key, taskIds }` entries for the returned tasks. A group can span pages.
-- `title` optionally narrows the query by case-insensitive substring. `includeRelations=true` returns the visible dependencies touching at least one task on the page.
+- `title` optionally narrows the query by case-insensitive substring of the title or short reference. `reference` matches a complete short reference. `includeRelations=true` returns the visible dependencies touching at least one task on the page.
 - `closedBefore` adds the historical bootstrap cutoff to the query. It combines with the saved or URL filter without nesting that expression further.
 - `limit` is 1–500, default 250. Continue with `cursor=nextCursor` and the same query parameters apart from the page size. A cursor marks a position in the ordering. Edits between requests can move tasks across that position.
 

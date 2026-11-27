@@ -180,6 +180,8 @@ export class Model {
       const known = this.data.tasks.find((t) => t.id.toLowerCase() === wanted.toLowerCase());
       return { id: wanted, title: known?.title ?? null };
     }
+    const byReference = this.data.tasks.find((task) => task.reference === wanted.toUpperCase());
+    if (byReference) return { id: byReference.id, title: byReference.title };
     const matches = this.data.tasks.filter((t) => t.title.trim().toLowerCase() === wanted.toLowerCase());
     if (matches.length === 1) return { id: matches[0]!.id, title: matches[0]!.title };
     if (matches.length > 1)
@@ -310,6 +312,7 @@ export function summarizeTask(model: Model, t: TaskRow) {
   const state = model.statesById.get(t.stateId);
   return {
     id: t.id,
+    reference: t.reference ?? null,
     title: t.title,
     team: model.teamsById.get(t.teamId)?.key ?? null,
     state: state?.name ?? null,

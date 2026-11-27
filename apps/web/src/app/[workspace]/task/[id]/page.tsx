@@ -96,7 +96,7 @@ export default async function TaskPage({ params }: Props) {
               </>
             )}
             <BreadcrumbItem>
-              <BreadcrumbPage className="max-w-80 truncate">{task.title}</BreadcrumbPage>
+              <BreadcrumbPage className="max-w-80 truncate">{task.reference ?? task.title}</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>

@@ -185,6 +185,8 @@ Task creation, direct edits including label changes, and explicit dependency add
 
 Owners and admins can set the recent closed-task window under General settings. Team settings hold three independent preferences for cycles, triage and point estimates. `PATCH /teams/:id` accepts a `features` array containing any of `cycles`, `triage` and `estimates`. An empty array turns them all off, and leaving the field out preserves the current switches. They sync with the team row and will gate those capabilities as they ship.
 
+Enable **Short task references** (`shortReferences`) for a team to give its new tasks references such as `ENG-42`. Existing references survive moves and team renames. Search by reference in the command menu or with `GET /tasks?reference=ENG-42`. UUIDs remain the canonical task identifiers.
+
 ## Saved task views
 
 Save a list, board or calendar from its filter bar to reuse its filters, layout and sort order. Open it under Views in the workspace sidebar or from its team. Personal views are visible to their creator. Team views appear under a team and can be read by anyone with Tasks access in the workspace. Workspace views require Tasks manage access to create. The owner or a Tasks manager can change a shared view. The API serves these records under `/tasks/views` and the current viewer's bootstrap.

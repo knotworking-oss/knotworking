@@ -67,7 +67,7 @@ import { useShortcutsHelp } from "./shortcuts-help";
 
 export interface CommandData {
   slug: string;
-  tasks: { id: string; title: string; stateType: WorkflowStateType }[];
+  tasks: { id: string; title: string; reference?: string | null; stateType: WorkflowStateType }[];
   documents: { id: string; title: string; icon: string | null }[];
   teams: { key: string; name: string; icon: string | null }[];
 }
@@ -115,6 +115,7 @@ export function CommandMenuProvider({ data, children }: { data: CommandData; chi
       .map((task) => ({
         id: task.id,
         title: task.title,
+        reference: task.reference,
         stateType: idx.states.get(task.stateId)?.type ?? ("unstarted" as const),
       })),
   ];
@@ -405,11 +406,14 @@ export function CommandMenuProvider({ data, children }: { data: CommandData; chi
                 <CommandItem
                   key={i.id}
                   value={`task ${i.id} ${i.title}`}
-                  keywords={[i.title]}
+                  keywords={i.reference ? [i.title, i.reference] : [i.title]}
                   onSelect={() => go(`${base}/task/${i.id}`)}
                 >
                   <StatusIcon type={i.stateType} />
-                  <span className="truncate">{i.title}</span>
+                  <span className="truncate">
+                    {i.reference ? `${i.reference} ` : ""}
+                    {i.title}
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>

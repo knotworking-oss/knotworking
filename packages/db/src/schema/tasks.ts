@@ -22,6 +22,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   smallint,
   text,
   uniqueIndex,
@@ -116,6 +117,7 @@ export const tasks = pgTable(
       .notNull()
       .references(() => teams.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    reference: text("reference"),
     description: jsonb("description").$type<DocContent>(),
     stateId: uuid("state_id")
       .notNull()
@@ -143,7 +145,19 @@ export const tasks = pgTable(
     index("tasks_assignee_idx").on(t.assigneeId),
     index("tasks_project_idx").on(t.projectId),
     index("tasks_parent_idx").on(t.parentId),
+    uniqueIndex("tasks_workspace_reference_key").on(t.workspaceId, t.reference),
   ],
+);
+
+/** A prefix keeps its sequence even when a team changes its key or another team reuses it. */
+export const taskReferenceCounters = pgTable(
+  "task_reference_counters",
+  {
+    workspaceId: workspaceRef(),
+    prefix: text("prefix").notNull(),
+    lastNumber: integer("last_number").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.prefix] })],
 );
 
 export const taskLabels = pgTable(

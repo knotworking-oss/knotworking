@@ -42,7 +42,12 @@ describe("task start dates and dependencies", () => {
   const newTask = async (title: string, extra: object = {}, team = teamId) => {
     const res = await call("POST", "/tasks", { teamId: team, title, ...extra });
     expect(res.status).toBe(201);
-    return (await res.json()) as { id: string; startDate: string | null; dueDate: string | null };
+    return (await res.json()) as {
+      id: string;
+      reference: string | null;
+      startDate: string | null;
+      dueDate: string | null;
+    };
   };
   const relate = (blockingTaskId: string, blockedTaskId: string, extra: object = {}) =>
     call("POST", "/task-relations", { blockingTaskId, blockedTaskId, ...extra });
@@ -66,6 +71,28 @@ describe("task start dates and dependencies", () => {
       dueDate: "2026-12-02",
       parentId: null,
     });
+  });
+
+  it("allocates optional short references and keeps a prefix sequence across team renames", async () => {
+    const makeTeam = async (key: string) => {
+      const res = await call("POST", "/teams", { name: key, key });
+      expect(res.status).toBe(201);
+      return res.json();
+    };
+    const team = await makeTeam("REFT");
+    const unnumbered = await newTask("Unnumbered", {}, team.id);
+    expect(unnumbered).toHaveProperty("reference", null);
+    expect((await call("PATCH", `/teams/${team.id}`, { features: ["shortReferences"] })).status).toBe(200);
+    const ordered = await Promise.all(["First", "Second"].map((title) => newTask(title, {}, team.id)));
+    expect(ordered.map((task) => task.reference).sort()).toEqual(["REFT-1", "REFT-2"]);
+    const lookup = await (await call("GET", "/tasks?reference=reft-1")).json();
+    expect(lookup.tasks).toMatchObject([{ reference: "REFT-1" }]);
+    expect((await call("PATCH", `/teams/${team.id}`, { key: "RENAMED" })).status).toBe(200);
+    const reused = await makeTeam("REFT");
+    expect((await call("PATCH", `/teams/${reused.id}`, { features: ["shortReferences"] })).status).toBe(200);
+    expect(await newTask("Third", {}, reused.id)).toHaveProperty("reference", "REFT-3");
+    const moved = await call("PATCH", `/tasks/${lookup.tasks[0].id}`, { teamId: reused.id });
+    expect(await moved.json()).toMatchObject({ reference: "REFT-1", teamId: reused.id });
   });
 
   it("moves a task to its equivalent workflow category without resetting completion", async () => {

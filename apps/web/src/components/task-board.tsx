@@ -152,7 +152,12 @@ function CardContent({
       )}
       <div className="flex items-start justify-between gap-2">
         {!overlay && <BulkTaskCheckbox task={task} />}
-        <p className="text-sm leading-snug font-medium">{task.title}</p>
+        <p className="text-sm leading-snug font-medium">
+          {task.reference && (
+            <span className="mr-1.5 text-xs font-normal text-muted-foreground">{task.reference}</span>
+          )}
+          {task.title}
+        </p>
         <AssigneePicker
           value={task.assigneeId}
           onChange={(assigneeId) => updateTask(task.id, { assigneeId })}

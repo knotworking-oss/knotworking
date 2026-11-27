@@ -184,7 +184,7 @@ Extend the BI `tasks` dataset rather than building a separate reports area: dime
 
 ## 7. Accepted decisions
 
-1. Offer optional per-team references such as `ENG-42` for display and lookup. Keep UUIDs as canonical API identifiers.
+1. Optional per-team references such as `ENG-42` are available for new tasks. UUIDs remain canonical API identifiers.
 2. Keep one assignee per task and add followers.
 3. Defer project-level permissions. Revisit private teams if a customer needs them.
 4. Model triage as a workflow category when Intake ships. Update lifecycle handling, BI, boards and imports in that phase.

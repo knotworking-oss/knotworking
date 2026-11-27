@@ -3,6 +3,8 @@ import {
   projectHealths,
   projectStatuses,
   taskActivityQuerySchema,
+  taskBulkPatchSchema,
+  TASK_BULK_LIMIT,
   taskListQuerySchema,
   TASK_ESTIMATE_MAX_MINUTES,
   workflowStateTypes,
@@ -155,6 +157,81 @@ export function registerTaskTools(ctx: WorkspaceToolContext) {
       const found = await loadTasks(api, m, filters);
       const { shown, page } = paginate(found.tasks, offset, limit ?? 50);
       return { ...page, ...truncation(found), tasks: shown.map((t) => summarizeTask(m, t)) };
+    },
+  );
+
+  define(
+    "list_views",
+    {
+      module: "tasks",
+      resource: { name: "task_views", op: "list" },
+      title: "List task views",
+      description:
+        "List task views available to the signed-in user with their saved filters and display settings.",
+      annotations: READ,
+      input: { workspace: workspaceParam },
+    },
+    async ({ workspace }, api) => {
+      const slug = await slugOf(api, workspace);
+      return api.call(api.client.v1.workspaces[":slug"].tasks.views.$get({ param: { slug } }));
+    },
+  );
+
+  define(
+    "run_view",
+    {
+      module: "tasks",
+      title: "Run a task view",
+      description: "Run a saved task view against the server. Pass nextCursor as cursor to continue.",
+      annotations: READ,
+      input: {
+        workspace: workspaceParam,
+        view: id("Task view"),
+        cursor: taskListQuerySchema.shape.cursor,
+        limit: z.number().int().min(1).max(500).optional(),
+      },
+    },
+    async ({ workspace, view, cursor, limit }, api) => {
+      const slug = await slugOf(api, workspace);
+      const tasks = api.client.v1.workspaces[":slug"].tasks;
+      const saved = await api.call(tasks.views[":id"].$get({ param: { slug, id: view } }));
+      return api.call(
+        tasks.$get({
+          param: { slug },
+          query: {
+            ...(saved.teamId ? { teamId: saved.teamId } : {}),
+            ...(saved.spec.filter ? { filter: JSON.stringify(saved.spec.filter) } : {}),
+            sort: saved.spec.sort,
+            cursor,
+            limit: limit?.toString(),
+          },
+        }),
+      );
+    },
+  );
+
+  define(
+    "bulk_update_tasks",
+    {
+      module: "tasks",
+      title: "Bulk update tasks",
+      description:
+        "Apply the same patch to up to 200 task IDs. Every task is updated in one transaction or the whole request fails. A raw state ID must belong to every selected task's team. labelIds replaces the selected tasks' labels.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      input: {
+        workspace: workspaceParam,
+        tasks: z.array(id("Task")).min(1).max(TASK_BULK_LIMIT),
+        patch: taskBulkPatchSchema,
+      },
+    },
+    async ({ workspace, tasks, patch }, api) => {
+      const slug = await slugOf(api, workspace);
+      return api.call(
+        api.client.v1.workspaces[":slug"].tasks.bulk.$post({
+          param: { slug },
+          json: { action: "update", ids: tasks, patch },
+        }),
+      );
     },
   );
 

@@ -11,7 +11,7 @@ import {
 import { Button } from "@knotworking/ui/components/button";
 import { Input } from "@knotworking/ui/components/input";
 import { Plus, X } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { useSearchParam } from "./view-switcher";
 
@@ -34,7 +34,15 @@ const stateNames = {
 
 const selectClass = "h-8 max-w-48 rounded-md border bg-background px-2 text-sm";
 
-export function TaskFilterBar({ filter }: { filter?: TaskFilter }) {
+export function TaskFilterBar({
+  filter,
+  clearParam = null,
+  actions,
+}: {
+  filter?: TaskFilter;
+  clearParam?: string | null;
+  actions?: ReactNode;
+}) {
   const setParam = useSearchParam();
   const { idx } = useWorkspace();
   const [field, setField] = useState<Field>("stateType");
@@ -52,7 +60,7 @@ export function TaskFilterBar({ filter }: { filter?: TaskFilter }) {
 
   function write(next: TaskFilterExpression[]) {
     if (next.length === 0) {
-      setParam("filter", null);
+      setParam("filter", clearParam);
       setError(undefined);
       return;
     }
@@ -170,6 +178,7 @@ export function TaskFilterBar({ filter }: { filter?: TaskFilter }) {
           {error}
         </p>
       )}
+      {actions}
     </section>
   );
 }

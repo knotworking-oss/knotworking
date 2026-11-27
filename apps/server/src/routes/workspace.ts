@@ -94,6 +94,7 @@ export const workspaceRoutes = new Hono<WorkspaceEnv>()
       const snapshot = await bootstrap(tx, c.var.workspace.id, {
         hideEmails: viewer.role === "guest",
         modules,
+        userId: viewer.userId,
         recentTasks: c.req.valid("query")?.taskWindow === "recent",
       });
       return {

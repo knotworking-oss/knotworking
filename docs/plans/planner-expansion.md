@@ -108,7 +108,7 @@ Exit criteria: a workspace seeded with 50k closed tasks opens in the same time a
 
 ### Phase 1: views and everyday ergonomics (L)
 
-The filter bar supports status, assignee, priority, label and due date on task lists and boards. The URL stores the validated expression, and loading older closed tasks uses the same filter. The remaining items below are planned.
+The filter bar supports status, assignee, priority, label and due date on task lists and boards. The URL stores the validated expression, and loading older closed tasks uses the same filter. Saved views persist list and board layouts, filters and sorting with personal, team and workspace scopes. Bulk actions update priority, state, assignee, project and labels, or delete tasks as one transaction. Grouping, calendar, team moves and the remaining items below are planned.
 
 1. **Saved views.** `task_views` (name, icon, owner, scope `personal` | `team` | `workspace`, team, filter expression, group-by, sub-group-by, ordering, visible properties, layout `list` | `board` | `calendar` | `timeline`). Small, so in the bootstrap and sync log. Appear in the sidebar under their team and under Views. The URL stays the source of truth for an unsaved view; "Save view" snapshots it. Editing a shared view needs `write` plus ownership or `manage`.
 2. **Filter bar and display menu.** A chip-based filter builder driven by the Phase 0 expression, plus grouping (state, assignee, project, priority, label, due week), sub-grouping and column choice in the Display menu. Replaces the single `ordering` parameter.

@@ -1293,6 +1293,7 @@ export type TimeReport = Awaited<ReturnType<typeof getTimeReport>>;
 export type Me = Awaited<ReturnType<typeof getMe>>;
 export type Bootstrap = Awaited<ReturnType<typeof getBootstrap>>;
 export type TaskSummary = Bootstrap["tasks"][number];
+export type SavedTaskView = Bootstrap["taskViews"][number];
 /** A dependency: `blockingTaskId` blocks `blockedTaskId`. */
 export type TaskRelation = Bootstrap["taskRelations"][number];
 export type TaskDetail = Awaited<ReturnType<typeof getTask>>;

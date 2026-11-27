@@ -44,6 +44,39 @@ describe("task start dates and dependencies", () => {
   const relate = (blockingTaskId: string, blockedTaskId: string, extra: object = {}) =>
     call("POST", "/task-relations", { blockingTaskId, blockedTaskId, ...extra });
 
+  it("rolls bulk mutations back together and records successful changes", async () => {
+    const snapshot = await boot();
+    const secondTeamId = snapshot.teams.find((team: { id: string }) => team.id !== teamId).id;
+    const stateId = snapshot.workflowStates.find(
+      (state: { teamId: string; type: string }) => state.teamId === teamId && state.type === "started",
+    ).id;
+    const a = await newTask("First bulk row");
+    const b = await newTask("Second bulk row", {}, secondTeamId);
+    const ids = [a.id, b.id];
+    const before = await cursor();
+    const send = (body: unknown) => call("POST", "/tasks/bulk", body);
+    expect((await send({ action: "update", ids, patch: { stateId } })).status).toBe(400);
+    expect((await send({ action: "delete", ids: [a.id, newId()] })).status).toBe(404);
+    expect((await send({ action: "delete", ids: [a.id, a.id] })).status).toBe(400);
+    expect(await changesAfter(before)).toEqual([]);
+    expect((await call("POST", "/tasks/bulk", { action: "delete", ids }, marcus)).status).toBe(403);
+    expect((await send({ action: "update", ids, patch: { priority: 1 } })).status).toBe(200);
+    expect(
+      (await changesAfter(before))
+        .filter((change) => change.entity === "task")
+        .map((change) => change.entityId),
+    ).toEqual(ids);
+    for (const id of ids) {
+      const res = await call("GET", `/tasks/${id}/activity`);
+      expect((await res.json()).events[0].details).toMatchObject({
+        kind: "updated",
+        changes: { priority: { from: 0, to: 1 } },
+      });
+    }
+    expect((await send({ action: "delete", ids })).status).toBe(200);
+    for (const id of ids) expect((await call("GET", `/tasks/${id}`)).status).toBe(404);
+  });
+
   it("pages task activity, recording real changes and both ends of dependencies", async () => {
     const seeded = await boot();
     const oldActivity = await call("GET", `/tasks/${seeded.tasks[0].id}/activity`);

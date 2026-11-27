@@ -3,6 +3,7 @@
 import {
   filterTaskRows,
   taskFilterJsonSchema,
+  taskFilterSchema,
   type TaskFilterExpression,
   type TaskUpdateInput,
 } from "@knotworking/core";
@@ -16,6 +17,9 @@ import { TaskList } from "./task-list";
 import { useNewTask } from "./new-task-dialog";
 import { OlderTasksControl, useOlderTasks } from "./older-tasks";
 import { TaskFilterBar } from "./task-filter-bar";
+import type { SavedTaskView } from "@/lib/api";
+import { SaveTaskViewDialog } from "./save-task-view-dialog";
+import { BulkTaskSelection } from "./bulk-task-controls";
 
 /**
  * Tasks for one page, live from the workspace store.
@@ -29,6 +33,7 @@ export function TasksView({
   view,
   ordering,
   emptyDescription,
+  savedView,
 }: {
   teamId?: string;
   assignedToMe?: boolean;
@@ -37,13 +42,30 @@ export function TasksView({
   view: "list" | "board";
   ordering: TaskOrdering;
   emptyDescription?: string;
+  savedView?: SavedTaskView;
 }) {
   const { idx, viewer, updateTask } = useWorkspace();
   const rawFilter = useSearchParams().get("filter");
   const filter = useMemo(() => {
+    if (rawFilter === null) return savedView?.spec.filter ?? undefined;
     const result = taskFilterJsonSchema.safeParse(rawFilter);
     return result.success ? result.data : undefined;
-  }, [rawFilter]);
+  }, [rawFilter, savedView?.spec.filter]);
+  const viewSpec = useMemo(() => {
+    const conditions: TaskFilterExpression[] = [];
+    if (teamId) conditions.push({ field: "teamId", op: "eq", value: teamId });
+    if (projectId) conditions.push({ field: "projectId", op: "eq", value: projectId });
+    if (assignedToMe) conditions.push({ field: "assigneeId", op: "eq", value: viewer.id });
+    if (filter)
+      conditions.push(...("and" in filter.expression ? filter.expression.and : [filter.expression]));
+    const unique = [
+      ...new Map(conditions.map((condition) => [JSON.stringify(condition), condition])).values(),
+    ];
+    const expression = unique.length === 1 ? unique[0] : { and: unique };
+    const checked = taskFilterSchema.safeParse({ version: 1, expression });
+    const usable = !unique.length || (checked.success && JSON.stringify(checked.data).length <= 8192);
+    return { usable, spec: { filter: checked.success ? checked.data : null, layout: view, sort: ordering } };
+  }, [teamId, projectId, assignedToMe, viewer.id, filter, view, ordering]);
   const history = useOlderTasks({
     teamId,
     projectId,
@@ -103,13 +125,31 @@ export function TasksView({
 
   return (
     <>
-      <TaskFilterBar filter={filter} />
+      <TaskFilterBar
+        filter={filter}
+        clearParam={savedView ? "all" : null}
+        actions={
+          <SaveTaskViewDialog
+            initial={savedView}
+            teamId={teamId}
+            spec={viewSpec.spec}
+            disabled={!viewSpec.usable}
+          />
+        }
+      />
       <OlderTasksControl history={history} />
-      {view === "board" ? (
-        <TaskBoard groups={groups} onDrop={onDrop} onCreate={onCreate} />
-      ) : (
-        <TaskList groups={groups} onDrop={onDrop} onCreate={onCreate} emptyDescription={emptyDescription} />
-      )}
+      <BulkTaskSelection
+        key={JSON.stringify([teamId, projectId, assignedToMe, rawFilter, view])}
+        tasks={groups
+          .filter((group) => view !== "board" || group.type !== "canceled")
+          .flatMap((group) => group.tasks)}
+      >
+        {view === "board" ? (
+          <TaskBoard groups={groups} onDrop={onDrop} onCreate={onCreate} />
+        ) : (
+          <TaskList groups={groups} onDrop={onDrop} onCreate={onCreate} emptyDescription={emptyDescription} />
+        )}
+      </BulkTaskSelection>
     </>
   );
 }

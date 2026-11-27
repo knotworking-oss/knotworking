@@ -116,7 +116,15 @@ export const WORKSPACE_AREA = "workspace";
  * workspace's teams.)
  */
 export const pinnedItems: readonly NavItem[] = [
-  { label: "My tasks", path: "my-tasks", icon: CircleDot, badge: "myTasks", show: needs("tasks") },
+  {
+    label: "My tasks",
+    path: "my-tasks",
+    icon: CircleDot,
+    badge: "myTasks",
+    show: needs("tasks"),
+    exact: true,
+  },
+  { label: "Views", path: "my-tasks/views", icon: Funnel, show: needs("tasks") },
   { label: "Projects", path: "projects", icon: FolderKanban, show: needs("tasks") },
   { label: "Calendar", path: "calendar", icon: CalendarDays, show: needs("calendar") },
 ];

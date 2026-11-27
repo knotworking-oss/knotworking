@@ -26,6 +26,8 @@ function activityText(details: TaskActivityDetails) {
   switch (details.kind) {
     case "created":
       return "created the task";
+    case "deleted":
+      return "deleted the task";
     case "updated": {
       const fields = taskActivityFields
         .filter((field) => details.changes[field])

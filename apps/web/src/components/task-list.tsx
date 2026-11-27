@@ -32,6 +32,7 @@ import {
   StatusPicker,
 } from "./task-pickers";
 import { useWorkspaceTimeZone } from "@/lib/workspace-time";
+import { BulkTaskCheckbox, useBulkTaskRow } from "./bulk-task-controls";
 
 /**
  * Dense list grouped by status. Rows can be dragged within and between groups, and navigated from the
@@ -123,7 +124,8 @@ export function TaskList({
 
 function TaskRow({ task, column }: { task: TaskSummary; column: string }) {
   const { slug, canEditTasks: canEdit } = useWorkspace();
-  const { nodeProps, handleProps, isDragging } = useSortableTask(task.id, !canEdit);
+  const selection = useBulkTaskRow(task.id);
+  const { nodeProps, handleProps, isDragging } = useSortableTask(task.id, !canEdit || selection.selecting);
   const { linkRef, menus, rowProps } = useTaskRow(task, column);
   return (
     <li {...nodeProps} {...rowProps} className={cn("group/row relative", isDragging && "z-10 opacity-40")}>
@@ -133,6 +135,11 @@ function TaskRow({ task, column }: { task: TaskSummary; column: string }) {
         aria-label={task.title}
         className="peer absolute inset-0 z-0 focus-visible:outline-none"
         {...handleProps}
+        onClick={selection.onClick}
+        onKeyDown={(event) => {
+          selection.onKeyDown(event);
+          if (!event.defaultPrevented) handleProps.onKeyDown?.(event);
+        }}
       />
       <RowContent task={task} menus={menus} />
     </li>
@@ -170,6 +177,7 @@ function RowContent({
         overlay && "rounded-md border bg-background shadow-lg",
       )}
     >
+      {!overlay && <BulkTaskCheckbox task={task} />}
       <PriorityPicker
         value={task.priority as Priority}
         onChange={(priority) => updateTask(task.id, { priority })}

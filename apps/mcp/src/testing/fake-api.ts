@@ -14,6 +14,7 @@ import {
   searchTerms,
   taskCommentCreateSchema,
   taskActivityQuerySchema,
+  taskBulkSchema,
   taskCreateSchema,
   taskListQuerySchema,
   taskRelationCreateSchema,
@@ -31,6 +32,7 @@ import {
   type DocContent,
   type TaskActivityDetails,
   type TaskFilterRow,
+  type TaskViewSpec,
   type WorkflowStateType,
 } from "@knotworking/core";
 import { Hono } from "hono";
@@ -285,6 +287,7 @@ export function createFakeApi() {
       },
     ] as Array<Record<string, any>>,
     comments: [] as Array<Record<string, any>>,
+    taskViews: [] as { id: string; teamId: string | null; name: string; spec: TaskViewSpec }[],
     /** Finished and running time entries (a null `minutes` is a running timer) and task time estimates. */
     timeEntries: [
       entry(ids.t1, ids.grace, 90, "2026-11-03"),
@@ -459,6 +462,34 @@ export function createFakeApi() {
   );
 
   const findTask = (id: string) => store.tasks.find((t) => t.id === id);
+  app.get(`${ws}/tasks/views`, (c) => c.json({ views: store.taskViews }));
+  app.get(`${ws}/tasks/views/:id`, (c) => {
+    const view = store.taskViews.find((row) => row.id === c.req.param("id"));
+    return view ? c.json(view) : c.json(err("not_found", "Task view not found"), 404);
+  });
+  app.post(`${ws}/tasks/bulk`, async (c) => {
+    const parsed = taskBulkSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json(err("invalid_input", "Invalid bulk request"), 400);
+    const input = parsed.data;
+    const ids = input.ids.map((id) => id.toLowerCase());
+    const selected = ids.map(findTask);
+    if (selected.some((task) => !task)) return c.json(err("not_found", "Task not found"), 404);
+    if (input.action === "update") {
+      const { stateId } = input.patch;
+      if (
+        stateId &&
+        selected.some(
+          (task) => store.workflowStates.find((state) => state.id === stateId)?.teamId !== task?.teamId,
+        )
+      )
+        return c.json(err("invalid_input", "stateId does not belong to this team"), 400);
+      for (const task of selected)
+        Object.assign(task!, input.patch, { updatedAt: nextStamp(task!.updatedAt) });
+    } else {
+      store.tasks = store.tasks.filter((task) => !ids.includes(task.id));
+    }
+    return c.json({ ids });
+  });
   const activity = new Map<
     string,
     { id: string; actorId: string; source: "token"; createdAt: string; details: TaskActivityDetails }[]

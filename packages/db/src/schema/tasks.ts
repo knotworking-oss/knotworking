@@ -9,6 +9,8 @@ import type {
   TagColorName,
   TaskActivityDetails,
   TaskActivitySource,
+  TaskViewScope,
+  TaskViewSpec,
   WorkflowStateType,
 } from "@knotworking/core";
 import { sql } from "drizzle-orm";
@@ -173,6 +175,28 @@ export const taskEvents = pgTable(
     createdAt: ts("created_at").notNull().defaultNow(),
   },
   (t) => [index("task_events_workspace_task_id_idx").on(t.workspaceId, t.taskId, t.id)],
+);
+
+export const taskViews = pgTable(
+  "task_views",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    teamId: uuid("team_id").references(() => teams.id, { onDelete: "cascade" }),
+    scope: text("scope").$type<TaskViewScope>().notNull(),
+    name: text("name").notNull(),
+    icon: text("icon"),
+    spec: jsonb("spec").$type<TaskViewSpec>().notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    index("task_views_workspace_idx").on(t.workspaceId),
+    check(
+      "task_views_scope_check",
+      sql`${t.scope} in ('personal', 'team', 'workspace') and (${t.scope} = 'team') = (${t.teamId} is not null)`,
+    ),
+  ],
 );
 
 /**

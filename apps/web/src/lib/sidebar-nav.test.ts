@@ -145,10 +145,11 @@ describe("visibility", () => {
     const labels = (a: NavAccess) => visiblePinned(a).map((i) => i.label);
     expect(labels(accessFor({ tasks: "read", calendar: "read" }))).toEqual([
       "My tasks",
+      "Views",
       "Projects",
       "Calendar",
     ]);
-    expect(labels(accessFor({ tasks: "read" }))).toEqual(["My tasks", "Projects"]);
+    expect(labels(accessFor({ tasks: "read" }))).toEqual(["My tasks", "Views", "Projects"]);
     expect(labels(accessFor({ docs: "read" }))).toEqual([]);
     expect(wikiItem.show?.(accessFor({ docs: "read" }))).toBe(true);
     expect(wikiItem.show?.(accessFor({ tasks: "read" }))).toBe(false);

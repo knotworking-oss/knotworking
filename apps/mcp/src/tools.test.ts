@@ -55,6 +55,8 @@ const READ_TOOLS = [
   "search_tasks",
   "get_task",
   "list_task_activity",
+  "list_views",
+  "run_view",
   "query_tasks",
   "list_projects",
   "get_time_report",
@@ -227,6 +229,7 @@ const GATED_TOOLS = [
   "cancel_production_batch",
 ];
 const WRITE_TOOLS = [
+  "bulk_update_tasks",
   "save_crm_lead",
   "convert_crm_lead",
   "save_crm_opportunity",
@@ -594,6 +597,40 @@ describe("read tools", () => {
     expect(second.isError).toBe(false);
     expect(second.data).toMatchObject({ tasks: [{ id: fake.ids.t2 }], nextCursor: null });
     expect((await call("query_tasks", { filter: "{" })).isError).toBe(true);
+  });
+
+  it("lists and runs saved task views with their stored filters", async () => {
+    const { call, fake } = await session();
+    const id = newId();
+    fake.store.taskViews.push({
+      id,
+      name: "No priority",
+      teamId: fake.ids.eng,
+      spec: {
+        filter: { version: 1, expression: { field: "priority", op: "eq", value: 0 } },
+        layout: "board",
+        sort: "priority",
+      },
+    });
+    const list = await call("list_views");
+    expect(list.isError).toBe(false);
+    expect(list.data.views).toMatchObject([{ id, name: "No priority" }]);
+    const page = await call("run_view", { view: id });
+    expect(page.isError).toBe(false);
+    expect(page.data.tasks).toMatchObject([{ id: fake.ids.t2 }]);
+    expect(page.data.tasks).toHaveLength(1);
+  });
+
+  it("updates tasks in one bulk request", async () => {
+    const { call, fake } = await session();
+    const res = await call("bulk_update_tasks", {
+      tasks: [fake.ids.t1, fake.ids.t2],
+      patch: { priority: 1 },
+    });
+    expect(res.isError).toBe(false);
+    expect(res.data.ids).toEqual([fake.ids.t1, fake.ids.t2]);
+    expect(fake.hits("/tasks/bulk", "POST")).toBe(1);
+    expect(fake.store.tasks.map((task) => task.priority)).toEqual([1, 1]);
   });
 
   it("list_tasks resolves names to ids for every filter", async () => {

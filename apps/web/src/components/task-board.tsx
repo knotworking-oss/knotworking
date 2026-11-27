@@ -14,6 +14,7 @@ import type { TaskGroup } from "@/lib/model";
 import { useWorkspace } from "@/lib/workspace-store";
 import { TaskDndProvider, TaskDropZone, useSortableTask, type DropHandler } from "./task-dnd";
 import { MenuAnchor, TaskKeyboardNav, useTaskRow, type RowMenuProps } from "./task-keyboard";
+import { BulkTaskCheckbox, useBulkTaskRow } from "./bulk-task-controls";
 import {
   AssigneeChip,
   AssigneePicker,
@@ -93,7 +94,8 @@ export function TaskBoard({
 
 function BoardCard({ task, column }: { task: TaskSummary; column: string }) {
   const { slug, canEditTasks: canEdit } = useWorkspace();
-  const { nodeProps, handleProps, isDragging } = useSortableTask(task.id, !canEdit);
+  const selection = useBulkTaskRow(task.id);
+  const { nodeProps, handleProps, isDragging } = useSortableTask(task.id, !canEdit || selection.selecting);
   const { linkRef, menus, rowProps } = useTaskRow(task, column);
   return (
     <div
@@ -107,6 +109,11 @@ function BoardCard({ task, column }: { task: TaskSummary; column: string }) {
         aria-label={task.title}
         className="peer absolute inset-0 z-0 rounded-xl focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
         {...handleProps}
+        onClick={selection.onClick}
+        onKeyDown={(event) => {
+          selection.onKeyDown(event);
+          if (!event.defaultPrevented) handleProps.onKeyDown?.(event);
+        }}
       />
       <CardContent task={task} menus={menus} />
     </div>
@@ -147,6 +154,7 @@ function CardContent({
         </StatusPicker>
       )}
       <div className="flex items-start justify-between gap-2">
+        {!overlay && <BulkTaskCheckbox task={task} />}
         <p className="text-sm leading-snug font-medium">{task.title}</p>
         <AssigneePicker
           value={task.assigneeId}

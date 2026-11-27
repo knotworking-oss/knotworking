@@ -37,6 +37,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { listDocuments } from "./documents";
 import { listTaskRelations } from "./task-relations";
 import { listTasks } from "./tasks";
+import { listTaskViews } from "./task-views";
 import { recentTaskIds, taskWindowSummary } from "./task-window";
 import { forgetWorkspaceTimeZone } from "./time-zone";
 import { listWorkspaceTimeEntries } from "./time-entries";
@@ -73,7 +74,7 @@ export async function listMyWorkspaces(db: Database, userId: string) {
 export async function bootstrap(
   db: Executor,
   workspaceId: string,
-  options: { hideEmails?: boolean; modules?: ModuleAccessMap; recentTasks?: boolean } = {},
+  options: { hideEmails?: boolean; modules?: ModuleAccessMap; recentTasks?: boolean; userId?: string } = {},
 ) {
   // Modules the viewer can't read (or that are switched off) contribute empty lists, so the
   // response keeps one shape. Without `modules` everything is included (internal callers, tests).
@@ -110,6 +111,7 @@ export async function bootstrap(
     attendeeRows,
     timeEntryRows,
     closedWindow,
+    viewRows,
   ] = await Promise.all([
     db
       .select({
@@ -161,6 +163,7 @@ export async function bootstrap(
         )
       : none,
     cutoff ? taskWindowSummary(db, workspaceId, cutoff, can("time")) : null,
+    can("tasks") ? listTaskViews(db, workspaceId, options.userId) : none,
   ]);
 
   return {
@@ -178,6 +181,7 @@ export async function bootstrap(
     projects: projectRows,
     projectTeams: projectTeamRows,
     tasks: taskRows,
+    taskViews: viewRows,
     ...(closedWindow ? { closedWindow } : {}),
     /** Label links with their IDs, so clients can apply `task_label` changes (tasks also carry `labelIds`). */
     taskLabels: taskLabelRows,

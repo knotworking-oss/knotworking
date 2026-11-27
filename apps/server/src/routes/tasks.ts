@@ -3,6 +3,7 @@ import {
   projectFromTemplateSchema,
   projectUpdateSchema,
   taskActivityQuerySchema,
+  taskBulkSchema,
   taskCreateSchema,
   taskListQuerySchema,
   taskRelationCreateSchema,
@@ -18,10 +19,12 @@ import { emailNotifier } from "../services/notifications";
 import { createProjectFromTemplate } from "../services/project-templates";
 import { createProject, deleteProject, listProjects, updateProject } from "../services/projects";
 import { listTaskActivity } from "../services/task-activity";
+import { bulkChangeTasks } from "../services/task-bulk";
 import { createTaskRelation, deleteTaskRelation } from "../services/task-relations";
 import { createTask, deleteTask, getTask, queryTasks, updateTask } from "../services/tasks";
 import { validate } from "../validate";
 import { commentRoutes } from "./comments";
+import { taskViewRoutes } from "./task-views";
 
 const idParam = z.object({ id: z.uuid() });
 
@@ -31,6 +34,7 @@ const idParam = z.object({ id: z.uuid() });
  * `write` for the rest. Teams, workflow states and labels are configured by `structureRoutes`.
  */
 export const taskRoutes = new Hono<WorkspaceEnv>()
+  .route("/", taskViewRoutes)
   // ── Tasks ──
   .get("/tasks", validate("query", taskListQuerySchema), async (c) =>
     c.json(await queryTasks(c.var.db, c.var.workspace.id, c.req.valid("query"))),
@@ -81,6 +85,18 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
       201,
     ),
   )
+  .post("/tasks/bulk", requireWriter, validate("json", taskBulkSchema), async (c) =>
+    c.json(
+      await bulkChangeTasks(
+        c.var.db,
+        c.var.workspace.id,
+        c.var.user.id,
+        c.req.valid("json"),
+        emailNotifier(c.var),
+        c.var.credential.kind,
+      ),
+    ),
+  )
   .patch(
     "/tasks/:id",
     requireWriter,
@@ -100,7 +116,13 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
       ),
   )
   .delete("/tasks/:id", requireWriter, validate("param", idParam), async (c) => {
-    await deleteTask(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("param").id);
+    await deleteTask(
+      c.var.db,
+      c.var.workspace.id,
+      c.var.user.id,
+      c.req.valid("param").id,
+      c.var.credential.kind,
+    );
     return c.body(null, 204);
   })
 

@@ -6,6 +6,8 @@ import {
   BreadcrumbSeparator,
 } from "@knotworking/ui/components/breadcrumb";
 import type { Metadata } from "next";
+import Link from "next/link";
+import { Button } from "@knotworking/ui/components/button";
 import { notFound } from "next/navigation";
 import { DocsSection } from "@/components/docs-section";
 import { DisplayOptions } from "@/components/display-options";
@@ -42,6 +44,9 @@ export default async function TeamTasksPage({ params, searchParams }: Props) {
           <>
             <ViewSwitcher view={mode} />
             <DisplayOptions ordering={ordering} />
+            <Button asChild variant="ghost" size="sm">
+              <Link href={`/${slug}/my-tasks/views?team=${team.id}`}>Views</Link>
+            </Button>
             <NewTaskButton defaults={{ teamId: team.id }} />
           </>
         }

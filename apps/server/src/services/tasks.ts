@@ -334,7 +334,7 @@ export async function createTask(
 }
 
 export async function updateTask(
-  db: Database,
+  db: Executor,
   workspaceId: string,
   actorId: string,
   taskId: string,
@@ -457,7 +457,13 @@ export async function updateTask(
   return result;
 }
 
-export async function deleteTask(db: Database, workspaceId: string, actorId: string, taskId: string) {
+export async function deleteTask(
+  db: Executor,
+  workspaceId: string,
+  actorId: string,
+  taskId: string,
+  source: TaskActivitySource = "internal",
+) {
   await db.transaction(async (tx) => {
     await lockWorkspaceLog(tx, workspaceId);
     const [row] = await tx
@@ -472,5 +478,6 @@ export async function deleteTask(db: Database, workspaceId: string, actorId: str
       { entity: "task", entityId: taskId, action: "delete" },
       ...relationTombstones,
     ]);
+    await recordTaskActivity(tx, workspaceId, [taskId], actorId, source, { kind: "deleted" });
   });
 }

@@ -21,10 +21,18 @@ export function useSearchParam() {
 export type TaskView = "list" | "board" | "timeline";
 
 /** List and Board everywhere; `timeline` adds the Gantt view (project pages). */
-export function ViewSwitcher({ view, timeline }: { view: TaskView; timeline?: boolean }) {
+export function ViewSwitcher({
+  view,
+  timeline,
+  explicitDefault,
+}: {
+  view: TaskView;
+  timeline?: boolean;
+  explicitDefault?: boolean;
+}) {
   const setParam = useSearchParam();
   return (
-    <Tabs value={view} onValueChange={(v) => setParam("view", v === "list" ? null : v)}>
+    <Tabs value={view} onValueChange={(v) => setParam("view", !explicitDefault && v === "list" ? null : v)}>
       <TabsList>
         <TabsTrigger value="list">
           <List /> <span className="max-lg:sr-only">List</span>

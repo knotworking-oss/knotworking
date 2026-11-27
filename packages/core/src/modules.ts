@@ -192,6 +192,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
       "task",
       "task_label",
       "task_relation",
+      "task_view",
       "comment",
     ],
   },

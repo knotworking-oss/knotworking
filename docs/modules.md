@@ -185,6 +185,12 @@ Task creation, direct edits including label changes, and explicit dependency add
 
 Owners and admins can set the recent closed-task window under General settings. Team settings hold three independent preferences for cycles, triage and point estimates. `PATCH /teams/:id` accepts a `features` array containing any of `cycles`, `triage` and `estimates`. An empty array turns them all off, and leaving the field out preserves the current switches. They sync with the team row and will gate those capabilities as they ship.
 
+## Saved task views
+
+Save a list or board from its filter bar to reuse its filters, layout and sort order. Open it under Views in the workspace sidebar or from its team. Personal views are visible to their creator. Team views appear under a team and can be read by anyone with Tasks access in the workspace. Workspace views require Tasks manage access to create. The owner or a Tasks manager can change a shared view. The API serves these records under `/tasks/views` and the current viewer's bootstrap.
+
+Choose **Select tasks** on a list or board to update priority, status, assignee, project or labels, or delete a selection. Shift-click selects a range, and X toggles the focused row in selection mode. One bulk request can change up to 200 tasks atomically. A bulk status change requires tasks from one team. The API accepts the selection and its action at `POST /tasks/bulk`.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

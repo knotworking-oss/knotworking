@@ -20,7 +20,7 @@ export type TaskActivitySource = "session" | "token" | "internal" | "automation"
 export type TaskActivityValue = string | number | boolean | null | string[];
 export type TaskActivityChange = { from: TaskActivityValue; to: TaskActivityValue };
 export type TaskActivityDetails =
-  | { kind: "created" }
+  | { kind: "created" | "deleted" }
   | { kind: "updated"; changes: Partial<Record<TaskActivityField, TaskActivityChange>> }
   | { kind: "dependency_added" | "dependency_removed"; blockingTaskId: string; blockedTaskId: string };
 

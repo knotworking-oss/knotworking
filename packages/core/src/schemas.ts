@@ -78,6 +78,24 @@ export const taskUpdateSchema = taskFields
   .refine(taskDatesInOrder, taskDatesInOrderMessage);
 export type TaskUpdateInput = z.infer<typeof taskUpdateSchema>;
 
+export const TASK_BULK_LIMIT = 200;
+export const taskBulkPatchSchema = taskFields
+  .pick({ stateId: true, assigneeId: true, priority: true, projectId: true, labelIds: true })
+  .partial()
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, "Select a change to apply");
+export type TaskBulkPatch = z.infer<typeof taskBulkPatchSchema>;
+const taskBulkIds = z
+  .array(id)
+  .min(1)
+  .max(TASK_BULK_LIMIT)
+  .refine((ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length, "Duplicate task");
+export const taskBulkSchema = z.discriminatedUnion("action", [
+  z.strictObject({ action: z.literal("update"), ids: taskBulkIds, patch: taskBulkPatchSchema }),
+  z.strictObject({ action: z.literal("delete"), ids: taskBulkIds }),
+]);
+export type TaskBulkInput = z.infer<typeof taskBulkSchema>;
+
 /**
  * A dependency between two tasks: `blockingTaskId` blocks `blockedTaskId`
  * (the blocked task is "blocked by" the other). Cycles are rejected by the server.

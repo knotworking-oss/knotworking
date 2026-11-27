@@ -68,6 +68,7 @@ export * from "./search";
 export * from "./task-relations";
 export * from "./task-activity";
 export * from "./task-filter";
+export * from "./task-views";
 export * from "./planner-settings";
 export * from "./time";
 export * from "./csv";

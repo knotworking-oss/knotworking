@@ -27,6 +27,7 @@ const collections = {
   projects: "project",
   projectTeams: "project_team",
   tasks: "task",
+  taskViews: "task_view",
   taskLabels: "task_label",
   taskRelations: "task_relation",
   documents: "document",
@@ -84,6 +85,7 @@ const order: Partial<Record<Collection, (a: SyncRow, b: SyncRow) => number>> = {
   projects: bySortOrder,
   documents: bySortOrder,
   tasks: byTaskOrder,
+  taskViews: byName,
   timeEntries: byEntryDate,
 };
 

@@ -15,7 +15,13 @@ import { taskOrderings, orderingLabels, type TaskOrdering } from "@/lib/model";
 import { useSearchParam } from "./view-switcher";
 
 /** "Display" menu for task views. Settings live in the URL so views can be shared. */
-export function DisplayOptions({ ordering }: { ordering: TaskOrdering }) {
+export function DisplayOptions({
+  ordering,
+  explicitDefault,
+}: {
+  ordering: TaskOrdering;
+  explicitDefault?: boolean;
+}) {
   const setParam = useSearchParam();
   return (
     <Popover>
@@ -29,7 +35,10 @@ export function DisplayOptions({ ordering }: { ordering: TaskOrdering }) {
           <Label htmlFor="display-ordering" className="font-normal text-muted-foreground">
             Ordering
           </Label>
-          <Select value={ordering} onValueChange={(v) => setParam("order", v === "priority" ? null : v)}>
+          <Select
+            value={ordering}
+            onValueChange={(v) => setParam("order", !explicitDefault && v === "priority" ? null : v)}
+          >
             <SelectTrigger id="display-ordering" size="sm" className="w-36">
               <SelectValue />
             </SelectTrigger>

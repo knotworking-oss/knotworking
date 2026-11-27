@@ -7,6 +7,8 @@ import {
   projectTeams,
   recordChanges,
   taskLabels,
+  taskRelations,
+  timeEntries,
   teamMembers,
   teams,
   users,
@@ -23,14 +25,19 @@ import {
   effectiveCurrency,
   effectiveFinancialYearStartMonth,
   effectiveTimeZone,
+  DEFAULT_CLOSED_TASK_WINDOW_DAYS,
+  addDaysToIsoDate,
+  startOfDayInZone,
+  todayInZone,
   type WorkspaceSettings,
   type WorkspaceSettingsUpdateInput,
 } from "@knotworking/core";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { listDocuments } from "./documents";
 import { listTaskRelations } from "./task-relations";
 import { listTasks } from "./tasks";
+import { recentTaskIds, taskWindowSummary } from "./task-window";
 import { forgetWorkspaceTimeZone } from "./time-zone";
 import { listWorkspaceTimeEntries } from "./time-entries";
 
@@ -66,7 +73,7 @@ export async function listMyWorkspaces(db: Database, userId: string) {
 export async function bootstrap(
   db: Executor,
   workspaceId: string,
-  options: { hideEmails?: boolean; modules?: ModuleAccessMap } = {},
+  options: { hideEmails?: boolean; modules?: ModuleAccessMap; recentTasks?: boolean } = {},
 ) {
   // Modules the viewer can't read (or that are switched off) contribute empty lists, so the
   // response keeps one shape. Without `modules` everything is included (internal callers, tests).
@@ -78,6 +85,15 @@ export async function bootstrap(
 
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId));
   const { enabledModules: _enabledModules, ...publicWorkspace } = workspace!;
+  const zone = effectiveTimeZone(publicWorkspace.timeZone).timeZone;
+  const cutoff =
+    options.recentTasks && can("tasks")
+      ? startOfDayInZone(
+          addDaysToIsoDate(todayInZone(zone), -publicWorkspace.closedTaskWindowDays),
+          zone,
+        ).toISOString()
+      : undefined;
+  const recent = cutoff ? recentTaskIds(db, workspaceId, cutoff) : undefined;
   const [
     members,
     teamRows,
@@ -93,6 +109,7 @@ export async function bootstrap(
     meetingRows,
     attendeeRows,
     timeEntryRows,
+    closedWindow,
   ] = await Promise.all([
     db
       .select({
@@ -117,15 +134,33 @@ export async function bootstrap(
     can("tasks") ? db.select().from(labels).where(live(labels)).orderBy(asc(labels.name)) : none,
     can("tasks") ? db.select().from(projects).where(live(projects)).orderBy(asc(projects.sortOrder)) : none,
     can("tasks") ? db.select().from(projectTeams).where(live(projectTeams)) : none,
-    // A bootstrap is a complete replica, never a page. A cap here loses unchanged tasks
-    // permanently because their historical changes precede the returned sync cursor.
-    can("tasks") ? listTasks(db, workspaceId, {}) : none,
-    can("tasks") ? db.select().from(taskLabels).where(live(taskLabels)) : none,
-    can("tasks") ? listTaskRelations(db, workspaceId) : none,
+    can("tasks") ? listTasks(db, workspaceId, { windowCutoff: cutoff }) : none,
+    can("tasks")
+      ? db
+          .select()
+          .from(taskLabels)
+          .where(and(live(taskLabels), recent ? inArray(taskLabels.taskId, recent) : undefined))
+      : none,
+    can("tasks")
+      ? listTaskRelations(
+          db,
+          workspaceId,
+          recent
+            ? and(inArray(taskRelations.blockingTaskId, recent), inArray(taskRelations.blockedTaskId, recent))
+            : undefined,
+        )
+      : none,
     can("docs") ? listDocuments(db, workspaceId) : none,
     can("calendar") ? db.select().from(meetings).where(live(meetings)) : none,
     can("calendar") ? db.select().from(meetingAttendees).where(live(meetingAttendees)) : none,
-    can("time") ? listWorkspaceTimeEntries(db, workspaceId) : none,
+    can("time")
+      ? listWorkspaceTimeEntries(
+          db,
+          workspaceId,
+          recent ? or(inArray(timeEntries.taskId, recent), isNull(timeEntries.minutes)) : undefined,
+        )
+      : none,
+    cutoff ? taskWindowSummary(db, workspaceId, cutoff, can("time")) : null,
   ]);
 
   return {
@@ -143,6 +178,7 @@ export async function bootstrap(
     projects: projectRows,
     projectTeams: projectTeamRows,
     tasks: taskRows,
+    ...(closedWindow ? { closedWindow } : {}),
     /** Label links with their IDs, so clients can apply `task_label` changes (tasks also carry `labelIds`). */
     taskLabels: taskLabelRows,
     /** Dependencies between visible tasks (`blockingTaskId` blocks `blockedTaskId`). */
@@ -203,6 +239,7 @@ export async function getWorkspaceSettings(
       timeZone: workspaces.timeZone,
       currency: workspaces.currency,
       financialYearStartMonth: workspaces.financialYearStartMonth,
+      closedTaskWindowDays: workspaces.closedTaskWindowDays,
     })
     .from(workspaces)
     .where(eq(workspaces.id, workspaceId));
@@ -212,6 +249,7 @@ export async function getWorkspaceSettings(
     timeZoneInvalid: invalid,
     currency: effectiveCurrency(row?.currency),
     financialYearStartMonth: effectiveFinancialYearStartMonth(row?.financialYearStartMonth),
+    closedTaskWindowDays: row?.closedTaskWindowDays ?? DEFAULT_CLOSED_TASK_WINDOW_DAYS,
   };
 }
 
@@ -238,6 +276,7 @@ export async function updateWorkspaceSettings(
       timeZoneInvalid: false,
       currency: effectiveCurrency(row!.currency),
       financialYearStartMonth: effectiveFinancialYearStartMonth(row!.financialYearStartMonth),
+      closedTaskWindowDays: row!.closedTaskWindowDays,
     };
   });
 }

@@ -175,6 +175,16 @@ A module is done when all of this is true. The tests named here fail if a step i
 9. **Dates**: decide every business date in the workspace's time zone (`todayIn(c)`, `workspaceToday`, the `@knotworking/core` `time-zone.ts` helpers; see [architecture.md](architecture.md#the-workspace-time-zone)), never with `toISOString().slice(0, 10)` or the browser's zone.
 10. **Docs**: a section here and in `docs/data-model.md`; tools listed in `docs/mcp.md`.
 
+## Task activity
+
+The task page fetches Activity on demand. `GET /tasks/:id/activity` requires Tasks read access and supports read-scoped tokens. It returns the newest events first, with a default limit of 25 and a maximum of 100. Pass `nextCursor` as `before` for older entries. MCP exposes the same history through `list_task_activity`.
+
+Task creation, direct edits including label changes, and explicit dependency additions and removals are recorded in the task write transaction. Dependency events appear on both tasks. Description edits record whether a description was present before and after. Events identify the actor and whether the write came through a session, a personal token or an internal service. History starts with this migration.
+
+## Planner settings
+
+Owners and admins can set the recent closed-task window under General settings. Team settings hold three independent preferences for cycles, triage and point estimates. `PATCH /teams/:id` accepts a `features` array containing any of `cycles`, `triage` and `estimates`. An empty array turns them all off, and leaving the field out preserves the current switches. They sync with the team row and will gate those capabilities as they ship.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

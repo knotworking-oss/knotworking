@@ -62,6 +62,7 @@ describe("workspace time zone", () => {
         timeZoneInvalid: false,
         currency: "GBP",
         financialYearStartMonth: 1,
+        closedTaskWindowDays: 30,
       });
       const viaToken = await ctx.req(`${WS}/settings`, {
         headers: { authorization: `Bearer ${token}`, origin: "" },
@@ -71,6 +72,7 @@ describe("workspace time zone", () => {
         timeZoneInvalid: false,
         currency: "GBP",
         financialYearStartMonth: 1,
+        closedTaskWindowDays: 30,
       });
       expect((await ok(await as(ada).get("/bootstrap"))).workspace.timeZone).toBe("Europe/London");
     });
@@ -93,12 +95,14 @@ describe("workspace time zone", () => {
         timeZoneInvalid: false,
         currency: "GBP",
         financialYearStartMonth: 1,
+        closedTaskWindowDays: 30,
       });
       expect(await ok(await as(marcus.cookie).get("/settings"))).toEqual({
         timeZone: "America/New_York",
         timeZoneInvalid: false,
         currency: "GBP",
         financialYearStartMonth: 1,
+        closedTaskWindowDays: 30,
       });
       await setZone(DEFAULT_TIME_ZONE);
     });
@@ -177,6 +181,7 @@ describe("workspace time zone", () => {
           timeZoneInvalid: true,
           currency: "GBP",
           financialYearStartMonth: 1,
+          closedTaskWindowDays: 30,
         });
         const { workspace } = await ok(await as(ada).get("/bootstrap"));
         expect(workspace).toMatchObject({ timeZone: DEFAULT_TIME_ZONE, timeZoneInvalid: true });
@@ -190,6 +195,7 @@ describe("workspace time zone", () => {
         timeZoneInvalid: false,
         currency: "GBP",
         financialYearStartMonth: 1,
+        closedTaskWindowDays: 30,
       });
       await setZone(DEFAULT_TIME_ZONE);
     });
@@ -201,6 +207,7 @@ describe("workspace time zone", () => {
         timeZoneInvalid: false,
         currency: "GBP",
         financialYearStartMonth: 1,
+        closedTaskWindowDays: 30,
       });
       await setZone(DEFAULT_TIME_ZONE);
     });

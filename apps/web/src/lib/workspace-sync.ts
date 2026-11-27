@@ -45,7 +45,22 @@ export class WorkspaceSync {
           (c) =>
             c.entity === "module_access" || c.entity === "workspace_modules" || c.entity === "token_action",
         );
-        if (changes.some((c) => refetchOn.has(c.entity)))
+        const cutoff = this.base.closedWindow?.cutoff;
+        // An older task can return to the working set with its next edit. Fetch
+        // unchanged label links and time entries that had been left out of the seed.
+        const promoted =
+          cutoff &&
+          changes.some(
+            (c) =>
+              c.entity === "task" &&
+              c.action === "upsert" &&
+              typeof c.data?.createdAt === "string" &&
+              c.data.createdAt < cutoff &&
+              typeof c.data.updatedAt === "string" &&
+              c.data.updatedAt >= cutoff &&
+              !this.base.tasks.some((task) => task.id === c.entityId),
+          );
+        if (promoted || changes.some((c) => refetchOn.has(c.entity)))
           void this.refetch().then(() => rerender && this.onLostAccess());
         else if (rerender) this.onLostAccess();
       },
@@ -109,7 +124,10 @@ export class WorkspaceSync {
         do {
           this.refetchRequested = false;
           const boot = await unwrap(
-            browserApi().v1.workspaces[":slug"].bootstrap.$get({ param: { slug: this.slug } }),
+            browserApi().v1.workspaces[":slug"].bootstrap.$get({
+              param: { slug: this.slug },
+              query: { taskWindow: "recent" },
+            }),
           );
           this.base = boot;
           this.store.reset(seedTables(boot), boot.cursor);

@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  MAX_CLOSED_TASK_WINDOW_DAYS,
+  closedTaskWindowDaysSchema,
   financialYearOf,
   formatMoney,
   MONTH_NAMES,
@@ -24,6 +26,75 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
+
+export function ClosedTaskWindowForm({
+  slug,
+  days,
+  canManage,
+}: {
+  slug: string;
+  days: number;
+  canManage: boolean;
+}) {
+  const router = useRouter();
+  const [value, setValue] = useState(String(days));
+  const [saving, setSaving] = useState(false);
+  const parsed = closedTaskWindowDaysSchema.safeParse(Number(value));
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!parsed.success) return;
+    setSaving(true);
+    try {
+      await unwrap(
+        browserApi().v1.workspaces[":slug"].settings.$patch({
+          param: { slug },
+          json: { closedTaskWindowDays: parsed.data },
+        }),
+      );
+      toast.success("Task history window saved");
+      router.refresh();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={save} className="mx-auto flex max-w-2xl flex-col gap-3 p-6">
+      <h3 className="font-medium">Planner history</h3>
+      <Card className="px-4">
+        <Field>
+          <FieldLabel htmlFor="closed-task-window">Recent closed tasks (days)</FieldLabel>
+          <Input
+            id="closed-task-window"
+            type="number"
+            min={1}
+            max={MAX_CLOSED_TASK_WINDOW_DAYS}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            readOnly={!canManage}
+            required
+          />
+          <FieldDescription>
+            Closed tasks updated before this window can be loaded from task views.
+          </FieldDescription>
+          {canManage && (
+            <Button
+              type="submit"
+              size="sm"
+              className="self-start"
+              disabled={!parsed.success || parsed.data === days || saving}
+            >
+              Save
+            </Button>
+          )}
+        </Field>
+      </Card>
+    </form>
+  );
+}
 
 /**
  * The workspace's general settings: the time zone every business date is decided in ("today", due

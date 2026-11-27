@@ -771,6 +771,20 @@
       "when": 1795651606248,
       "tag": "0126_invoicing_second_approver",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1795812165740,
+      "tag": "0127_task_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1795813682827,
+      "tag": "0128_planner_windows",
+      "breakpoints": true
     }
   ]
 }

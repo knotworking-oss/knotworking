@@ -64,7 +64,27 @@ const pages: Record<string, ModuleId> = {
 
 /** Task/doc views already consume their live replica. Only refresh paginated module read models. */
 export function shouldRefreshModulePage(pathname: string, changes: readonly SyncChange[]): boolean {
-  const module = pages[pathname.split("/")[2] ?? ""];
+  const [, , section, subsection] = pathname.split("/");
+  if (
+    section === "projects" ||
+    section === "task" ||
+    (section === "settings" && (subsection === "teams" || subsection === "labels"))
+  ) {
+    // These pages show historical rows or server totals beyond the recent-task replica.
+    if (
+      changes.some(
+        (c) =>
+          c.entity === "task" ||
+          c.entity === "task_label" ||
+          c.entity === "task_relation" ||
+          c.entity === "team" ||
+          c.entity === "workflow_state" ||
+          c.entity === "time_entry",
+      )
+    )
+      return true;
+  }
+  const module = pages[section ?? ""];
   // Currency and business-date settings also shape server-rendered module read models.
   return !!module && (changes.some((c) => c.entity === "workspace") || affectedModules(changes).has(module));
 }

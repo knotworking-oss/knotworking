@@ -112,7 +112,7 @@ export const getOptionalMe = cache(async () => {
 export const getAuthConfig = cache(async () => unwrap((await client()).v1.public["auth-config"].$get()));
 
 export const getBootstrap = cache((slug: string) =>
-  load((api) => unwrap(ws(api).bootstrap.$get({ param: { slug } }))),
+  load((api) => unwrap(ws(api).bootstrap.$get({ param: { slug }, query: { taskWindow: "recent" } }))),
 );
 
 export const getWorkspaceModuleSettings = cache((slug: string) =>
@@ -183,7 +183,11 @@ export const getWorkspaceCurrency = cache(async (slug: string) =>
 export const getWorkspaceToday = async (slug: string) => todayInZone(await getWorkspaceTimeZone(slug));
 
 export const getTask = cache((slug: string, id: string) =>
-  load((api) => unwrap(ws(api).tasks[":id"].$get({ param: { slug, id } }))),
+  load((api) => unwrap(ws(api).tasks[":id"].$get({ param: { slug, id }, query: { context: "true" } }))),
+);
+
+export const getTaskTimeEntries = cache((slug: string, id: string) =>
+  load((api) => unwrap(ws(api).tasks[":id"]["time-entries"].$get({ param: { slug, id } }))),
 );
 
 /** Comments are fetched per task, not bootstrapped (see docs/architecture.md). */

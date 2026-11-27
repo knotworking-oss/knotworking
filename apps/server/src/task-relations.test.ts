@@ -1,4 +1,4 @@
-import { newId } from "@knotworking/core";
+import { newId, textToDoc } from "@knotworking/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeApp, signIn, type TestCtx } from "./test-utils";
 
@@ -43,6 +43,62 @@ describe("task start dates and dependencies", () => {
   };
   const relate = (blockingTaskId: string, blockedTaskId: string, extra: object = {}) =>
     call("POST", "/task-relations", { blockingTaskId, blockedTaskId, ...extra });
+
+  it("pages task activity, recording real changes and both ends of dependencies", async () => {
+    const seeded = await boot();
+    const oldActivity = await call("GET", `/tasks/${seeded.tasks[0].id}/activity`);
+    expect(oldActivity.status).toBe(200);
+    expect(await oldActivity.json()).toEqual({ events: [], nextCursor: null });
+    const a = await newTask("Plan");
+    const b = await newTask("Build");
+    const path = `/tasks/${a.id}/activity`;
+    const labelId = seeded.labels[0].id;
+    const change = { title: "Design", description: textToDoc("Draft content"), labelIds: [labelId] };
+    expect((await call("PATCH", `/tasks/${a.id}`, change)).status).toBe(200);
+    expect((await call("PATCH", `/tasks/${a.id}`, change)).status).toBe(200);
+    expect((await call("PATCH", `/tasks/${a.id}`, { labelIds: [newId()] })).status).toBe(400);
+
+    const relation = await relate(a.id, b.id);
+    expect(relation.status).toBe(201);
+    const { id } = await relation.json();
+    expect((await call("DELETE", `/task-relations/${id}`)).status).toBe(204);
+
+    const response = await call("GET", `${path}?limit=2`, undefined, marcus);
+    expect(response.status).toBe(200);
+    const first = await response.json();
+    expect(first.events.map((event: { details: { kind: string } }) => event.details.kind)).toEqual([
+      "dependency_removed",
+      "dependency_added",
+    ]);
+    expect(first.nextCursor).toBe(first.events[1].id);
+    const second = await (await call("GET", `${path}?limit=2&before=${first.nextCursor}`)).json();
+    expect(second).toMatchObject({
+      events: [
+        {
+          source: "session",
+          details: {
+            kind: "updated",
+            changes: {
+              title: { from: "Plan", to: "Design" },
+              description: { from: false, to: true },
+              labelIds: { from: [], to: [labelId] },
+            },
+          },
+        },
+        { details: { kind: "created" } },
+      ],
+      nextCursor: null,
+    });
+    const other = await (await call("GET", `/tasks/${b.id}/activity`)).json();
+    expect(other.events[0].details).toEqual({
+      kind: "dependency_removed",
+      blockingTaskId: a.id,
+      blockedTaskId: b.id,
+    });
+    expect((await call("GET", `${path}?limit=101`)).status).toBe(400);
+    expect((await call("DELETE", `/tasks/${a.id}`)).status).toBe(204);
+    expect((await call("GET", path)).status).toBe(404);
+  });
 
   describe("start dates", () => {
     it("sets a start date on create and update, and syncs it", async () => {
@@ -234,6 +290,7 @@ describe("task start dates and dependencies", () => {
       expect((await boot()).taskRelations.some((r: { id: string }) => r.id === rel.id)).toBe(false);
       // Tasks of an archived team can't be linked.
       expect((await relate(outside.id, inside.id)).status).toBe(404);
+      expect((await call("GET", `/tasks/${inside.id}/activity`)).status).toBe(404);
 
       const before2 = await cursor();
       expect((await call("PATCH", `/teams/${team.id}`, { archived: false })).status).toBe(200);
@@ -246,6 +303,7 @@ describe("task start dates and dependencies", () => {
         }),
       );
       expect((await boot()).taskRelations).toContainEqual(expect.objectContaining({ id: rel.id }));
+      expect((await call("GET", `/tasks/${inside.id}/activity`)).status).toBe(200);
       // While it was hidden the relation still counted for cycle checks, so restoring can't reveal a cycle.
       expect((await relate(outside.id, inside.id)).status).toBe(409);
     });

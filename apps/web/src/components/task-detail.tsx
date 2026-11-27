@@ -218,12 +218,20 @@ function Property({ label, shortcut, children }: { label: string; shortcut?: str
 }
 
 /** Subtasks, live from the store, with a shortcut to add one. */
-export function Subtasks({ initial }: { initial: TaskSummary }) {
+export function Subtasks({
+  initial,
+  initialChildren = [],
+}: {
+  initial: TaskSummary;
+  initialChildren?: TaskSummary[];
+}) {
   const task = useTask(initial);
   const { idx, tasks, slug, canEditTasks: canEdit } = useWorkspace();
   const newTask = useNewTask();
+  const byId = new Map(initialChildren.map((child) => [child.id, idx.tasks.get(child.id) ?? child]));
+  for (const child of tasks) if (child.parentId === task.id) byId.set(child.id, child);
   const children = orderTasks(
-    tasks.filter((i) => i.parentId === task.id),
+    [...byId.values()].filter((child) => child.parentId === task.id),
     "manual",
   );
   if (children.length === 0 && !canEdit) return null;
@@ -281,14 +289,33 @@ export function Subtasks({ initial }: { initial: TaskSummary }) {
  * "Blocked by" and "Blocks": the task's dependencies, live from the store, with a
  * task picker to add one. Tasks that would close a circular dependency aren't offered.
  */
-export function TaskDependencies({ initial }: { initial: TaskSummary }) {
+export function TaskDependencies({
+  initial,
+  context,
+}: {
+  initial: TaskSummary;
+  context?: { relations: TaskRelation[]; tasks: TaskSummary[] };
+}) {
   const task = useTask(initial);
   const { idx, canEditTasks: canEdit, createTaskRelation, deleteTaskRelation } = useWorkspace();
-  const blockedBy = idx.blockedBy(task.id);
-  const blocking = idx.blocking(task.id);
+  const relations = [
+    ...new Map(
+      [...(context?.relations ?? []), ...(idx.boot.taskRelations ?? [])].map((relation) => [
+        relation.id,
+        relation,
+      ]),
+    ).values(),
+  ];
+  const related = new Map(context?.tasks.map((related) => [related.id, related]));
+  const blockedBy = relations.filter((r) => r.blockedTaskId === task.id);
+  const blocking = relations.filter((r) => r.blockingTaskId === task.id);
   if (blockedBy.length === 0 && blocking.length === 0 && !canEdit) return null;
 
-  const relations = idx.boot.taskRelations ?? [];
+  const openBlockers = blockedBy.filter((r) => {
+    const blocker = idx.tasks.get(r.blockingTaskId) ?? related.get(r.blockingTaskId);
+    const type = blocker && idx.states.get(blocker.stateId)?.type;
+    return !!type && type !== "completed" && type !== "canceled";
+  }).length;
   const linked = new Set([
     task.id,
     ...blockedBy.map((r) => r.blockingTaskId),
@@ -301,21 +328,19 @@ export function TaskDependencies({ initial }: { initial: TaskSummary }) {
         title="Blocked by"
         addLabel="Add blocker"
         relations={blockedBy}
+        related={related}
         other={(r) => r.blockingTaskId}
         canEdit={canEdit}
         exclude={(id) => linked.has(id) || wouldCreateBlockingCycle(relations, id, task.id)}
         onAdd={(id) => createTaskRelation(id, task.id)}
         onRemove={deleteTaskRelation}
-        badge={
-          idx.openBlockers(task.id).length > 0 ? (
-            <BlockedBadge count={idx.openBlockers(task.id).length} showLabel />
-          ) : undefined
-        }
+        badge={openBlockers > 0 ? <BlockedBadge count={openBlockers} showLabel /> : undefined}
       />
       <DependencyGroup
         title="Blocks"
         addLabel="Add blocked task"
         relations={blocking}
+        related={related}
         other={(r) => r.blockedTaskId}
         canEdit={canEdit}
         exclude={(id) => linked.has(id) || wouldCreateBlockingCycle(relations, task.id, id)}
@@ -330,6 +355,7 @@ function DependencyGroup({
   title,
   addLabel,
   relations,
+  related,
   other,
   canEdit,
   exclude,
@@ -340,6 +366,7 @@ function DependencyGroup({
   title: string;
   addLabel: string;
   relations: TaskRelation[];
+  related: ReadonlyMap<string, TaskSummary>;
   /** The task on the other end of a relation. */
   other: (r: TaskRelation) => string;
   canEdit: boolean;
@@ -373,8 +400,8 @@ function DependencyGroup({
         )}
       </div>
       {relations.map((r) => {
-        const t = idx.tasks.get(other(r));
-        if (!t) return null;
+        const t = idx.tasks.get(other(r)) ?? related.get(other(r));
+        if (!t || !idx.teams.has(t.teamId)) return null;
         const state = idx.states.get(t.stateId);
         return (
           <div key={r.id} className="group/dep flex items-center gap-1 rounded-md hover:bg-muted">

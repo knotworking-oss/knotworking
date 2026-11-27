@@ -141,6 +141,14 @@ export function projectBootstrap(tables: SyncTables, base: Bootstrap, cursor: st
   for (const [key, entity] of Object.entries(collections) as [Collection, string][]) {
     out[key] = key === "tasks" ? tasks(tables) : list(getTable(tables, entity), key);
   }
+  if (base.closedWindow) {
+    const states = getTable(tables, "workflow_state");
+    const cutoff = base.closedWindow.cutoff;
+    out.tasks = (out.tasks as TaskSummary[]).filter((task) => {
+      const type = states.get(task.stateId)?.type;
+      return (type !== "completed" && type !== "canceled") || task.updatedAt >= cutoff;
+    });
+  }
   return out as Bootstrap;
 }
 

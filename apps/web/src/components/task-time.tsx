@@ -177,7 +177,13 @@ function EstimateInput({
  * The task page's Time section: time estimate, logged total, the viewer's timer, a form to
  * log time and the entries. Live from the workspace store (entries sync like tasks).
  */
-export function TaskTime({ initial }: { initial: TaskSummary }) {
+export function TaskTime({
+  initial,
+  initialEntries = [],
+}: {
+  initial: TaskSummary;
+  initialEntries?: TimeEntry[];
+}) {
   const {
     tasks,
     idx,
@@ -193,8 +199,15 @@ export function TaskTime({ initial }: { initial: TaskSummary }) {
     stopTimer,
   } = useWorkspace();
   const task = tasks.find((t) => t.id === initial.id) ?? initial;
-  const entries = timeEntries.filter((e) => e.taskId === task.id);
-  const logged = idx.loggedMinutes.get(task.id) ?? 0;
+  const entries = [
+    ...new Map(
+      [...initialEntries, ...timeEntries.filter((e) => e.taskId === task.id)].map((entry) => [
+        entry.id,
+        entry,
+      ]),
+    ).values(),
+  ].sort((a, b) => b.entryDate.localeCompare(a.entryDate) || b.createdAt.localeCompare(a.createdAt));
+  const logged = entries.reduce((total, entry) => total + (entry.minutes ?? 0), 0);
   const timerHere = runningTimer?.taskId === task.id ? runningTimer : undefined;
   const timerElsewhere =
     runningTimer && !timerHere ? tasks.find((t) => t.id === runningTimer.taskId) : undefined;

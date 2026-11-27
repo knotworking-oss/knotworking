@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
 import { getBootstrap, getMe, getWorkspaceModuleSettings } from "@/lib/api";
 import { canManageStructure } from "@/lib/workflow";
-import { GeneralSettingsForm } from "./general-settings-form";
+import { ClosedTaskWindowForm, GeneralSettingsForm } from "./general-settings-form";
 import { ModuleSettingsForm } from "./module-settings-form";
 import { WorkspaceAvatarForm } from "./workspace-avatar-form";
 
@@ -31,6 +31,14 @@ export default async function GeneralSettingsPage({ params }: { params: Promise<
           timeZones={supportedTimeZones()}
           currencies={supportedCurrencies()}
         />
+        {boot.closedWindow && (
+          <ClosedTaskWindowForm
+            key={boot.workspace.closedTaskWindowDays}
+            slug={slug}
+            days={boot.workspace.closedTaskWindowDays}
+            canManage={canManage}
+          />
+        )}
         {moduleSettings && (
           <ModuleSettingsForm key={JSON.stringify(moduleSettings)} slug={slug} {...moduleSettings} />
         )}

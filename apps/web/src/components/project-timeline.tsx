@@ -14,13 +14,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { useWorkspaceTimeZone } from "@/lib/workspace-time";
 import { GanttChart, type GanttTask } from "./gantt-chart";
+import { OlderTasksControl, useOlderTasks } from "./older-tasks";
 
 /**
  * The project page's Timeline view: the project's tasks on a Gantt chart, live from the workspace
  * store. Rescheduling goes through the optimistic `updateTask`, so it syncs and rolls back on failure.
  */
 export function ProjectTimeline({ projectId }: { projectId: string }) {
-  const { idx, tasks, slug, canEditTasks: canEdit, updateTask } = useWorkspace();
+  const { idx, slug, canEditTasks: canEdit, updateTask } = useWorkspace();
+  const history = useOlderTasks({ projectId, sort: "manual" });
+  const { tasks } = history;
   const router = useRouter();
   const project = idx.projects.get(projectId);
   const timeZone = useWorkspaceTimeZone();
@@ -53,37 +56,51 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
   );
   const ids = useMemo(() => new Set(rows.map((r) => r.id)), [rows]);
   const relations = useMemo(
-    () => (idx.boot.taskRelations ?? []).filter((r) => ids.has(r.blockingTaskId) && ids.has(r.blockedTaskId)),
-    [idx, ids],
+    () =>
+      [
+        ...new Map(
+          [...(history.relations ?? []), ...(idx.boot.taskRelations ?? [])].map((relation) => [
+            relation.id,
+            relation,
+          ]),
+        ).values(),
+      ].filter((r) => ids.has(r.blockingTaskId) && ids.has(r.blockedTaskId)),
+    [idx, ids, history.relations],
   );
 
   if (rows.length === 0) {
     return (
-      <Empty className="py-16">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <ChartGantt />
-          </EmptyMedia>
-          <EmptyTitle>No tasks</EmptyTitle>
-          <EmptyDescription>
-            Tasks in this project show up here once they have start or due dates.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <>
+        <OlderTasksControl history={history} />
+        <Empty className="py-16">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <ChartGantt />
+            </EmptyMedia>
+            <EmptyTitle>No tasks</EmptyTitle>
+            <EmptyDescription>
+              Tasks in this project show up here once they have start or due dates.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </>
     );
   }
 
   if (!today) return null;
 
   return (
-    <GanttChart
-      tasks={rows}
-      relations={relations}
-      project={project ? { startDate: project.startDate, targetDate: project.targetDate } : undefined}
-      today={today}
-      canEdit={canEdit}
-      onReschedule={(id, patch) => void updateTask(id, patch)}
-      onOpen={(t) => t.href && router.push(t.href)}
-    />
+    <>
+      <OlderTasksControl history={history} />
+      <GanttChart
+        tasks={rows}
+        relations={relations}
+        project={project ? { startDate: project.startDate, targetDate: project.targetDate } : undefined}
+        today={today}
+        canEdit={canEdit}
+        onReschedule={(id, patch) => void updateTask(id, patch)}
+        onOpen={(t) => t.href && router.push(t.href)}
+      />
+    </>
   );
 }

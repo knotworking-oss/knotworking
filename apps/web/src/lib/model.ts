@@ -1,7 +1,11 @@
 import {
   compareSortKeys,
+  hasTeamFeature,
   sortKeyForMove,
+  taskOrderings,
   workflowStateTypes,
+  type TaskOrdering,
+  type TeamFeature,
   type WorkflowStateType,
 } from "@knotworking/core";
 import type { Bootstrap, TaskRelation, TaskSummary, WorkflowState } from "./api";
@@ -15,11 +19,16 @@ export function indexWorkspace(boot: Bootstrap) {
   const byId = <T extends { id: string }>(rows: T[]) => new Map(rows.map((r) => [r.id, r]));
   const states = byId(boot.workflowStates);
   const tasks = byId(boot.tasks);
+  const teams = byId(boot.teams);
   const relations = indexRelations(boot.taskRelations ?? [], tasks);
   return {
     boot,
     users: byId(boot.users),
-    teams: byId(boot.teams),
+    teams,
+    hasTeamFeature: (teamId: string, feature: TeamFeature) => {
+      const team = teams.get(teamId);
+      return !!team && hasTeamFeature(team, feature);
+    },
     teamsByKey: new Map(boot.teams.map((t) => [t.key, t])),
     states,
     labels: byId(boot.labels),
@@ -120,8 +129,7 @@ export function groupByCategory(
     }));
 }
 
-export const taskOrderings = ["priority", "manual", "created", "updated"] as const;
-export type TaskOrdering = (typeof taskOrderings)[number];
+export { taskOrderings, type TaskOrdering };
 export const orderingLabels: Record<TaskOrdering, string> = {
   priority: "Priority",
   manual: "Manual",

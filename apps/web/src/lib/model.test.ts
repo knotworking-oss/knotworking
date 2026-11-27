@@ -1,7 +1,9 @@
-import { sortKeyBetween } from "@knotworking/core";
+import { sortKeyBetween, upsertRow } from "@knotworking/core";
 import { describe, expect, it } from "vitest";
 import { makeBootstrap, makeState, makeTask } from "@/test/fixtures";
 import type { TaskSummary } from "./api";
+import { projectProgress } from "./projects";
+import { projectBootstrap, seedTables } from "./sync-model";
 import {
   groupByCategory,
   groupByState,
@@ -14,6 +16,36 @@ import {
 } from "./model";
 
 const ids = (tasks: TaskSummary[]) => tasks.map((t) => t.id);
+
+it("keeps historical sync rows out of the recent view until reopened and uses full project counts", () => {
+  const active = makeTask({ id: "active", projectId: "project" });
+  const older = makeTask({ id: "older", stateId: "done", projectId: "project" });
+  const base = makeBootstrap([active], {
+    closedWindow: {
+      cutoff: "2026-02-01T00:00:00.000Z",
+      olderCount: 1,
+      projectCounts: { project: { open: 1, completed: 1, canceled: 0, started: 0, estimate: 0, logged: 0 } },
+      labelCounts: {},
+      stateCounts: { todo: 1, done: 1 },
+    },
+  });
+  const tables = upsertRow(seedTables(base), "task", { ...older });
+  const snapshot = projectBootstrap(tables, base, "1");
+  expect(ids(snapshot.tasks)).toEqual(["active"]);
+  expect(projectProgress(snapshot.tasks, indexWorkspace(snapshot)).get("project")).toMatchObject({
+    completed: 1,
+    total: 2,
+    ratio: 0.5,
+  });
+  const reopened = upsertRow(tables, "task", {
+    ...older,
+    stateId: "todo",
+    updatedAt: "2026-02-02T00:00:00.000Z",
+  });
+  expect(ids(projectBootstrap(reopened, base, "2").tasks)).toEqual(
+    expect.arrayContaining(["active", "older"]),
+  );
+});
 
 describe("indexWorkspace", () => {
   const boot = makeBootstrap([], {

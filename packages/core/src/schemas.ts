@@ -24,6 +24,8 @@ import { currencySchema } from "./currency";
 import { timeZoneSchema } from "./time-zone";
 import { financialYearStartMonthSchema } from "./financial-year";
 import { MAX_TOKEN_ORDER_VALUE, tokenActionIds } from "./token-actions";
+import { taskFilterJsonSchema, taskGroupFields, taskOrderings } from "./task-filter";
+import { closedTaskWindowDaysSchema, teamFeaturesSchema } from "./planner-settings";
 
 /**
  * Input validation shared by the API server and every client. Clients validate
@@ -97,8 +99,20 @@ export const taskListQuerySchema = z.object({
   projectId: id.optional(),
   assigneeId: id.optional(),
   stateType: z.enum(workflowStateTypes).optional(),
+  filter: taskFilterJsonSchema.optional(),
+  sort: z.enum(taskOrderings).optional(),
+  group: z.enum(taskGroupFields).optional(),
+  title: z.string().trim().min(2).max(200).optional(),
+  includeRelations: z.literal("true").optional(),
+  cursor: z
+    .string()
+    .min(1)
+    .max(2048)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .optional(),
   limit: z.coerce.number().int().min(1).max(500).default(250),
 });
+export type TaskListQuery = z.infer<typeof taskListQuerySchema>;
 
 export const documentCreateSchema = z.object({
   id: id.optional(),
@@ -276,7 +290,7 @@ export type TeamCreateInput = z.infer<typeof teamCreateSchema>;
 export const teamUpdateSchema = teamCreateSchema
   .omit({ id: true, memberIds: true })
   .partial()
-  .extend({ archived: z.boolean().optional() });
+  .extend({ archived: z.boolean().optional(), features: teamFeaturesSchema.optional() });
 export type TeamUpdateInput = z.infer<typeof teamUpdateSchema>;
 
 export const teamMemberAddSchema = z.object({ userId: id });
@@ -322,6 +336,7 @@ export const workspaceSettingsSchema = z.object({
   currency: currencySchema,
   /** Month the financial year starts in, 1 (January) to 12 (`DEFAULT_FINANCIAL_YEAR_START_MONTH`). */
   financialYearStartMonth: financialYearStartMonthSchema,
+  closedTaskWindowDays: closedTaskWindowDaysSchema,
 });
 export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 

@@ -7,6 +7,8 @@ import type {
   ProjectHealth,
   ProjectStatus,
   TagColorName,
+  TaskActivityDetails,
+  TaskActivitySource,
   WorkflowStateType,
 } from "@knotworking/core";
 import { sql } from "drizzle-orm";
@@ -155,6 +157,22 @@ export const taskLabels = pgTable(
     ...timestamps(),
   },
   (t) => [uniqueIndex("task_labels_task_label_key").on(t.taskId, t.labelId)],
+);
+
+export const taskEvents = pgTable(
+  "task_events",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    source: text("source").$type<TaskActivitySource>().notNull(),
+    details: jsonb("details").$type<TaskActivityDetails>().notNull(),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("task_events_workspace_task_id_idx").on(t.workspaceId, t.taskId, t.id)],
 );
 
 /**

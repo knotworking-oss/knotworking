@@ -2,6 +2,7 @@ import {
   projectCreateSchema,
   projectFromTemplateSchema,
   projectUpdateSchema,
+  taskActivityQuerySchema,
   taskCreateSchema,
   taskListQuerySchema,
   taskRelationCreateSchema,
@@ -16,8 +17,9 @@ import { listBacklinks } from "../services/backlinks";
 import { emailNotifier } from "../services/notifications";
 import { createProjectFromTemplate } from "../services/project-templates";
 import { createProject, deleteProject, listProjects, updateProject } from "../services/projects";
+import { listTaskActivity } from "../services/task-activity";
 import { createTaskRelation, deleteTaskRelation } from "../services/task-relations";
-import { createTask, deleteTask, getTask, listTasks, updateTask } from "../services/tasks";
+import { createTask, deleteTask, getTask, queryTasks, updateTask } from "../services/tasks";
 import { validate } from "../validate";
 import { commentRoutes } from "./comments";
 
@@ -31,10 +33,30 @@ const idParam = z.object({ id: z.uuid() });
 export const taskRoutes = new Hono<WorkspaceEnv>()
   // ── Tasks ──
   .get("/tasks", validate("query", taskListQuerySchema), async (c) =>
-    c.json({ tasks: await listTasks(c.var.db, c.var.workspace.id, c.req.valid("query")) }),
+    c.json(await queryTasks(c.var.db, c.var.workspace.id, c.req.valid("query"))),
   )
-  .get("/tasks/:id", validate("param", idParam), async (c) =>
-    c.json(await getTask(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+  .get(
+    "/tasks/:id",
+    validate("param", idParam),
+    validate("query", z.object({ context: z.literal("true").optional() }).optional()),
+    async (c) =>
+      c.json(
+        await getTask(
+          c.var.db,
+          c.var.workspace.id,
+          c.req.valid("param").id,
+          c.req.valid("query")?.context === "true",
+        ),
+      ),
+  )
+  .get(
+    "/tasks/:id/activity",
+    validate("param", idParam),
+    validate("query", taskActivityQuerySchema),
+    async (c) =>
+      c.json(
+        await listTaskActivity(c.var.db, c.var.workspace.id, c.req.valid("param").id, c.req.valid("query")),
+      ),
   )
   .get("/tasks/:id/backlinks", validate("param", idParam), async (c) =>
     c.json(
@@ -54,6 +76,7 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
         c.var.user.id,
         c.req.valid("json"),
         emailNotifier(c.var),
+        c.var.credential.kind,
       ),
       201,
     ),
@@ -72,6 +95,7 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
           c.req.valid("param").id,
           c.req.valid("json"),
           emailNotifier(c.var),
+          c.var.credential.kind,
         ),
       ),
   )
@@ -82,10 +106,25 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
 
   // ── Task dependencies (listed in the bootstrap; `blockingTaskId` blocks `blockedTaskId`) ──
   .post("/task-relations", requireWriter, validate("json", taskRelationCreateSchema), async (c) =>
-    c.json(await createTaskRelation(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
+    c.json(
+      await createTaskRelation(
+        c.var.db,
+        c.var.workspace.id,
+        c.var.user.id,
+        c.req.valid("json"),
+        c.var.credential.kind,
+      ),
+      201,
+    ),
   )
   .delete("/task-relations/:id", requireWriter, validate("param", idParam), async (c) => {
-    await deleteTaskRelation(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("param").id);
+    await deleteTaskRelation(
+      c.var.db,
+      c.var.workspace.id,
+      c.var.user.id,
+      c.req.valid("param").id,
+      c.var.credential.kind,
+    );
     return c.body(null, 204);
   })
 

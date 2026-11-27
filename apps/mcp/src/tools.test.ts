@@ -54,6 +54,8 @@ const READ_TOOLS = [
   "list_tasks",
   "search_tasks",
   "get_task",
+  "list_task_activity",
+  "query_tasks",
   "list_projects",
   "get_time_report",
   "list_documents",
@@ -574,6 +576,26 @@ describe("read tools", () => {
     expect((await configured.call("list_projects")).data.total).toBe(1);
   });
 
+  it("query_tasks forwards the shared filter and pages grouped server results", async () => {
+    const { call, fake } = await session();
+    const filter = JSON.stringify({
+      version: 1,
+      expression: { field: "teamId", op: "eq", value: fake.ids.eng },
+    });
+    const input = { filter, group: "teamId", sort: "manual", limit: 1 };
+    const first = await call("query_tasks", input);
+    expect(first.isError).toBe(false);
+    expect(first.data).toMatchObject({
+      tasks: [{ id: fake.ids.t1 }],
+      groups: [{ key: fake.ids.eng, taskIds: [fake.ids.t1] }],
+      nextCursor: expect.any(String),
+    });
+    const second = await call("query_tasks", { ...input, cursor: first.data.nextCursor });
+    expect(second.isError).toBe(false);
+    expect(second.data).toMatchObject({ tasks: [{ id: fake.ids.t2 }], nextCursor: null });
+    expect((await call("query_tasks", { filter: "{" })).isError).toBe(true);
+  });
+
   it("list_tasks resolves names to ids for every filter", async () => {
     const { call, fake } = await session();
     const all = (await call("list_tasks", { workspace: "acme" })).data;
@@ -865,6 +887,12 @@ describe("write tools", () => {
     // ...and it reads back as the same text.
     const back = (await call("get_task", { task: data.id })).data;
     expect(back.description).toBe("First line\n\nThird line");
+    const history = await call("list_task_activity", { task: data.id, limit: 1 });
+    expect(history.isError).toBe(false);
+    expect(history.data).toMatchObject({
+      events: [{ actorId: fake.ids.me, source: "token", details: { kind: "created" } }],
+      nextCursor: null,
+    });
   });
 
   it("create_task defaults to the team's first state and resolves a state by type when the name misses", async () => {

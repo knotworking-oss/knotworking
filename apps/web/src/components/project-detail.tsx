@@ -37,7 +37,13 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
   const router = useRouter();
   const project = idx.projects.get(id);
   const progress = useMemo(() => projectProgress(tasks, idx).get(id) ?? noProgress, [tasks, idx, id]);
-  const time = useMemo(() => projectTime(tasks, idx.loggedMinutes).get(id), [tasks, idx, id]);
+  const time = useMemo(
+    () =>
+      idx.boot.closedWindow
+        ? idx.boot.closedWindow.projectCounts[id]
+        : projectTime(tasks, idx.loggedMinutes).get(id),
+    [tasks, idx, id],
+  );
   const mode = view === "board" || view === "timeline" ? view : "list";
   const ordering = parseOrdering(order);
 

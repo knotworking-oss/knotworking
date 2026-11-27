@@ -1,4 +1,6 @@
 import {
+  compareSortKeys,
+  filterTaskRows,
   d,
   documentCreateSchema,
   docToPlainText,
@@ -11,6 +13,7 @@ import {
   searchQuerySchema,
   searchTerms,
   taskCommentCreateSchema,
+  taskActivityQuerySchema,
   taskCreateSchema,
   taskListQuerySchema,
   taskRelationCreateSchema,
@@ -26,6 +29,9 @@ import {
   documentRestoreSchema,
   wouldCreateBlockingCycle,
   type DocContent,
+  type TaskActivityDetails,
+  type TaskFilterRow,
+  type WorkflowStateType,
 } from "@knotworking/core";
 import { Hono } from "hono";
 import { BOOTSTRAP_TASK_CAP } from "../model";
@@ -126,7 +132,7 @@ export function createFakeApi() {
     t1: newId(),
     t2: newId(),
   };
-  const state = (teamId: string, id: string, name: string, type: string) => ({
+  const state = (teamId: string, id: string, name: string, type: WorkflowStateType) => ({
     id,
     teamId,
     name,
@@ -247,7 +253,7 @@ export function createFakeApi() {
         labelIds: [] as string[],
         ...base,
       },
-    ] as Array<Record<string, any>>,
+    ] as Array<TaskFilterRow & Record<string, any>>,
     documents: [
       {
         id: ids.handbook,
@@ -453,23 +459,71 @@ export function createFakeApi() {
   );
 
   const findTask = (id: string) => store.tasks.find((t) => t.id === id);
-  // Like the real route: filters teamId/projectId/assigneeId/stateType, limit 1-500 (default 250), no offset.
+  const activity = new Map<
+    string,
+    { id: string; actorId: string; source: "token"; createdAt: string; details: TaskActivityDetails }[]
+  >();
+  app.get(`${ws}/tasks/:id/activity`, (c) => {
+    const taskId = c.req.param("id");
+    if (!findTask(taskId)) return c.json(err("not_found", "Task not found"), 404);
+    const parsed = taskActivityQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) return c.json(err("invalid_input", "Invalid query", parsed.error.issues), 400);
+    const { before, limit } = parsed.data;
+    const matches = (activity.get(taskId) ?? []).filter((event) => !before || event.id < before);
+    const events = matches.slice(0, limit);
+    return c.json({ events, nextCursor: matches.length > limit ? events.at(-1)!.id : null });
+  });
+  // Legacy filters and the advanced query share the real validation and client-side filter evaluator.
   app.get(`${ws}/tasks`, (c) => {
     const parsed = taskListQuerySchema.safeParse(c.req.query());
     if (!parsed.success) return c.json(err("invalid_input", "Invalid query", parsed.error.issues), 400);
     const f = parsed.data;
     const typeOf = (stateId: string) => store.workflowStates.find((s) => s.id === stateId)?.type;
-    const tasks = store.tasks
-      .filter(
-        (t) =>
-          (!f.teamId || t.teamId === f.teamId) &&
-          (!f.projectId || t.projectId === f.projectId) &&
-          (!f.assigneeId || t.assigneeId === f.assigneeId) &&
-          (!f.stateType || typeOf(t.stateId) === f.stateType),
-      )
-      .slice(0, f.limit)
-      .map(({ description: _d, ...t }) => t);
-    return c.json({ tasks });
+    const candidates = f.filter
+      ? filterTaskRows(store.tasks, f.filter, (id) => typeOf(id) ?? null, store.taskRelations)
+      : store.tasks;
+    const matches = candidates.filter(
+      (t) =>
+        (!f.teamId || t.teamId === f.teamId) &&
+        (!f.projectId || t.projectId === f.projectId) &&
+        (!f.assigneeId || t.assigneeId === f.assigneeId) &&
+        (!f.stateType || typeOf(t.stateId) === f.stateType),
+    );
+    const groupKey = (task: (typeof matches)[number]) => {
+      const key = f.group === "stateType" ? typeOf(task.stateId) : f.group ? task[f.group] : null;
+      return key == null ? null : String(key);
+    };
+    const rank = (task: (typeof matches)[number]) => task.priority || 5;
+    const sorted =
+      f.filter || f.sort || f.group
+        ? matches.sort(
+            (a, b) =>
+              compareSortKeys(groupKey(a) ?? "", groupKey(b) ?? "") ||
+              (f.sort === "priority" ? rank(a) - rank(b) : 0) ||
+              (f.sort === "created" ? compareSortKeys(b.createdAt, a.createdAt) : 0) ||
+              (f.sort === "updated" ? compareSortKeys(b.updatedAt, a.updatedAt) : 0) ||
+              compareSortKeys(a.sortOrder, b.sortOrder) ||
+              (!f.sort ? compareSortKeys(b.createdAt, a.createdAt) : 0) ||
+              compareSortKeys(a.id, b.id),
+          )
+        : matches;
+    const after = f.cursor ? sorted.findIndex((task) => task.id === f.cursor) + 1 : 0;
+    if (f.cursor && !after) return c.json(err("invalid_input", "Invalid task cursor for this query"), 400);
+    const page = sorted.slice(after, after + f.limit);
+    const groups = new Map<string | null, string[]>();
+    if (f.group) {
+      for (const task of page) {
+        const key = groupKey(task);
+        const ids = groups.get(key);
+        if (ids) ids.push(task.id);
+        else groups.set(key, [task.id]);
+      }
+    }
+    return c.json({
+      tasks: page.map(({ description: _d, ...task }) => task),
+      nextCursor: after + page.length < sorted.length ? page.at(-1)!.id : null,
+      ...(f.group ? { groups: [...groups].map(([key, taskIds]) => ({ key, taskIds })) } : {}),
+    });
   });
   // Like the real route: the shared query schema and the response shape; the aggregation here is the
   // minimum the tool tests need (the real one is tested in apps/server).
@@ -577,6 +631,9 @@ export function createFakeApi() {
       updatedAt: now(),
     };
     store.tasks.push(task);
+    activity.set(task.id, [
+      { id: newId(), actorId: ids.me, source: "token", createdAt: now(), details: { kind: "created" } },
+    ]);
     return c.json(task, 201);
   });
   app.patch(`${ws}/tasks/:id`, async (c) => {

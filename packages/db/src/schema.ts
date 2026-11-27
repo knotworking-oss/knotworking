@@ -20,8 +20,10 @@ import type {
   NotificationData,
   NotificationType,
   TagColorName,
+  TeamFeature,
   WorkspaceRole,
 } from "@knotworking/core";
+import { DEFAULT_CLOSED_TASK_WINDOW_DAYS, MAX_CLOSED_TASK_WINDOW_DAYS } from "@knotworking/core";
 import { pk, timestamps, ts, workspaceRef } from "./schema/helpers";
 import { documents } from "./schema/docs";
 import { tasks } from "./schema/tasks";
@@ -80,11 +82,20 @@ export const workspaces = pgTable(
      * it for "this financial year", quarters and year-to-date. Calendar months only.
      */
     financialYearStartMonth: integer("financial_year_start_month").notNull().default(1),
+    closedTaskWindowDays: integer("closed_task_window_days")
+      .notNull()
+      .default(DEFAULT_CLOSED_TASK_WINDOW_DAYS),
     /** Null inherits the installation's enabled modules. An empty array enables only the platform. */
     enabledModules: text("enabled_modules").array().$type<ModuleId[]>(),
     ...timestamps(),
   },
-  (t) => [uniqueIndex("workspaces_slug_key").on(t.slug)],
+  (t) => [
+    uniqueIndex("workspaces_slug_key").on(t.slug),
+    check(
+      "workspaces_closed_task_window_days_check",
+      sql`${t.closedTaskWindowDays} between 1 and ${sql.raw(String(MAX_CLOSED_TASK_WINDOW_DAYS))}`,
+    ),
+  ],
 );
 
 export const workspaceMembers = pgTable(
@@ -238,6 +249,7 @@ export const teams = pgTable(
     description: text("description"),
     icon: text("icon"),
     color: text("color").$type<TagColorName>().notNull().default("gray"),
+    features: jsonb("features").$type<TeamFeature[]>().notNull().default([]),
     ...timestamps(),
   },
   (t) => [uniqueIndex("teams_workspace_key_key").on(t.workspaceId, t.key)],

@@ -1,5 +1,6 @@
-import type { TaskRelationCreateInput } from "@knotworking/core";
+import type { TaskActivitySource, TaskRelationCreateInput } from "@knotworking/core";
 import {
+  lockWorkspaceLog,
   recordChanges,
   taskRelations,
   tasks,
@@ -8,9 +9,10 @@ import {
   type Executor,
   type Transaction,
 } from "@knotworking/db";
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { ApiError, badRequest, isPrimaryKeyViolation, notFound } from "../errors";
+import { recordTaskActivity } from "./task-activity";
 
 /**
  * Task dependencies ("A blocks B", read from B as "blocked by A").
@@ -35,7 +37,7 @@ export function serializeTaskRelation(row: RelationRow) {
  * Relations whose two tasks are both visible: not deleted, and not in an
  * archived team (task lists hide those, so their relations are hidden too).
  */
-export async function listTaskRelations(db: Executor, workspaceId: string) {
+export async function listTaskRelations(db: Executor, workspaceId: string, scope?: SQL) {
   const blocking = alias(tasks, "blocking_task");
   const blockingTeam = alias(teams, "blocking_team");
   const rows = await db
@@ -45,7 +47,7 @@ export async function listTaskRelations(db: Executor, workspaceId: string) {
     .innerJoin(teams, and(eq(teams.id, tasks.teamId), isNull(teams.deletedAt)))
     .innerJoin(blocking, and(eq(blocking.id, taskRelations.blockingTaskId), isNull(blocking.deletedAt)))
     .innerJoin(blockingTeam, and(eq(blockingTeam.id, blocking.teamId), isNull(blockingTeam.deletedAt)))
-    .where(and(eq(taskRelations.workspaceId, workspaceId), isNull(taskRelations.deletedAt)));
+    .where(and(eq(taskRelations.workspaceId, workspaceId), isNull(taskRelations.deletedAt), scope));
   return rows.map((r) => serializeTaskRelation(r.relation));
 }
 
@@ -98,6 +100,7 @@ export async function createTaskRelation(
   workspaceId: string,
   actorId: string,
   input: TaskRelationCreateInput,
+  source: TaskActivitySource = "internal",
 ) {
   const { blockingTaskId, blockedTaskId } = input;
   if (blockingTaskId === blockedTaskId) throw badRequest("A task can't block itself");
@@ -105,7 +108,7 @@ export async function createTaskRelation(
     return await db.transaction(async (tx) => {
       // Serialise relation writes in the workspace (recordChanges re-takes this lock), so two
       // concurrent requests can't each add one half of a cycle.
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${workspaceId}, 0))`);
+      await lockWorkspaceLog(tx, workspaceId);
       await assertLiveTasks(tx, workspaceId, [blockingTaskId, blockedTaskId]);
 
       const [existing] = await tx
@@ -141,6 +144,11 @@ export async function createTaskRelation(
       await recordChanges(tx, workspaceId, actorId, [
         { entity: "task_relation", entityId: row!.id, action: "upsert", data: row },
       ]);
+      await recordTaskActivity(tx, workspaceId, [blockingTaskId, blockedTaskId], actorId, source, {
+        kind: "dependency_added",
+        blockingTaskId,
+        blockedTaskId,
+      });
       return serializeTaskRelation(row!);
     });
   } catch (err) {
@@ -150,16 +158,28 @@ export async function createTaskRelation(
   }
 }
 
-export async function deleteTaskRelation(db: Database, workspaceId: string, actorId: string, id: string) {
+export async function deleteTaskRelation(
+  db: Database,
+  workspaceId: string,
+  actorId: string,
+  id: string,
+  source: TaskActivitySource = "internal",
+) {
   await db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, workspaceId);
     const [row] = await tx
       .delete(taskRelations)
       .where(and(eq(taskRelations.id, id), eq(taskRelations.workspaceId, workspaceId)))
-      .returning({ id: taskRelations.id });
+      .returning();
     if (!row) throw notFound("Relation");
     await recordChanges(tx, workspaceId, actorId, [
       { entity: "task_relation", entityId: id, action: "delete" },
     ]);
+    await recordTaskActivity(tx, workspaceId, [row.blockingTaskId, row.blockedTaskId], actorId, source, {
+      kind: "dependency_removed",
+      blockingTaskId: row.blockingTaskId,
+      blockedTaskId: row.blockedTaskId,
+    });
   });
 }
 

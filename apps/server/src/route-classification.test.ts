@@ -381,6 +381,7 @@ const ROUTES: Record<string, Classification> = {
   "GET /v1/workspaces/:slug/tasks": "token-ok",
   "GET /v1/workspaces/:slug/tasks/:id": "token-ok",
   "GET /v1/workspaces/:slug/tasks/:id/backlinks": "token-ok",
+  "GET /v1/workspaces/:slug/tasks/:id/activity": "token-ok",
   "POST /v1/workspaces/:slug/tasks": "token-ok",
   "PATCH /v1/workspaces/:slug/tasks/:id": "token-ok",
   "DELETE /v1/workspaces/:slug/tasks/:id": "token-ok",

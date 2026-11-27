@@ -1,6 +1,6 @@
 "use client";
 
-import type { TaskUpdateInput } from "@knotworking/core";
+import { filterTaskRows, type TaskFilterExpression, type TaskUpdateInput } from "@knotworking/core";
 import { useCallback, useMemo } from "react";
 import { groupByCategory, groupByState, planDrop, type TaskGroup, type TaskOrdering } from "@/lib/model";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -8,6 +8,7 @@ import { TaskBoard } from "./task-board";
 import type { DropHandler } from "./task-dnd";
 import { TaskList } from "./task-list";
 import { useNewTask } from "./new-task-dialog";
+import { OlderTasksControl, useOlderTasks } from "./older-tasks";
 
 /**
  * Tasks for one page, live from the workspace store.
@@ -30,16 +31,29 @@ export function TasksView({
   ordering: TaskOrdering;
   emptyDescription?: string;
 }) {
-  const { idx, tasks, viewer, updateTask } = useWorkspace();
+  const { idx, viewer, updateTask } = useWorkspace();
+  const history = useOlderTasks({
+    teamId,
+    projectId,
+    assigneeId: assignedToMe ? viewer.id : undefined,
+    sort: ordering,
+  });
+  const { tasks } = history;
   const newTask = useNewTask();
 
   const groups = useMemo(() => {
-    const shown = tasks.filter(
-      (i) =>
-        (!teamId || i.teamId === teamId) &&
-        (!assignedToMe || i.assigneeId === viewer.id) &&
-        (!projectId || i.projectId === projectId),
-    );
+    const filters: TaskFilterExpression[] = [];
+    if (teamId) filters.push({ field: "teamId", op: "eq", value: teamId });
+    if (projectId) filters.push({ field: "projectId", op: "eq", value: projectId });
+    if (assignedToMe) filters.push({ field: "assigneeId", op: "eq", value: viewer.id });
+    const shown = filters.length
+      ? filterTaskRows(
+          tasks,
+          { version: 1, expression: { and: filters } },
+          (id) => idx.states.get(id)?.type ?? null,
+          idx.boot.taskRelations ?? [],
+        )
+      : tasks;
     return teamId
       ? groupByState(
           shown,
@@ -73,9 +87,14 @@ export function TasksView({
       ...(projectId ? { projectId } : {}),
     });
 
-  return view === "board" ? (
-    <TaskBoard groups={groups} onDrop={onDrop} onCreate={onCreate} />
-  ) : (
-    <TaskList groups={groups} onDrop={onDrop} onCreate={onCreate} emptyDescription={emptyDescription} />
+  return (
+    <>
+      <OlderTasksControl history={history} />
+      {view === "board" ? (
+        <TaskBoard groups={groups} onDrop={onDrop} onCreate={onCreate} />
+      ) : (
+        <TaskList groups={groups} onDrop={onDrop} onCreate={onCreate} emptyDescription={emptyDescription} />
+      )}
+    </>
   );
 }

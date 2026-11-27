@@ -53,7 +53,7 @@ export function TaskBoard({
               return (
                 <section key={g.key} aria-label={g.title} className="flex w-72 shrink-0 flex-col gap-3">
                   <header className="flex h-7 items-center gap-2 px-1 text-sm">
-                    <StatusIcon type={g.type} progress={g.progress} />
+                    {!g.group && <StatusIcon type={g.type} progress={g.progress} />}
                     <span className="font-medium">{g.title}</span>
                     <span className="text-muted-foreground tabular-nums">{items.length}</span>
                     {canEdit && onCreate && (

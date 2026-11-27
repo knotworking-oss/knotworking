@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const taskActivityFields = [
   "title",
+  "teamId",
   "description",
   "stateId",
   "priority",

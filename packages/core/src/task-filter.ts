@@ -70,10 +70,12 @@ export const closedTaskStateTypes = ["completed", "canceled"] as const;
 
 /** The complement of the recent-task bootstrap window, for historical task queries. */
 export function olderClosedTaskFilter(cutoff: string): TaskFilterExpression {
-  return { and: [
-    { or: closedTaskStateTypes.map((value) => ({ field: "stateType", op: "eq", value })) },
-    { field: "updatedAt", op: "lt", value: cutoff },
-  ] };
+  return {
+    and: [
+      { or: closedTaskStateTypes.map((value) => ({ field: "stateType", op: "eq", value })) },
+      { field: "updatedAt", op: "lt", value: cutoff },
+    ],
+  };
 }
 
 export const taskFilterJsonSchema = z
@@ -208,5 +210,17 @@ export const taskGroupFields = [
   "stateId",
   "stateType",
   "priority",
+  "labelIds",
+  "dueWeek",
 ] as const;
 export type TaskGroupField = (typeof taskGroupFields)[number];
+
+export const taskDisplayGroups = [
+  "status",
+  "assigneeId",
+  "projectId",
+  "priority",
+  "labelIds",
+  "dueWeek",
+] as const;
+export type TaskDisplayGroup = (typeof taskDisplayGroups)[number];

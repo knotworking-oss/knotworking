@@ -11,18 +11,29 @@ import {
   SelectValue,
 } from "@knotworking/ui/components/select";
 import { SlidersHorizontal } from "lucide-react";
-import { taskOrderings, orderingLabels, type TaskOrdering } from "@/lib/model";
+import { taskDisplayGroups, type TaskDisplayGroup } from "@knotworking/core";
+import { useSearchParams } from "next/navigation";
+import {
+  taskOrderings,
+  orderingLabels,
+  parseTaskGroup,
+  taskGroupLabels,
+  type TaskOrdering,
+} from "@/lib/model";
 import { useSearchParam } from "./view-switcher";
 
 /** "Display" menu for task views. Settings live in the URL so views can be shared. */
 export function DisplayOptions({
   ordering,
   explicitDefault,
+  defaultGroup,
 }: {
   ordering: TaskOrdering;
   explicitDefault?: boolean;
+  defaultGroup?: TaskDisplayGroup;
 }) {
   const setParam = useSearchParam();
+  const group = parseTaskGroup(useSearchParams().get("group")) ?? defaultGroup ?? "status";
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -51,12 +62,36 @@ export function DisplayOptions({
             </SelectContent>
           </Select>
         </div>
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="display-group" className="font-normal text-muted-foreground">
+            Group by
+          </Label>
+          <Select
+            value={group}
+            onValueChange={(next) => setParam("group", next === "status" && !explicitDefault ? null : next)}
+          >
+            <SelectTrigger id="display-group" size="sm" className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {taskDisplayGroups.map((field) => (
+                <SelectItem key={field} value={field}>
+                  {taskGroupLabels[field]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <p className="text-xs text-muted-foreground">
-          {ordering === "manual"
-            ? "Drag tasks to arrange them."
-            : ordering === "priority"
-              ? "Dragging a task between others gives it their priority."
-              : "Drag tasks between groups to change their status."}
+          {group === "labelIds"
+            ? "Dragging rearranges tasks within each label group."
+            : group !== "status"
+              ? "Dragging between groups changes the grouped property."
+              : ordering === "manual"
+                ? "Drag tasks to arrange them."
+                : ordering === "priority"
+                  ? "Dragging a task between others gives it their priority."
+                  : "Drag tasks between groups to change their status."}
         </p>
       </PopoverContent>
     </Popover>

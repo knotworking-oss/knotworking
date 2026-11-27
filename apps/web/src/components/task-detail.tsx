@@ -17,6 +17,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@knotworking/ui/components/dropdown-menu";
 import { Kbd } from "@knotworking/ui/components/kbd";
@@ -443,7 +446,7 @@ function DependencyGroup({
 export function TaskActions({ initial, teamKey }: { initial: TaskSummary; teamKey: string }) {
   const task = useTask(initial);
   const router = useRouter();
-  const { slug, canEditTasks: canEdit, deleteTask } = useWorkspace();
+  const { slug, idx, canEditTasks: canEdit, deleteTask, updateTask } = useWorkspace();
   const [confirming, setConfirming] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
 
@@ -502,6 +505,28 @@ export function TaskActions({ initial, teamKey }: { initial: TaskSummary; teamKe
               <DropdownMenuItem disabled={duplicating} onSelect={() => void duplicate()}>
                 <Copy /> Duplicate task
               </DropdownMenuItem>
+              {idx.boot.teams.some((team) => team.id !== task.teamId) && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>Move to team</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {idx.boot.teams
+                      .filter((team) => team.id !== task.teamId)
+                      .map((team) => (
+                        <DropdownMenuItem
+                          key={team.id}
+                          onSelect={async () => {
+                            if (await updateTask(task.id, { teamId: team.id })) {
+                              toast.success(`Moved to ${team.name}`);
+                              router.refresh();
+                            }
+                          }}
+                        >
+                          {team.name}
+                        </DropdownMenuItem>
+                      ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
               <DropdownMenuItem variant="destructive" onSelect={() => setConfirming(true)}>
                 <Trash2 /> Delete task
               </DropdownMenuItem>

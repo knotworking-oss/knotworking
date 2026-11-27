@@ -20,7 +20,7 @@ type Selection = {
   toggle: (id: string, range?: boolean) => void;
 };
 const BulkSelection = createContext<Selection | null>(null);
-type Field = "stateId" | "assigneeId" | "priority" | "projectId" | "labelIds" | "delete";
+type Field = "teamId" | "stateId" | "assigneeId" | "priority" | "projectId" | "labelIds" | "delete";
 const selectClass = "h-8 max-w-48 rounded-md border bg-background px-2 text-sm";
 
 export function BulkTaskSelection({ tasks, children }: { tasks: TaskSummary[]; children: ReactNode }) {
@@ -69,8 +69,8 @@ export function BulkTaskSelection({ tasks, children }: { tasks: TaskSummary[]; c
           ? { priority: Number(value) as TaskBulkPatch["priority"] }
           : field === "labelIds"
             ? { labelIds: value === "none" ? [] : [value] }
-            : field === "stateId"
-              ? { stateId: value }
+            : field === "stateId" || field === "teamId"
+              ? { [field]: value }
               : { [field]: value === "none" ? null : value };
       input = { action: "update", ids, patch };
     }
@@ -99,7 +99,9 @@ export function BulkTaskSelection({ tasks, children }: { tasks: TaskSummary[]; c
           ? [{ id: "none", name: "Unassigned" }, ...idx.boot.users]
           : field === "projectId"
             ? [{ id: "none", name: "No project" }, ...idx.boot.projects]
-            : [{ id: "none", name: "Clear labels" }, ...idx.boot.labels];
+            : field === "teamId"
+              ? idx.boot.teams
+              : [{ id: "none", name: "Clear labels" }, ...idx.boot.labels];
 
   return (
     <BulkSelection.Provider value={canEditTasks ? { enabled, has: (id) => ids.includes(id), toggle } : null}>
@@ -138,6 +140,7 @@ export function BulkTaskSelection({ tasks, children }: { tasks: TaskSummary[]; c
                 </option>
                 <option value="assigneeId">Set assignee</option>
                 <option value="projectId">Set project</option>
+                <option value="teamId">Move to team</option>
                 <option value="labelIds">Replace labels</option>
                 <option value="delete">Delete</option>
               </select>

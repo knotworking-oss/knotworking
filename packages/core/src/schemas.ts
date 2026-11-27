@@ -72,7 +72,7 @@ export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
  * checks it against the stored other one.
  */
 export const taskUpdateSchema = taskFields
-  .omit({ id: true, teamId: true })
+  .omit({ id: true })
   .partial()
   .extend({ title: z.string().trim().min(1).max(512).optional() })
   .refine(taskDatesInOrder, taskDatesInOrderMessage);
@@ -80,7 +80,7 @@ export type TaskUpdateInput = z.infer<typeof taskUpdateSchema>;
 
 export const TASK_BULK_LIMIT = 200;
 export const taskBulkPatchSchema = taskFields
-  .pick({ stateId: true, assigneeId: true, priority: true, projectId: true, labelIds: true })
+  .pick({ teamId: true, stateId: true, assigneeId: true, priority: true, projectId: true, labelIds: true })
   .partial()
   .strict()
   .refine((patch) => Object.keys(patch).length > 0, "Select a change to apply");

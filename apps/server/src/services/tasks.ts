@@ -246,7 +246,12 @@ export async function duplicateTask(
   return copy;
 }
 
-async function resolveState(tx: Transaction, teamId: string, stateId: string | undefined) {
+async function resolveState(
+  tx: Transaction,
+  teamId: string,
+  stateId: string | undefined,
+  preferred = "unstarted" as WorkflowStateType,
+) {
   if (stateId) {
     const [state] = await tx
       .select()
@@ -267,7 +272,8 @@ async function resolveState(tx: Transaction, teamId: string, stateId: string | u
     .from(workflowStates)
     .where(and(eq(workflowStates.teamId, teamId), isNull(workflowStates.deletedAt)))
     .orderBy(asc(workflowStates.sortOrder));
-  const state = states.find((s) => s.type === "unstarted") ?? states[0];
+  const state =
+    states.find((s) => s.type === preferred) ?? states.find((s) => s.type === "unstarted") ?? states[0];
   if (!state) throw badRequest("Team has no workflow states");
   return state;
 }
@@ -413,10 +419,34 @@ export async function updateTask(
     // update (Drizzle rejects an empty SET) and still bumps the task.
     const patch: Partial<typeof tasks.$inferInsert> = { ...fields, updatedAt: new Date() };
     let newState: { name: string } | undefined;
-    if (stateId && stateId !== current.task.stateId) {
-      const state = await resolveState(tx, current.task.teamId, stateId);
+    const teamId = fields.teamId ?? current.task.teamId;
+    const moving = teamId !== current.task.teamId;
+    let previousType: WorkflowStateType | undefined;
+    if (moving) {
+      const activeTeams = await tx
+        .select({ id: teams.id })
+        .from(teams)
+        .where(
+          and(
+            inArray(teams.id, [teamId, current.task.teamId]),
+            eq(teams.workspaceId, workspaceId),
+            isNull(teams.deletedAt),
+          ),
+        );
+      if (!activeTeams.some((team) => team.id === current.task.teamId)) throw notFound("Task");
+      if (!activeTeams.some((team) => team.id === teamId)) throw badRequest("Unknown teamId");
+      const [previous] = await tx
+        .select({ type: workflowStates.type })
+        .from(workflowStates)
+        .where(eq(workflowStates.id, current.task.stateId));
+      previousType = previous?.type;
+    }
+    if (moving || (stateId && stateId !== current.task.stateId)) {
+      const state = await resolveState(tx, teamId, stateId, previousType);
       newState = state;
-      Object.assign(patch, { stateId: state.id }, lifecycleFor(state.type, current.task));
+      patch.stateId = state.id;
+      if (!moving || state.type !== previousType)
+        Object.assign(patch, lifecycleFor(state.type, current.task));
     }
 
     const [task] = await tx.update(tasks).set(patch).where(eq(tasks.id, taskId)).returning();

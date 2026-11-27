@@ -68,6 +68,27 @@ describe("task start dates and dependencies", () => {
     });
   });
 
+  it("moves a task to its equivalent workflow category without resetting completion", async () => {
+    const snapshot = await boot();
+    const other = snapshot.teams.find((team: { id: string }) => team.id !== teamId);
+    const completed = (team: string) =>
+      snapshot.workflowStates.find(
+        (state: { teamId: string; type: string }) => state.teamId === team && state.type === "completed",
+      ).id;
+    const task = await newTask("Move this finished task", { stateId: completed(teamId) });
+    const before = await (await call("GET", `/tasks/${task.id}`)).json();
+    const res = await call("PATCH", `/tasks/${task.id}`, { teamId: other.id });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      teamId: other.id,
+      stateId: completed(other.id),
+      completedAt: before.completedAt,
+    });
+    expect(
+      (await call("PATCH", `/tasks/${task.id}`, { teamId: teamId, stateId: completed(other.id) })).status,
+    ).toBe(400);
+  });
+
   it("rolls bulk mutations back together and records successful changes", async () => {
     const snapshot = await boot();
     const secondTeamId = snapshot.teams.find((team: { id: string }) => team.id !== teamId).id;

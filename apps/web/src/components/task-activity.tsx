@@ -9,6 +9,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 
 const fieldLabels: Record<TaskActivityField, string> = {
   title: "title",
+  teamId: "team",
   description: "description",
   stateId: "status",
   priority: "priority",

@@ -87,7 +87,7 @@ export function TaskList({
               return (
                 <section key={g.key} aria-label={g.title}>
                   <div className="sticky top-0 z-20 flex h-9 items-center gap-2 border-b bg-muted/60 px-4 text-sm backdrop-blur">
-                    <StatusIcon type={g.type} progress={g.progress} />
+                    {!g.group && <StatusIcon type={g.type} progress={g.progress} />}
                     <span className="font-medium">{g.title}</span>
                     <span className="text-muted-foreground tabular-nums">{items.length}</span>
                     {canEdit && onCreate && (

@@ -4,12 +4,22 @@ import {
   filterTaskRows,
   taskFilterJsonSchema,
   taskFilterSchema,
+  type Priority,
   type TaskFilterExpression,
   type TaskUpdateInput,
 } from "@knotworking/core";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
-import { groupByCategory, groupByState, planDrop, type TaskGroup, type TaskOrdering } from "@/lib/model";
+import {
+  groupByCategory,
+  groupByState,
+  groupTasksBy,
+  parseTaskGroup,
+  planDrop,
+  type TaskGroup,
+  type TaskOrdering,
+} from "@/lib/model";
+import { datePatch, fromDay, shiftDates, toDay, weekday } from "@/lib/timeline";
 import { useWorkspace } from "@/lib/workspace-store";
 import { TaskBoard } from "./task-board";
 import type { DropHandler } from "./task-dnd";
@@ -46,7 +56,9 @@ export function TasksView({
   savedView?: SavedTaskView;
 }) {
   const { idx, viewer, updateTask } = useWorkspace();
-  const rawFilter = useSearchParams().get("filter");
+  const params = useSearchParams();
+  const rawFilter = params.get("filter");
+  const grouping = parseTaskGroup(params.get("group")) ?? savedView?.spec.group ?? "status";
   const filter = useMemo(() => {
     if (rawFilter === null) return savedView?.spec.filter ?? undefined;
     const result = taskFilterJsonSchema.safeParse(rawFilter);
@@ -65,8 +77,11 @@ export function TasksView({
     const expression = unique.length === 1 ? unique[0] : { and: unique };
     const checked = taskFilterSchema.safeParse({ version: 1, expression });
     const usable = !unique.length || (checked.success && JSON.stringify(checked.data).length <= 8192);
-    return { usable, spec: { filter: checked.success ? checked.data : null, layout: view, sort: ordering } };
-  }, [teamId, projectId, assignedToMe, viewer.id, filter, view, ordering]);
+    return {
+      usable,
+      spec: { filter: checked.success ? checked.data : null, layout: view, sort: ordering, group: grouping },
+    };
+  }, [teamId, projectId, assignedToMe, viewer.id, filter, view, ordering, grouping]);
   const history = useOlderTasks({
     teamId,
     projectId,
@@ -91,6 +106,7 @@ export function TasksView({
           [...(idx.boot.taskRelations ?? []), ...(history.relations ?? [])],
         )
       : tasks;
+    if (grouping !== "status") return groupTasksBy(shown, idx, grouping, ordering);
     return teamId
       ? groupByState(
           shown,
@@ -99,29 +115,52 @@ export function TasksView({
           ordering,
         )
       : groupByCategory(shown, idx, ordering);
-  }, [tasks, teamId, assignedToMe, projectId, viewer.id, idx, ordering, filter, history.relations]);
+  }, [tasks, teamId, assignedToMe, projectId, viewer.id, idx, ordering, filter, history.relations, grouping]);
 
   const onDrop = useCallback<DropHandler>(
     (taskId, groupKey, column, index) => {
       const task = column[index];
       if (!task || task.id !== taskId) return;
+      const group = groups.find((group) => group.key === groupKey)?.group;
+      const patch: TaskUpdateInput = { ...planDrop(column, index, ordering) };
+      if (group) {
+        if (group.field === "labelIds" && ([...task.labelIds].sort()[0] ?? null) !== group.value) return;
+        if (group.field === "assigneeId" && task.assigneeId !== group.value) patch.assigneeId = group.value;
+        if (group.field === "projectId" && task.projectId !== group.value) patch.projectId = group.value;
+        if (group.field === "priority") patch.priority = Number(group.value) as Priority;
+        if (group.field === "dueWeek") {
+          const week = toDay(group.value);
+          const due = toDay(task.dueDate);
+          if (week === null && due !== null) patch.dueDate = null;
+          else if (week !== null && due === null) {
+            patch.dueDate = fromDay(week);
+            if (task.startDate && task.startDate > patch.dueDate) patch.startDate = patch.dueDate;
+          } else if (week !== null && due !== null) {
+            Object.assign(patch, datePatch(task, shiftDates(task, "move", week + weekday(due) - due)));
+          }
+        }
+        if (Object.keys(patch).length) void updateTask(taskId, patch);
+        return;
+      }
       // Group keys are state IDs, or state categories in cross-team views.
       const stateId = idx.states.has(groupKey)
         ? groupKey
         : idx.boot.workflowStates.find((s) => s.teamId === task.teamId && s.type === groupKey)?.id;
-      const patch: TaskUpdateInput = { ...planDrop(column, index, ordering) };
       if (stateId && stateId !== task.stateId) patch.stateId = stateId;
       if (Object.keys(patch).length) void updateTask(taskId, patch);
     },
-    [idx, ordering, updateTask],
+    [idx, groups, ordering, updateTask],
   );
 
   const onCreate = (g: TaskGroup) =>
     newTask({
       teamId,
-      ...(idx.states.has(g.key) ? { stateId: g.key } : { stateType: g.type }),
+      ...(!g.group ? (idx.states.has(g.key) ? { stateId: g.key } : { stateType: g.type }) : {}),
       ...(assignedToMe ? { assigneeId: viewer.id } : {}),
       ...(projectId ? { projectId } : {}),
+      ...(g.group?.field === "assigneeId" ? { assigneeId: g.group.value } : {}),
+      ...(g.group?.field === "projectId" ? { projectId: g.group.value } : {}),
+      ...(g.group?.field === "priority" ? { priority: Number(g.group.value) as Priority } : {}),
     });
 
   return (
@@ -143,18 +182,22 @@ export function TasksView({
         <TaskCalendar tasks={groups.flatMap((group) => group.tasks)} />
       ) : (
         <BulkTaskSelection
-          key={JSON.stringify([teamId, projectId, assignedToMe, rawFilter, view])}
+          key={JSON.stringify([teamId, projectId, assignedToMe, rawFilter, view, grouping])}
           tasks={groups
             .filter((group) => view !== "board" || group.type !== "canceled")
             .flatMap((group) => group.tasks)}
         >
           {view === "board" ? (
-            <TaskBoard groups={groups} onDrop={onDrop} onCreate={onCreate} />
+            <TaskBoard
+              groups={groups}
+              onDrop={onDrop}
+              onCreate={grouping === "labelIds" || grouping === "dueWeek" ? undefined : onCreate}
+            />
           ) : (
             <TaskList
               groups={groups}
               onDrop={onDrop}
-              onCreate={onCreate}
+              onCreate={grouping === "labelIds" || grouping === "dueWeek" ? undefined : onCreate}
               emptyDescription={emptyDescription}
             />
           )}

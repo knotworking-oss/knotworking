@@ -202,6 +202,12 @@ export function registerTaskTools(ctx: WorkspaceToolContext) {
             ...(saved.teamId ? { teamId: saved.teamId } : {}),
             ...(saved.spec.filter ? { filter: JSON.stringify(saved.spec.filter) } : {}),
             sort: saved.spec.sort,
+            group:
+              !saved.spec.group || saved.spec.group === "status"
+                ? saved.teamId
+                  ? "stateId"
+                  : "stateType"
+                : saved.spec.group,
             cursor,
             limit: limit?.toString(),
           },

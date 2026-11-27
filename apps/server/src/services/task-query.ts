@@ -110,7 +110,16 @@ type Key = { expression: SQL; type: keyof typeof keySchemas };
 
 export function taskQueryOrder(workspaceId: string, { cursor, limit: _limit, ...query }: TaskListQuery) {
   const { sort, group } = query;
-  const groupKey = group ? sql`coalesce(${taskColumns[group]}::text, '') collate "C"` : null;
+  const groupColumn =
+    group === "labelIds"
+      ? sql`(select min(${taskLabels.labelId}::text)
+        from ${taskLabels} where ${activeLabels})`
+      : group === "dueWeek"
+        ? sql`date_trunc('week', ${tasks.dueDate}::timestamp)::date`
+        : group
+          ? taskColumns[group]
+          : null;
+  const groupKey = groupColumn ? sql`coalesce(${groupColumn}::text, '') collate "C"` : null;
   const manual = sort ? sql`${tasks.sortOrder} collate "C"` : sql`${tasks.sortOrder}`;
   const timestamp = (column: typeof tasks.createdAt) =>
     sql`-extract(epoch from date_trunc('milliseconds', ${column}))`;

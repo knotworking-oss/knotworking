@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { taskFilterSchema, taskOrderings } from "./task-filter";
+import { taskDisplayGroups, taskFilterSchema, taskOrderings } from "./task-filter";
 
 export const taskViewScopes = ["personal", "team", "workspace"] as const;
 export type TaskViewScope = (typeof taskViewScopes)[number];
@@ -10,6 +10,7 @@ export const taskViewSpecSchema = z.strictObject({
     .refine((filter) => JSON.stringify(filter).length <= 8192, "The filter is too long"),
   layout: z.enum(["list", "board", "calendar"]),
   sort: z.enum(taskOrderings),
+  group: z.enum(taskDisplayGroups).optional(),
 });
 export type TaskViewSpec = z.infer<typeof taskViewSpecSchema>;
 

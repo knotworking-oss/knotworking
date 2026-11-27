@@ -132,6 +132,14 @@ describe("task queries", () => {
     const next = await (await query({ group: "priority", limit: "2", cursor: page.nextCursor })).json();
     expect(next.groups.map((g: { key: string }) => g.key)).toEqual(["1", "2"]);
     expect((await query({ group: "stateType", cursor: page.nextCursor })).status).toBe(400);
+    const labels = await (await query({ group: "labelIds", limit: "3" })).json();
+    expect(labels.groups).toEqual([{ key: null, taskIds: labels.tasks.map((t: { id: string }) => t.id) }]);
+    const labeled = await (await query({ group: "labelIds", cursor: labels.nextCursor })).json();
+    expect(labeled.groups).toEqual([{ key: labelId, taskIds: [blockerId] }]);
+    const weeks = await (await query({ group: "dueWeek" })).json();
+    expect(weeks.groups.find((group: { key: string }) => group.key === "2026-11-30")?.taskIds.sort()).toEqual(
+      [blockedId, blockerId].sort(),
+    );
   });
 
   it("rejects malformed, oversized or unsupported expressions and cursors", async () => {

@@ -191,6 +191,8 @@ Save a list, board or calendar from its filter bar to reuse its filters, layout 
 
 The task Calendar offers month and week views. A task appears on each day from its planned start through its due date, or on the single date it has. Moving a task to a different day preserves the length of the span. Calendar is also a saved-view layout.
 
+**Display → Group by** groups tasks by status, assignee, project, priority, first label or due week. A task appears in one label group, determined by the lowest label ID. Drag within a label group to reorder. Other groups apply their property when a task is moved between them.
+
 Choose **Select tasks** on a list or board to update priority, status, assignee, project or labels, or delete a selection. Shift-click selects a range, and X toggles the focused row in selection mode. One bulk request can change up to 200 tasks atomically. A bulk status change requires tasks from one team. The API accepts the selection and its action at `POST /tasks/bulk`.
 
 ## Task followers
@@ -198,6 +200,8 @@ Choose **Select tasks** on a list or board to update priority, status, assignee,
 Task creators, assignees and commenters follow the task automatically. Anyone with Tasks read access can follow or unfollow for themselves. An explicit unfollow persists when they comment or get assigned again. Status and comment notifications go to followers, and assignment notifications still go to the new assignee. The task page fetches the current person's preference and the follower count on demand at `GET /tasks/:id/following`. `PUT` on the same route updates their preference.
 
 Use **Duplicate task** from a task's actions menu to create a new task in its team's default workflow state. The copy carries its description, project, labels, assignee, priority, dates and estimate. It starts with its own history and can be edited independently.
+
+Move one task from its actions menu or choose **Move to team** for a selection. The destination's workflow supplies a state in the same category when possible. Moving a completed task to an equivalent state preserves its completion time.
 
 ## General business workflows
 

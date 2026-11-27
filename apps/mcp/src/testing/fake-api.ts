@@ -29,6 +29,7 @@ import {
   type TokenActionId,
   documentRestoreSchema,
   wouldCreateBlockingCycle,
+  weekStartInZone,
   type DocContent,
   type TaskActivityDetails,
   type TaskFilterRow,
@@ -521,6 +522,9 @@ export function createFakeApi() {
         (!f.stateType || typeOf(t.stateId) === f.stateType),
     );
     const groupKey = (task: (typeof matches)[number]) => {
+      if (f.group === "labelIds") return [...task.labelIds].sort()[0] ?? null;
+      if (f.group === "dueWeek")
+        return task.dueDate ? weekStartInZone(`${task.dueDate}T12:00:00Z`, "UTC") : null;
       const key = f.group === "stateType" ? typeOf(task.stateId) : f.group ? task[f.group] : null;
       return key == null ? null : String(key);
     };

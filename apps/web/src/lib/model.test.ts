@@ -7,6 +7,7 @@ import { projectBootstrap, seedTables } from "./sync-model";
 import {
   groupByCategory,
   groupByState,
+  groupTasksBy,
   indexWorkspace,
   orderTasks,
   parseOrdering,
@@ -16,6 +17,21 @@ import {
 } from "./model";
 
 const ids = (tasks: TaskSummary[]) => tasks.map((t) => t.id);
+
+it("groups due dates in Monday weeks with undated tasks last", () => {
+  const tasks = [
+    makeTask({ id: "sunday", dueDate: "2026-12-06" }),
+    makeTask({ id: "monday", dueDate: "2026-12-07" }),
+    makeTask({ id: "undated" }),
+    makeTask({ id: "friday", dueDate: "2026-12-04" }),
+  ];
+  const byWeek = groupTasksBy(tasks, indexWorkspace(makeBootstrap(tasks)), "dueWeek", "manual");
+  expect(byWeek.map((group) => [group.group?.value, ids(group.tasks)])).toEqual([
+    ["2026-11-30", ["friday", "sunday"]],
+    ["2026-12-07", ["monday"]],
+    [null, ["undated"]],
+  ]);
+});
 
 it("keeps historical sync rows out of the recent view until reopened and uses full project counts", () => {
   const active = makeTask({ id: "active", projectId: "project" });

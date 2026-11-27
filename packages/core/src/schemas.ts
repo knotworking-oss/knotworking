@@ -100,6 +100,7 @@ export const taskListQuerySchema = z.object({
   assigneeId: id.optional(),
   stateType: z.enum(workflowStateTypes).optional(),
   filter: taskFilterJsonSchema.optional(),
+  closedBefore: z.iso.datetime({ precision: 3 }).optional(),
   sort: z.enum(taskOrderings).optional(),
   group: z.enum(taskGroupFields).optional(),
   title: z.string().trim().min(2).max(200).optional(),

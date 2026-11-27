@@ -202,6 +202,7 @@ Comment writes still go through a transaction that calls `recordChanges` (`comme
 - `sort` accepts `manual`, `priority`, `created` and `updated`. Omitting it uses the legacy ordering by manual key then newest creation time. Every sort has an ID tie-breaker.
 - `group` accepts `teamId`, `projectId`, `assigneeId`, `stateId`, `stateType` and `priority`. Groups order by key with unset values first. The page's `groups` array contains `{ key, taskIds }` entries for the returned tasks. A group can span pages.
 - `title` optionally narrows the query by case-insensitive substring. `includeRelations=true` returns the visible dependencies touching at least one task on the page.
+- `closedBefore` adds the historical bootstrap cutoff to the query. It combines with the saved or URL filter without nesting that expression further.
 - `limit` is 1–500, default 250. Continue with `cursor=nextCursor` and the same query parameters apart from the page size. A cursor marks a position in the ordering. Edits between requests can move tasks across that position.
 
 SQL filters and paginates before task summaries are returned. The browser uses the shared filter evaluator on the workspace snapshot. MCP exposes the paginated API through `query_tasks`.

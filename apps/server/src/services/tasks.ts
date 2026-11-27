@@ -1,5 +1,6 @@
 import {
   sortKeyBetween,
+  olderClosedTaskFilter,
   taskDatesInOrder,
   type TaskActivitySource,
   type TaskCreateInput,
@@ -119,6 +120,9 @@ export async function queryTasks(db: Executor, workspaceId: string, input: TaskL
       and(
         ...taskListConditions(workspaceId, input),
         input.filter ? taskFilterSql(input.filter) : undefined,
+        input.closedBefore
+          ? taskFilterSql({ version: 1, expression: olderClosedTaskFilter(input.closedBefore) })
+          : undefined,
         input.title ? sql`strpos(lower(${tasks.title}), lower(${input.title})) > 0` : undefined,
         paging.after,
       ),

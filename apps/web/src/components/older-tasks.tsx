@@ -1,6 +1,6 @@
 "use client";
 
-import { olderClosedTaskFilter, type TaskOrdering } from "@knotworking/core";
+import type { TaskFilter, TaskOrdering } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import { useEffect, useRef, useState } from "react";
 import type { TaskRelation, TaskSummary } from "@/lib/api";
@@ -12,16 +12,18 @@ export function useOlderTasks({
   projectId,
   assigneeId,
   sort,
+  filter,
 }: {
   teamId?: string;
   projectId?: string;
   assigneeId?: string;
   sort: TaskOrdering;
+  filter?: TaskFilter;
 }) {
   const { idx, tasks, slug, sync } = useWorkspace();
   const window = idx.boot.closedWindow;
   const cutoff = window?.cutoff;
-  const key = JSON.stringify([slug, cutoff, teamId, projectId, assigneeId, sort]);
+  const key = JSON.stringify([slug, cutoff, teamId, projectId, assigneeId, sort, filter]);
   const [page, setPage] = useState<{
     key: string;
     tasks: TaskSummary[];
@@ -72,7 +74,8 @@ export function useOlderTasks({
             limit: "50",
             cursor: current?.cursor ?? undefined,
             includeRelations: "true",
-            filter: JSON.stringify({ version: 1, expression: olderClosedTaskFilter(cutoff) }),
+            closedBefore: cutoff,
+            filter: filter ? JSON.stringify(filter) : undefined,
           },
         }),
       );

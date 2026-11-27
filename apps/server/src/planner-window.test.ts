@@ -95,6 +95,17 @@ describe("planner bootstrap and team features", () => {
     const history = await (await request(`/tasks?${query}`)).json();
     expect(history.tasks).toMatchObject([{ id: oldId }]);
     expect(history.relations).toContainEqual(expect.objectContaining({ blockedTaskId: oldId }));
+    query.set("closedBefore", snapshot.closedWindow.cutoff);
+    query.set(
+      "filter",
+      JSON.stringify({ version: 1, expression: { field: "priority", op: "eq", value: 1 } }),
+    );
+    expect((await (await request(`/tasks?${query}`)).json()).tasks).toEqual([]);
+    query.set(
+      "filter",
+      JSON.stringify({ version: 1, expression: { field: "priority", op: "eq", value: 0 } }),
+    );
+    expect((await (await request(`/tasks?${query}`)).json()).tasks).toMatchObject([{ id: oldId }]);
 
     expect((await request("/settings", "PATCH", { closedTaskWindowDays: 0 })).status).toBe(400);
     expect((await request("/settings", "PATCH", { closedTaskWindowDays: 60 }, member)).status).toBe(403);

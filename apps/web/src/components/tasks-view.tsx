@@ -1,6 +1,12 @@
 "use client";
 
-import { filterTaskRows, type TaskFilterExpression, type TaskUpdateInput } from "@knotworking/core";
+import {
+  filterTaskRows,
+  taskFilterJsonSchema,
+  type TaskFilterExpression,
+  type TaskUpdateInput,
+} from "@knotworking/core";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 import { groupByCategory, groupByState, planDrop, type TaskGroup, type TaskOrdering } from "@/lib/model";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -9,6 +15,7 @@ import type { DropHandler } from "./task-dnd";
 import { TaskList } from "./task-list";
 import { useNewTask } from "./new-task-dialog";
 import { OlderTasksControl, useOlderTasks } from "./older-tasks";
+import { TaskFilterBar } from "./task-filter-bar";
 
 /**
  * Tasks for one page, live from the workspace store.
@@ -32,11 +39,17 @@ export function TasksView({
   emptyDescription?: string;
 }) {
   const { idx, viewer, updateTask } = useWorkspace();
+  const rawFilter = useSearchParams().get("filter");
+  const filter = useMemo(() => {
+    const result = taskFilterJsonSchema.safeParse(rawFilter);
+    return result.success ? result.data : undefined;
+  }, [rawFilter]);
   const history = useOlderTasks({
     teamId,
     projectId,
     assigneeId: assignedToMe ? viewer.id : undefined,
     sort: ordering,
+    filter,
   });
   const { tasks } = history;
   const newTask = useNewTask();
@@ -46,12 +59,13 @@ export function TasksView({
     if (teamId) filters.push({ field: "teamId", op: "eq", value: teamId });
     if (projectId) filters.push({ field: "projectId", op: "eq", value: projectId });
     if (assignedToMe) filters.push({ field: "assigneeId", op: "eq", value: viewer.id });
+    if (filter) filters.push(filter.expression);
     const shown = filters.length
       ? filterTaskRows(
           tasks,
           { version: 1, expression: { and: filters } },
           (id) => idx.states.get(id)?.type ?? null,
-          idx.boot.taskRelations ?? [],
+          [...(idx.boot.taskRelations ?? []), ...(history.relations ?? [])],
         )
       : tasks;
     return teamId
@@ -62,7 +76,7 @@ export function TasksView({
           ordering,
         )
       : groupByCategory(shown, idx, ordering);
-  }, [tasks, teamId, assignedToMe, projectId, viewer.id, idx, ordering]);
+  }, [tasks, teamId, assignedToMe, projectId, viewer.id, idx, ordering, filter, history.relations]);
 
   const onDrop = useCallback<DropHandler>(
     (taskId, groupKey, column, index) => {
@@ -89,6 +103,7 @@ export function TasksView({
 
   return (
     <>
+      <TaskFilterBar filter={filter} />
       <OlderTasksControl history={history} />
       {view === "board" ? (
         <TaskBoard groups={groups} onDrop={onDrop} onCreate={onCreate} />

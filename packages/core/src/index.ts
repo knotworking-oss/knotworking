@@ -70,6 +70,7 @@ export * from "./workspace-slugs";
 export * from "./search";
 export * from "./task-relations";
 export * from "./subtask-rollup";
+export * from "./custom-fields";
 export * from "./task-activity";
 export * from "./task-filter";
 export * from "./task-views";

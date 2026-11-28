@@ -229,6 +229,10 @@ The Employee onboarding and Client kickoff templates define ordered sections. Th
 
 **Display → Subgroup by** splits each list section or board column by a second property. The selection is saved with the view, and dragging into a populated subgroup updates both grouped properties where they can be edited by drag.
 
+### Custom fields
+
+Open **Views → Custom fields** to define task and project fields. Tasks managers can create fields for the workspace, a team or a project. Task writers can set and clear values on the applicable record. Supported types are text, number, date, single select, multiple select, person, checkbox and URL. Workspace task search includes applicable text and URL values. Definition changes by API token require the **Manage custom fields** action under API access.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

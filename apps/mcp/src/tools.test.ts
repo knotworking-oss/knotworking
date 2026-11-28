@@ -342,6 +342,7 @@ const WRITE_TOOLS = [
   "save_management_review",
   "create_task",
   "update_task",
+  "set_task_custom_field",
   "create_comment",
   "create_document",
   "update_document",
@@ -881,6 +882,17 @@ describe("read tools", () => {
 });
 
 describe("write tools", () => {
+  it("sets custom task fields and returns them on request", async () => {
+    const { call, fake } = await session();
+    const field = fake.ids.t2;
+    const task = fake.ids.t1;
+    fake.store.taskCustomFields.push({ taskId: task, id: field, name: "Customer reference", value: null });
+    const result = await call("set_task_custom_field", { task, field, value: "ACME-1" });
+    expect(result.isError).toBe(false);
+    expect(result.data).toEqual({ fieldId: field, value: "ACME-1" });
+    const detail = await call("get_task", { task, include_custom_fields: true });
+    expect(detail.data.customFields).toMatchObject([{ id: field, value: "ACME-1" }]);
+  });
   it("create_task resolves team, state, assignee, project and labels by name and converts text to blocks", async () => {
     const { call, fake } = await session();
     const { data, isError } = await call("create_task", {

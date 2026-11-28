@@ -16,13 +16,15 @@ workspace ─┬─ workspace_members ── users
            │                    ├─ comments
            │                    ├─ task_relations (blocks, related, duplicate of)
            │                    ├─ task_events (activity)
+           │                    ├─ custom_field_values ── custom_field_definitions
            │                    ├─ time_entries ── users
            │                    ├─ attachments (also on documents and module records)
            │                    └─ tasks (parent/subtasks)
            ├─ projects ─┬─ project_teams ── teams
            │            ├─ project_milestones and project_sections
            │            ├─ project_members and project_followers
-           │            └─ project_updates ── project_update_comments
+           │            ├─ project_updates ── project_update_comments
+           │            └─ custom_field_values ── custom_field_definitions
            ├─ documents (tree via parent_id; optional team/project) ── document_revisions
            └─ sync_changes (append-only change log)
 ```

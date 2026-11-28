@@ -18,6 +18,7 @@ import { TaskActivity } from "@/components/task-activity";
 import { TaskComments } from "@/components/task-comments";
 import { TaskFollowing } from "@/components/task-following";
 import { TaskLinks } from "@/components/task-links";
+import { CustomFieldValues } from "@/components/custom-field-values";
 import { TaskDescription } from "@/components/task-description";
 import { TaskTime } from "@/components/task-time";
 import {
@@ -115,6 +116,7 @@ export default async function TaskPage({ params }: Props) {
               <TaskProperties initial={initial} stacked />
             </section>
             <TaskDescription key={task.id} taskId={task.id} initial={description} />
+            <CustomFieldValues key={`fields:${task.id}`} target="task" id={task.id} />
             <Subtasks key={task.id} initial={initial} initialChildren={children} />
             <TaskDependencies initial={initial} context={context} />
             <TaskLinks key={task.id} taskId={task.id} teamId={task.teamId} />

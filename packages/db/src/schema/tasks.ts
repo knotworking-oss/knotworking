@@ -3,6 +3,9 @@
  * dependencies, and comments. Teams are platform (`../schema`). See docs/modules.md.
  */
 import type {
+  CustomFieldOption,
+  CustomFieldTarget,
+  CustomFieldType,
   DocContent,
   ProjectHealth,
   ProjectStatus,
@@ -22,6 +25,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   smallint,
@@ -350,6 +354,55 @@ export const taskRelations = pgTable(
     check(
       "task_relations_related_order",
       sql`${t.kind} <> 'related' or ${t.blockingTaskId} < ${t.blockedTaskId}`,
+    ),
+  ],
+);
+
+export const customFieldDefinitions = pgTable(
+  "custom_field_definitions",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    target: text("target").$type<CustomFieldTarget>().notNull(),
+    type: text("type").$type<CustomFieldType>().notNull(),
+    name: text("name").notNull(),
+    teamId: uuid("team_id").references(() => teams.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    options: jsonb("options").$type<CustomFieldOption[]>().notNull().default([]),
+    sortOrder: text("sort_order").notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    index("custom_field_definitions_workspace_idx").on(t.workspaceId, t.target),
+    check("custom_field_definitions_single_scope", sql`num_nonnulls(${t.teamId}, ${t.projectId}) <= 1`),
+  ],
+);
+
+export const customFieldValues = pgTable(
+  "custom_field_values",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    fieldId: uuid("field_id")
+      .notNull()
+      .references(() => customFieldDefinitions.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    textValue: text("text_value"),
+    numberValue: numeric("number_value", { mode: "number" }),
+    dateValue: date("date_value"),
+    optionIds: jsonb("option_ids").$type<string[]>(),
+    personId: uuid("person_id").references(() => users.id, { onDelete: "cascade" }),
+    booleanValue: boolean("boolean_value"),
+  },
+  (t) => [
+    uniqueIndex("custom_field_values_task_key").on(t.taskId, t.fieldId),
+    uniqueIndex("custom_field_values_project_key").on(t.projectId, t.fieldId),
+    index("custom_field_values_field_idx").on(t.fieldId),
+    check("custom_field_values_single_target", sql`num_nonnulls(${t.taskId}, ${t.projectId}) = 1`),
+    check(
+      "custom_field_values_single_value",
+      sql`num_nonnulls(${t.textValue}, ${t.numberValue}, ${t.dateValue}, ${t.optionIds}, ${t.personId}, ${t.booleanValue}) = 1`,
     ),
   ],
 );

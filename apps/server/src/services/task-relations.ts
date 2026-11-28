@@ -95,7 +95,7 @@ export async function reachesTask(
 
 export async function assertLiveTasks(tx: Executor, workspaceId: string, ids: string[]) {
   const found = await tx
-    .select({ id: tasks.id, teamId: tasks.teamId, stateId: tasks.stateId })
+    .select({ id: tasks.id, teamId: tasks.teamId, stateId: tasks.stateId, projectId: tasks.projectId })
     .from(tasks)
     .innerJoin(teams, and(eq(teams.id, tasks.teamId), isNull(teams.deletedAt)))
     .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.id, ids), isNull(tasks.deletedAt)));

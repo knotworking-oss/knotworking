@@ -8,7 +8,14 @@ import {
   type SearchResponse,
   type TaskSearchHit,
 } from "@knotworking/core";
-import { documents, tasks, teams, type Database } from "@knotworking/db";
+import {
+  customFieldDefinitions,
+  customFieldValues,
+  documents,
+  tasks,
+  teams,
+  type Database,
+} from "@knotworking/db";
 import { and, desc, eq, isNull, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 
 /**
@@ -90,9 +97,10 @@ function matcher(q: string): Matcher {
 function presentation(q: string) {
   const phrase = q.trim().replace(/\s+/g, " ");
   const terms = searchTerms(phrase);
-  return (title: string, bodyContent: unknown) => {
+  return (title: string, bodyContent: unknown, additionalText = "") => {
+    const body = docToPlainText(bodyContent as Parameters<typeof docToPlainText>[0]);
     const { snippet, matches } = makeSnippet(
-      docToPlainText(bodyContent as Parameters<typeof docToPlainText>[0]),
+      [body, additionalText].filter(Boolean).join("\n"),
       phrase,
       terms,
     );
@@ -152,6 +160,17 @@ export async function searchTasks(
 ): Promise<TaskSearchHit[]> {
   const m = matcher(q);
   const present = presentation(q);
+  const customText = sql<string>`coalesce((
+    select string_agg(${customFieldValues.textValue}, chr(10) order by ${customFieldDefinitions.sortOrder}, ${customFieldDefinitions.id})
+    from ${customFieldValues}
+    join ${customFieldDefinitions} on ${customFieldDefinitions.id} = ${customFieldValues.fieldId}
+      and ${customFieldDefinitions.workspaceId} = ${tasks.workspaceId}
+      and ${customFieldDefinitions.deletedAt} is null
+    where ${customFieldValues.taskId} = ${tasks.id} and ${customFieldValues.workspaceId} = ${tasks.workspaceId}
+      and ${customFieldDefinitions.type} in ('text', 'url')
+      and (${customFieldDefinitions.teamId} is null or ${customFieldDefinitions.teamId} = ${tasks.teamId})
+      and (${customFieldDefinitions.projectId} is null or ${customFieldDefinitions.projectId} = ${tasks.projectId})
+  ), '')`;
   const cand = db
     .select({
       id: tasks.id,
@@ -161,7 +180,10 @@ export async function searchTasks(
       projectId: tasks.projectId,
       updatedAt: tasks.updatedAt,
       description: tasks.description,
-      body: textOf(tasks.description).as("body"),
+      body: sql<string>`concat_ws(chr(10), nullif(${textOf(tasks.description)}, ''), nullif(${customText}, ''))`.as(
+        "body",
+      ),
+      customText: customText.as("custom_text"),
     })
     .from(tasks)
     // Tasks of archived teams are hidden along with the team (as in the task list).
@@ -184,7 +206,7 @@ export async function searchTasks(
     stateId: r.stateId,
     projectId: r.projectId,
     updatedAt: r.updatedAt.toISOString(),
-    ...present(r.title, r.description),
+    ...present(r.title, r.description, r.customText),
   }));
 }
 

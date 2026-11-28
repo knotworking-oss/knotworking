@@ -2,6 +2,8 @@ import {
   compareSortKeys,
   filterTaskRows,
   d,
+  customFieldValueSchema,
+  type CustomFieldValue,
   documentCreateSchema,
   docToPlainText,
   documentUpdateSchema,
@@ -290,6 +292,7 @@ export function createFakeApi() {
     ] as Array<Record<string, any>>,
     comments: [] as Array<Record<string, any>>,
     taskViews: [] as { id: string; teamId: string | null; name: string; spec: TaskViewSpec }[],
+    taskCustomFields: [] as { taskId: string; id: string; name: string; value: CustomFieldValue }[],
     /** Finished and running time entries (a null `minutes` is a running timer) and task time estimates. */
     timeEntries: [
       entry(ids.t1, ids.grace, 90, "2026-11-03"),
@@ -464,6 +467,31 @@ export function createFakeApi() {
   );
 
   const findTask = (id: string) => store.tasks.find((t) => t.id === id);
+  app.get(`${ws}/tasks/custom-fields/task/:id/values`, (c) => {
+    const id = c.req.param("id");
+    if (!findTask(id)) return c.json(err("not_found", "Task not found"), 404);
+    return c.json({
+      fields: store.taskCustomFields
+        .filter((field) => field.taskId === id)
+        .map(({ taskId: _id, ...field }) => ({
+          ...field,
+          type: "text",
+          options: [],
+        })),
+    });
+  });
+  app.put(`${ws}/tasks/custom-fields/task/:id/values/:fieldId`, async (c) => {
+    const field = store.taskCustomFields.find(
+      (row) => row.taskId === c.req.param("id") && row.id === c.req.param("fieldId"),
+    );
+    if (!field) return c.json(err("not_found", "Custom field not found"), 404);
+    const input = customFieldValueSchema.safeParse(await c.req.json());
+    if (!input.success || (input.data.value !== null && typeof input.data.value !== "string")) {
+      return c.json(err("invalid_input", "Invalid custom field value"), 400);
+    }
+    field.value = input.data.value;
+    return c.json({ fieldId: field.id, value: field.value });
+  });
   app.get(`${ws}/projects/:id/milestones`, (c) => c.json({ milestones: [] }));
   app.post(`${ws}/projects/:id/updates`, async (c) => {
     const project = store.projects.find((row) => row.id === c.req.param("id"));

@@ -379,6 +379,12 @@ const ROUTES: Record<string, Classification> = {
   "PATCH /v1/workspaces/:slug/crm/activities/:id": "token-ok",
   "PATCH /v1/workspaces/:slug/settings": "token-forbidden",
   "GET /v1/workspaces/:slug/tasks": "token-ok",
+  "GET /v1/workspaces/:slug/tasks/custom-fields": "token-ok",
+  "POST /v1/workspaces/:slug/tasks/custom-fields": "token-action",
+  "PATCH /v1/workspaces/:slug/tasks/custom-fields/:id": "token-action",
+  "DELETE /v1/workspaces/:slug/tasks/custom-fields/:id": "token-action",
+  "GET /v1/workspaces/:slug/tasks/custom-fields/:target/:id/values": "token-ok",
+  "PUT /v1/workspaces/:slug/tasks/custom-fields/:target/:id/values/:fieldId": "token-ok",
   "GET /v1/workspaces/:slug/tasks/views": "token-ok",
   "POST /v1/workspaces/:slug/tasks/views": "token-ok",
   "GET /v1/workspaces/:slug/tasks/views/:id": "token-ok",
@@ -1084,6 +1090,9 @@ const ROUTES: Record<string, Classification> = {
  * switched the action on (`@knotworking/core` token-actions.ts). Classified "token-action" above.
  */
 const TOKEN_ACTION_ROUTES: Record<string, TokenActionId> = {
+  "POST /v1/workspaces/:slug/tasks/custom-fields": "tasks.custom_fields",
+  "PATCH /v1/workspaces/:slug/tasks/custom-fields/:id": "tasks.custom_fields",
+  "DELETE /v1/workspaces/:slug/tasks/custom-fields/:id": "tasks.custom_fields",
   "POST /v1/workspaces/:slug/stock/waste": "stock.waste",
   "POST /v1/workspaces/:slug/stock/adjustments": "stock.adjust",
   "POST /v1/workspaces/:slug/stock/stocktakes": "stock.stocktake",

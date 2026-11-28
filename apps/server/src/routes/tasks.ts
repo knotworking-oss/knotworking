@@ -28,6 +28,7 @@ import { createTaskRelation, deleteTaskRelation } from "../services/task-relatio
 import { createTask, deleteTask, duplicateTask, getTask, queryTasks, updateTask } from "../services/tasks";
 import { validate } from "../validate";
 import { commentRoutes } from "./comments";
+import { customFieldRoutes } from "./custom-fields";
 import { taskViewRoutes } from "./task-views";
 import { projectMilestoneRoutes } from "./project-milestones";
 import { projectSectionRoutes } from "./project-sections";
@@ -43,6 +44,7 @@ const linkTaskParam = z.object({ id: z.uuid().transform((id) => id.toLowerCase()
  * `write` for the rest. Teams, workflow states and labels are configured by `structureRoutes`.
  */
 export const taskRoutes = new Hono<WorkspaceEnv>()
+  .route("/", customFieldRoutes)
   .route("/", taskViewRoutes)
   .route("/", projectMilestoneRoutes)
   .route("/", projectSectionRoutes)

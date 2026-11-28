@@ -31,6 +31,7 @@ export const tokenActionIds = [
   "attendance.payroll_export",
   "bi.publish",
   "bi.board_packs",
+  "tasks.custom_fields",
 ] as const;
 export type TokenActionId = (typeof tokenActionIds)[number];
 
@@ -134,6 +135,13 @@ export const tokenActions: { readonly [K in TokenActionId]: TokenActionDefinitio
     label: "Build board packs",
     description:
       "Tokens may freeze dashboard snapshots and build, issue or delete board packs. Snapshots hold the figures as the token's owner could read them, and issuing a pack shares them with its audience.",
+    level: "manage",
+  },
+  "tasks.custom_fields": {
+    id: "tasks.custom_fields",
+    module: "tasks",
+    label: "Manage custom fields",
+    description: "Tokens may create, edit, or remove task and project custom field definitions.",
     level: "manage",
   },
 };

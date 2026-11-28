@@ -30,6 +30,7 @@ import { ProjectMilestones } from "./project-milestones";
 import { ProjectSections } from "./project-sections";
 import { ProjectPeople } from "./project-people";
 import { ProjectUpdates } from "./project-updates";
+import { CustomFieldValues } from "./custom-field-values";
 import { ProjectTimeline } from "./project-timeline";
 import { TasksView } from "./tasks-view";
 import { ViewSwitcher } from "./view-switcher";
@@ -146,6 +147,7 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
               <span className="tabular-nums">{pct}%</span>
             </span>
           </div>
+          <CustomFieldValues key={`fields:${id}`} target="project" id={id} />
         </section>
         <ProjectMilestones projectId={id} />
         <ProjectSections projectId={id} />

@@ -28,6 +28,7 @@ import { PageHeader } from "./page-header";
 import { ProjectActions } from "./project-actions";
 import { ProjectMilestones } from "./project-milestones";
 import { ProjectSections } from "./project-sections";
+import { ProjectPeople } from "./project-people";
 import { ProjectTimeline } from "./project-timeline";
 import { TasksView } from "./tasks-view";
 import { ViewSwitcher } from "./view-switcher";
@@ -139,6 +140,7 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
         </section>
         <ProjectMilestones projectId={id} />
         <ProjectSections projectId={id} />
+        <ProjectPeople key={id} projectId={id} />
         {mode === "timeline" ? (
           <ProjectTimeline projectId={id} />
         ) : (

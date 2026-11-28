@@ -213,6 +213,10 @@ Add milestones with optional target dates on a project's page. Assign a task to 
 
 Add, rename, or reorder sections from a project's page. In **Display → Group by → Project section**, lists and boards show the project's sections in their configured order. Moving a task between sections keeps its workflow status. Deleting a section leaves its tasks in the project with no section. Sections are also available in the filter bar and saved views.
 
+## Project people
+
+The People section lists the project lead and contributors. Task writers can add or remove contributors. The lead and contributors follow the project by default, and anyone with Tasks read access can choose their own follow preference. Changing membership leaves an explicit follow or unfollow preference in place. Project access still follows the workspace's Tasks grant.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

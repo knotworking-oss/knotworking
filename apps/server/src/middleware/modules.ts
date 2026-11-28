@@ -15,6 +15,7 @@ const READ_LEVEL_WRITES = [
   /^\/sops\/[^/]+\/acknowledge$/,
   /^\/attendance\/roll-calls(\/|$)/,
   /^\/tasks\/[^/]+\/following$/,
+  /^\/projects\/[^/]+\/following$/,
 ];
 
 /** Throws unless the caller has `needed` in `moduleId`. Inactive modules look like missing routes. */

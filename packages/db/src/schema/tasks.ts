@@ -138,6 +138,25 @@ export const projectSections = pgTable(
   (t) => [index("project_sections_project_idx").on(t.projectId)],
 );
 
+export const projectMembers = pgTable(
+  "project_members",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    contributor: boolean("contributor").notNull().default(false),
+    /** Null inherits the default for the lead and contributors. */
+    following: boolean("following"),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("project_members_project_user_key").on(t.projectId, t.userId)],
+);
+
 // ─── Tasks ──────────────────────────────────────────────────────────────────
 
 export const tasks = pgTable(

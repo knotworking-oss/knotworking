@@ -1,6 +1,6 @@
 "use client";
 
-import type { Priority } from "@knotworking/core";
+import type { Priority, TaskViewProperty } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import {
   Empty,
@@ -42,11 +42,13 @@ export function TaskList({
   groups,
   onDrop,
   onCreate,
+  properties,
   emptyDescription = "Tasks assigned to you or your teams will show up here.",
 }: {
   groups: TaskGroup[];
   onDrop: DropHandler;
   onCreate?: (group: TaskGroup) => void;
+  properties: ReadonlySet<TaskViewProperty>;
   emptyDescription?: string;
 }) {
   const { canEditTasks: canEdit } = useWorkspace();
@@ -75,7 +77,7 @@ export function TaskList({
     <TaskDndProvider
       groups={groups}
       onDrop={onDrop}
-      renderOverlay={(task) => <RowContent task={task} overlay />}
+      renderOverlay={(task) => <RowContent task={task} properties={properties} overlay />}
     >
       {({ columns, dragging }) => (
         <TaskKeyboardNav dragging={dragging}>
@@ -109,7 +111,7 @@ export function TaskList({
                     className="min-h-1 data-over:bg-muted/40 [&:empty]:min-h-10"
                   >
                     {items.map((task) => (
-                      <TaskRow key={task.id} task={task} column={g.key} />
+                      <TaskRow key={task.id} task={task} column={g.key} properties={properties} />
                     ))}
                   </TaskDropZone>
                 </section>
@@ -122,7 +124,15 @@ export function TaskList({
   );
 }
 
-function TaskRow({ task, column }: { task: TaskSummary; column: string }) {
+function TaskRow({
+  task,
+  column,
+  properties,
+}: {
+  task: TaskSummary;
+  column: string;
+  properties: ReadonlySet<TaskViewProperty>;
+}) {
   const { slug, canEditTasks: canEdit } = useWorkspace();
   const selection = useBulkTaskRow(task.id);
   const { nodeProps, handleProps, isDragging } = useSortableTask(task.id, !canEdit || selection.selecting);
@@ -138,7 +148,7 @@ function TaskRow({ task, column }: { task: TaskSummary; column: string }) {
         onClick={selection.onClick}
         {...(selection.selecting ? { onKeyDown: selection.onKeyDown } : {})}
       />
-      <RowContent task={task} menus={menus} />
+      <RowContent task={task} menus={menus} properties={properties} />
     </li>
   );
 }
@@ -148,11 +158,13 @@ function RowContent({
   task,
   overlay,
   menus,
+  properties,
 }: {
   task: TaskSummary;
   overlay?: boolean;
   /** Keyboard-controlled menu state; absent for the drag overlay. */
   menus?: RowMenuProps;
+  properties: ReadonlySet<TaskViewProperty>;
 }) {
   const timeZone = useWorkspaceTimeZone();
   const { idx, canEditTasks: canEdit, updateTask } = useWorkspace();
@@ -175,18 +187,24 @@ function RowContent({
       )}
     >
       {!overlay && <BulkTaskCheckbox task={task} />}
-      <PriorityPicker
-        value={task.priority as Priority}
-        onChange={(priority) => updateTask(task.id, { priority })}
-        {...menus?.("priority")}
-      >
-        <PriorityChip
-          priority={task.priority as Priority}
-          showName={false}
-          className={control}
-          disabled={!canEdit}
-        />
-      </PriorityPicker>
+      {(properties.has("priority") || menus) && (
+        <PriorityPicker
+          value={task.priority as Priority}
+          onChange={(priority) => updateTask(task.id, { priority })}
+          {...menus?.("priority")}
+        >
+          {properties.has("priority") ? (
+            <PriorityChip
+              priority={task.priority as Priority}
+              showName={false}
+              className={control}
+              disabled={!canEdit}
+            />
+          ) : (
+            <MenuAnchor />
+          )}
+        </PriorityPicker>
+      )}
       <StatusPicker
         teamId={task.teamId}
         value={task.stateId}
@@ -201,7 +219,7 @@ function RowContent({
         )}
         {task.title}
       </span>
-      {blockers > 0 && <BlockedBadge count={blockers} />}
+      {properties.has("blockers") && blockers > 0 && <BlockedBadge count={blockers} />}
       {menus && (
         <LabelsPicker
           value={task.labelIds}
@@ -212,22 +230,25 @@ function RowContent({
           <MenuAnchor />
         </LabelsPicker>
       )}
-      <span className="hidden items-center gap-1.5 md:flex">
-        {task.labelIds.slice(0, 2).map((id) => {
-          const l = idx.labels.get(id);
-          return l ? (
-            <LabelBadge key={id} color={l.color}>
-              {l.name}
+      {(properties.has("labels") || properties.has("project")) && (
+        <span className="hidden items-center gap-1.5 md:flex">
+          {properties.has("labels") &&
+            task.labelIds.slice(0, 2).map((id) => {
+              const l = idx.labels.get(id);
+              return l ? (
+                <LabelBadge key={id} color={l.color}>
+                  {l.name}
+                </LabelBadge>
+              ) : null;
+            })}
+          {properties.has("project") && project && (
+            <LabelBadge color={project.color} className="hidden lg:inline-flex">
+              {project.name}
             </LabelBadge>
-          ) : null;
-        })}
-        {project && (
-          <LabelBadge color={project.color} className="hidden lg:inline-flex">
-            {project.name}
-          </LabelBadge>
-        )}
-      </span>
-      {(logged > 0 || task.estimateMinutes != null) && (
+          )}
+        </span>
+      )}
+      {properties.has("time") && (logged > 0 || task.estimateMinutes != null) && (
         <TimeSummary
           logged={logged}
           estimate={task.estimateMinutes}
@@ -235,22 +256,30 @@ function RowContent({
           className="hidden shrink-0 sm:inline-flex"
         />
       )}
-      {task.dueDate && (
+      {properties.has("dueDate") && task.dueDate && (
         <span className={cn("text-xs", overdue ? "text-destructive" : "text-muted-foreground")}>
           {formatShortDate(task.dueDate)}
         </span>
       )}
-      <span className="w-12 shrink-0 text-right text-xs text-muted-foreground">
-        {formatShortDate(task.createdAt, timeZone)}
-      </span>
-      <AssigneePicker
-        value={task.assigneeId}
-        onChange={(assigneeId) => updateTask(task.id, { assigneeId })}
-        align="end"
-        {...menus?.("assignee")}
-      >
-        <AssigneeChip userId={task.assigneeId} showName={false} className={control} disabled={!canEdit} />
-      </AssigneePicker>
+      {properties.has("createdAt") && (
+        <span className="w-12 shrink-0 text-right text-xs text-muted-foreground">
+          {formatShortDate(task.createdAt, timeZone)}
+        </span>
+      )}
+      {(properties.has("assignee") || menus) && (
+        <AssigneePicker
+          value={task.assigneeId}
+          onChange={(assigneeId) => updateTask(task.id, { assigneeId })}
+          align="end"
+          {...menus?.("assignee")}
+        >
+          {properties.has("assignee") ? (
+            <AssigneeChip userId={task.assigneeId} showName={false} className={control} disabled={!canEdit} />
+          ) : (
+            <MenuAnchor />
+          )}
+        </AssigneePicker>
+      )}
     </div>
   );
 }

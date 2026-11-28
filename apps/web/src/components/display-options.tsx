@@ -11,7 +11,12 @@ import {
   SelectValue,
 } from "@knotworking/ui/components/select";
 import { SlidersHorizontal } from "lucide-react";
-import { taskDisplayGroups, type TaskDisplayGroup } from "@knotworking/core";
+import {
+  taskDisplayGroups,
+  taskViewProperties,
+  type TaskDisplayGroup,
+  type TaskViewProperty,
+} from "@knotworking/core";
 import { useSearchParams } from "next/navigation";
 import {
   taskOrderings,
@@ -21,19 +26,29 @@ import {
   type TaskOrdering,
 } from "@/lib/model";
 import { useSearchParam } from "./view-switcher";
+import { defaultBoardProperties, parseTaskProperties, taskPropertyLabels } from "@/lib/task-view-properties";
 
 /** "Display" menu for task views. Settings live in the URL so views can be shared. */
 export function DisplayOptions({
   ordering,
   explicitDefault,
   defaultGroup,
+  layout = "list",
+  defaultProperties,
 }: {
   ordering: TaskOrdering;
   explicitDefault?: boolean;
   defaultGroup?: TaskDisplayGroup;
+  layout?: "list" | "board" | "calendar";
+  defaultProperties?: readonly TaskViewProperty[];
 }) {
   const setParam = useSearchParam();
-  const group = parseTaskGroup(useSearchParams().get("group")) ?? defaultGroup ?? "status";
+  const params = useSearchParams();
+  const group = parseTaskGroup(params.get("group")) ?? defaultGroup ?? "status";
+  const properties =
+    parseTaskProperties(params.get("properties")) ??
+    defaultProperties ??
+    (layout === "board" ? defaultBoardProperties : taskViewProperties);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -82,6 +97,36 @@ export function DisplayOptions({
             </SelectContent>
           </Select>
         </div>
+        {layout !== "calendar" && (
+          <fieldset className="grid grid-cols-2 gap-x-3 gap-y-2 border-t pt-2 text-xs">
+            <legend className="pr-2 text-muted-foreground">Visible properties</legend>
+            {taskViewProperties.map((property) => (
+              <label key={property} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={properties.includes(property)}
+                  onChange={(event) => {
+                    const next = taskViewProperties.filter((key) =>
+                      key === property ? event.target.checked : properties.includes(key),
+                    );
+                    setParam("properties", next.join(","));
+                  }}
+                />
+                {taskPropertyLabels[property]}
+              </label>
+            ))}
+            {params.has("properties") && (
+              <Button
+                variant="ghost"
+                size="xs"
+                className="col-span-2 justify-start"
+                onClick={() => setParam("properties", null)}
+              >
+                Reset visible properties
+              </Button>
+            )}
+          </fieldset>
+        )}
         <p className="text-xs text-muted-foreground">
           {group === "labelIds"
             ? "Dragging rearranges tasks within each label group."

@@ -4,6 +4,7 @@ import {
   filterTaskRows,
   taskFilterJsonSchema,
   taskFilterSchema,
+  taskViewProperties,
   type Priority,
   type TaskFilterExpression,
   type TaskUpdateInput,
@@ -31,6 +32,7 @@ import type { SavedTaskView } from "@/lib/api";
 import { SaveTaskViewDialog } from "./save-task-view-dialog";
 import { BulkTaskSelection } from "./bulk-task-controls";
 import { TaskCalendar } from "./task-calendar";
+import { defaultBoardProperties, parseTaskProperties } from "@/lib/task-view-properties";
 
 /**
  * Tasks for one page, live from the workspace store.
@@ -59,6 +61,15 @@ export function TasksView({
   const params = useSearchParams();
   const rawFilter = params.get("filter");
   const grouping = parseTaskGroup(params.get("group")) ?? savedView?.spec.group ?? "status";
+  const rawProperties = params.get("properties");
+  const properties = useMemo(
+    () => parseTaskProperties(rawProperties) ?? savedView?.spec.properties,
+    [rawProperties, savedView?.spec.properties],
+  );
+  const visibleProperties = useMemo(
+    () => new Set(properties ?? (view === "board" ? defaultBoardProperties : taskViewProperties)),
+    [properties, view],
+  );
   const filter = useMemo(() => {
     if (rawFilter === null) return savedView?.spec.filter ?? undefined;
     const result = taskFilterJsonSchema.safeParse(rawFilter);
@@ -79,9 +90,15 @@ export function TasksView({
     const usable = !unique.length || (checked.success && JSON.stringify(checked.data).length <= 8192);
     return {
       usable,
-      spec: { filter: checked.success ? checked.data : null, layout: view, sort: ordering, group: grouping },
+      spec: {
+        filter: checked.success ? checked.data : null,
+        layout: view,
+        sort: ordering,
+        group: grouping,
+        ...(properties ? { properties } : {}),
+      },
     };
-  }, [teamId, projectId, assignedToMe, viewer.id, filter, view, ordering, grouping]);
+  }, [teamId, projectId, assignedToMe, viewer.id, filter, view, ordering, grouping, properties]);
   const history = useOlderTasks({
     teamId,
     projectId,
@@ -197,12 +214,14 @@ export function TasksView({
           {view === "board" ? (
             <TaskBoard
               groups={groups}
+              properties={visibleProperties}
               onDrop={onDrop}
               onCreate={grouping === "labelIds" || grouping === "dueWeek" ? undefined : onCreate}
             />
           ) : (
             <TaskList
               groups={groups}
+              properties={visibleProperties}
               onDrop={onDrop}
               onCreate={grouping === "labelIds" || grouping === "dueWeek" ? undefined : onCreate}
               emptyDescription={emptyDescription}

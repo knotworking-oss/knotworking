@@ -225,6 +225,8 @@ Task details show related tasks and duplicates. A related link appears on both t
 
 The Employee onboarding and Client kickoff templates define ordered sections. The task preview shows each step's section, and creating the project assigns its tasks to those sections within the same transaction.
 
+**Display → Visible properties** controls the details shown in task lists and boards. The URL carries the selection, and saving the view keeps it. Row and card keyboard shortcuts still open the assignee, label and priority pickers.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

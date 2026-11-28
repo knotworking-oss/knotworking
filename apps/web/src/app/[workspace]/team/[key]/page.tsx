@@ -43,7 +43,7 @@ export default async function TeamTasksPage({ params, searchParams }: Props) {
         actions={
           <>
             <ViewSwitcher view={mode} />
-            <DisplayOptions ordering={ordering} />
+            <DisplayOptions ordering={ordering} layout={mode} />
             <Button asChild variant="ghost" size="sm">
               <Link href={`/${slug}/my-tasks/views?team=${team.id}`}>Views</Link>
             </Button>

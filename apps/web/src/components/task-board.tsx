@@ -1,6 +1,6 @@
 "use client";
 
-import type { Priority } from "@knotworking/core";
+import type { Priority, TaskViewProperty } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import { BlockedBadge } from "@knotworking/ui/components/blocked-badge";
 import { LabelBadge } from "@knotworking/ui/components/label-badge";
@@ -10,6 +10,7 @@ import { cn } from "@knotworking/ui/lib/utils";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import type { TaskSummary } from "@/lib/api";
+import { formatShortDate } from "@/lib/format";
 import type { TaskGroup } from "@/lib/model";
 import { useWorkspace } from "@/lib/workspace-store";
 import { TaskDndProvider, TaskDropZone, useSortableTask, type DropHandler } from "./task-dnd";
@@ -32,10 +33,12 @@ export function TaskBoard({
   groups,
   onDrop,
   onCreate,
+  properties,
 }: {
   groups: TaskGroup[];
   onDrop: DropHandler;
   onCreate?: (group: TaskGroup) => void;
+  properties: ReadonlySet<TaskViewProperty>;
 }) {
   const { canEditTasks: canEdit } = useWorkspace();
   const columnsShown = groups.filter((g) => g.type !== "canceled");
@@ -43,7 +46,7 @@ export function TaskBoard({
     <TaskDndProvider
       groups={columnsShown}
       onDrop={onDrop}
-      renderOverlay={(task) => <CardContent task={task} overlay />}
+      renderOverlay={(task) => <CardContent task={task} properties={properties} overlay />}
     >
       {({ columns, dragging }) => (
         <TaskKeyboardNav dragging={dragging} horizontal>
@@ -74,7 +77,7 @@ export function TaskBoard({
                     className="flex min-h-24 flex-1 flex-col gap-2 rounded-xl pb-4 transition-colors data-over:bg-muted/50"
                   >
                     {items.map((task) => (
-                      <BoardCard key={task.id} task={task} column={g.key} />
+                      <BoardCard key={task.id} task={task} column={g.key} properties={properties} />
                     ))}
                     {items.length === 0 && (
                       <div className="rounded-xl border border-dashed px-2 py-8 text-center text-sm text-muted-foreground">
@@ -92,7 +95,15 @@ export function TaskBoard({
   );
 }
 
-function BoardCard({ task, column }: { task: TaskSummary; column: string }) {
+function BoardCard({
+  task,
+  column,
+  properties,
+}: {
+  task: TaskSummary;
+  column: string;
+  properties: ReadonlySet<TaskViewProperty>;
+}) {
   const { slug, canEditTasks: canEdit } = useWorkspace();
   const selection = useBulkTaskRow(task.id);
   const { nodeProps, handleProps, isDragging } = useSortableTask(task.id, !canEdit || selection.selecting);
@@ -112,7 +123,7 @@ function BoardCard({ task, column }: { task: TaskSummary; column: string }) {
         onClick={selection.onClick}
         {...(selection.selecting ? { onKeyDown: selection.onKeyDown } : {})}
       />
-      <CardContent task={task} menus={menus} />
+      <CardContent task={task} menus={menus} properties={properties} />
     </div>
   );
 }
@@ -121,16 +132,19 @@ function CardContent({
   task,
   overlay,
   menus,
+  properties,
 }: {
   task: TaskSummary;
   overlay?: boolean;
   /** Keyboard-controlled menu state; absent for the drag overlay. */
   menus?: RowMenuProps;
+  properties: ReadonlySet<TaskViewProperty>;
 }) {
   const { idx, canEditTasks: canEdit, updateTask } = useWorkspace();
   const blockers = idx.openBlockers(task.id).length;
   const control = "relative z-10";
   const logged = idx.loggedMinutes.get(task.id) ?? 0;
+  const project = task.projectId ? idx.projects.get(task.projectId) : undefined;
   return (
     <div
       className={cn(
@@ -158,21 +172,27 @@ function CardContent({
           )}
           {task.title}
         </p>
-        <AssigneePicker
-          value={task.assigneeId}
-          onChange={(assigneeId) => updateTask(task.id, { assigneeId })}
-          align="end"
-          {...menus?.("assignee")}
-        >
-          <AssigneeChip
-            userId={task.assigneeId}
-            showName={false}
-            className={cn(control, "-my-0.5 -mr-1 h-6 shrink-0 px-1")}
-            disabled={!canEdit}
-          />
-        </AssigneePicker>
+        {(properties.has("assignee") || menus) && (
+          <AssigneePicker
+            value={task.assigneeId}
+            onChange={(assigneeId) => updateTask(task.id, { assigneeId })}
+            align="end"
+            {...menus?.("assignee")}
+          >
+            {properties.has("assignee") ? (
+              <AssigneeChip
+                userId={task.assigneeId}
+                showName={false}
+                className={cn(control, "-my-0.5 -mr-1 h-6 shrink-0 px-1")}
+                disabled={!canEdit}
+              />
+            ) : (
+              <MenuAnchor />
+            )}
+          </AssigneePicker>
+        )}
       </div>
-      <div className="relative flex flex-wrap items-center gap-1.5">
+      <div className="relative flex flex-wrap items-center gap-1.5 empty:hidden">
         {menus && (
           <LabelsPicker
             value={task.labelIds}
@@ -182,28 +202,46 @@ function CardContent({
             <MenuAnchor className="absolute bottom-0 left-0" />
           </LabelsPicker>
         )}
-        <PriorityPicker
-          value={task.priority as Priority}
-          onChange={(priority) => updateTask(task.id, { priority })}
-          {...menus?.("priority")}
-        >
-          <PriorityChip
-            priority={task.priority as Priority}
-            showName={false}
-            className={cn(control, "-ml-1 h-6 px-1")}
-            disabled={!canEdit}
-          />
-        </PriorityPicker>
-        {blockers > 0 && <BlockedBadge count={blockers} showLabel />}
-        {task.labelIds.map((id) => {
-          const l = idx.labels.get(id);
-          return l ? (
-            <LabelBadge key={id} color={l.color}>
-              {l.name}
-            </LabelBadge>
-          ) : null;
-        })}
-        {(logged > 0 || task.estimateMinutes != null) && (
+        {(properties.has("priority") || menus) && (
+          <PriorityPicker
+            value={task.priority as Priority}
+            onChange={(priority) => updateTask(task.id, { priority })}
+            {...menus?.("priority")}
+          >
+            {properties.has("priority") ? (
+              <PriorityChip
+                priority={task.priority as Priority}
+                showName={false}
+                className={cn(control, "-ml-1 h-6 px-1")}
+                disabled={!canEdit}
+              />
+            ) : (
+              <MenuAnchor />
+            )}
+          </PriorityPicker>
+        )}
+        {properties.has("blockers") && blockers > 0 && <BlockedBadge count={blockers} showLabel />}
+        {properties.has("labels") &&
+          task.labelIds.map((id) => {
+            const l = idx.labels.get(id);
+            return l ? (
+              <LabelBadge key={id} color={l.color}>
+                {l.name}
+              </LabelBadge>
+            ) : null;
+          })}
+        {properties.has("project") && project && (
+          <LabelBadge color={project.color}>{project.name}</LabelBadge>
+        )}
+        {properties.has("dueDate") && task.dueDate && (
+          <span className="text-xs text-muted-foreground">Due {formatShortDate(task.dueDate)}</span>
+        )}
+        {properties.has("createdAt") && (
+          <span className="text-xs text-muted-foreground">
+            Created {formatShortDate(task.createdAt, idx.boot.workspace.timeZone)}
+          </span>
+        )}
+        {properties.has("time") && (logged > 0 || task.estimateMinutes != null) && (
           <TimeSummary logged={logged} estimate={task.estimateMinutes} compact className="ml-auto" />
         )}
       </div>

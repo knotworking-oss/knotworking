@@ -26,7 +26,7 @@ export default async function MyTasksPage({
           <>
             <ModuleDashboardsLink module="tasks" />
             <ViewSwitcher view={mode} />
-            <DisplayOptions ordering={ordering} />
+            <DisplayOptions ordering={ordering} layout={mode} />
             <NewTaskButton defaults={{ assigneeId: me.user.id }} />
           </>
         }

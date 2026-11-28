@@ -26,15 +26,21 @@ describe("saved task views", () => {
 
   it("stores personal views and excludes them from anyone else's lists, bootstrap and sync", async () => {
     const cursor = (await read("/bootstrap")).cursor;
-    const created = await call("/tasks/views", "POST", { name: "Urgent", scope: "personal", spec }, member);
+    const compact = { ...spec, properties: [] };
+    const created = await call(
+      "/tasks/views",
+      "POST",
+      { name: "Urgent", scope: "personal", spec: compact },
+      member,
+    );
     expect(created.status).toBe(201);
     const view = await created.json();
     const path = `/tasks/views/${view.id}`;
-    expect(await read(path, member)).toMatchObject({ spec });
+    expect(await read(path, member)).toMatchObject({ spec: compact });
     expect((await call(path)).status).toBe(404);
     expect((await read("/tasks/views")).views).toEqual([]);
     expect((await read("/bootstrap?taskWindow=recent")).taskViews).toEqual([]);
-    expect((await read("/bootstrap", member)).taskViews).toMatchObject([{ id: view.id }]);
+    expect((await read("/bootstrap", member)).taskViews).toMatchObject([{ id: view.id, spec: compact }]);
     expect((await call(path, "PATCH", { name: "Urgent follow-up" }, member)).status).toBe(200);
     expect((await call(path, "DELETE", undefined, member)).status).toBe(204);
     expect((await call(path, "GET", undefined, member)).status).toBe(404);

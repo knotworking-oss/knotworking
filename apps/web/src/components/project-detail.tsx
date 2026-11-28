@@ -83,7 +83,7 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
         actions={
           <>
             <ViewSwitcher view={mode} timeline />
-            {mode !== "timeline" && <DisplayOptions ordering={ordering} />}
+            {mode !== "timeline" && <DisplayOptions ordering={ordering} layout={mode} />}
             <NewTaskButton defaults={{ projectId: id }} />
             <ProjectActions project={project} onDeleted={() => router.push(`/${slug}/projects`)} />
           </>

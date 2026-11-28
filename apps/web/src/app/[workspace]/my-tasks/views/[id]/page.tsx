@@ -25,7 +25,13 @@ export default async function SavedViewPage({ params, searchParams }: Props) {
         actions={
           <>
             <ViewSwitcher view={layout} explicitDefault />
-            <DisplayOptions ordering={ordering} defaultGroup={saved.spec.group} explicitDefault />
+            <DisplayOptions
+              ordering={ordering}
+              defaultGroup={saved.spec.group}
+              layout={layout}
+              defaultProperties={saved.spec.properties}
+              explicitDefault
+            />
           </>
         }
       >

@@ -4,6 +4,18 @@ import { taskDisplayGroups, taskFilterSchema, taskOrderings } from "./task-filte
 export const taskViewScopes = ["personal", "team", "workspace"] as const;
 export type TaskViewScope = (typeof taskViewScopes)[number];
 
+export const taskViewProperties = [
+  "priority",
+  "blockers",
+  "labels",
+  "project",
+  "time",
+  "dueDate",
+  "createdAt",
+  "assignee",
+] as const;
+export type TaskViewProperty = (typeof taskViewProperties)[number];
+
 export const taskViewSpecSchema = z.strictObject({
   filter: taskFilterSchema
     .nullable()
@@ -11,6 +23,7 @@ export const taskViewSpecSchema = z.strictObject({
   layout: z.enum(["list", "board", "calendar"]),
   sort: z.enum(taskOrderings),
   group: z.enum(taskDisplayGroups).optional(),
+  properties: z.array(z.enum(taskViewProperties)).max(taskViewProperties.length).optional(),
 });
 export type TaskViewSpec = z.infer<typeof taskViewSpecSchema>;
 

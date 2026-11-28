@@ -336,6 +336,7 @@ export function WorkspaceProvider({
         targetDate: fields.targetDate ?? null,
         sortOrder: sortKeyBetween(last, null),
         completedAt: fields.status === "completed" ? now : null,
+        lastUpdateAt: null,
         createdAt: now,
         updatedAt: now,
         deletedAt: null,
@@ -347,7 +348,7 @@ export function WorkspaceProvider({
           unwrap(
             browserApi().v1.workspaces[":slug"].projects.$post({ param: { slug }, json: { ...input, id } }),
           ),
-        confirmed: (project) => projectOverlay(project as typeof optimistic),
+        confirmed: projectOverlay,
       });
       return created !== null;
     },

@@ -962,6 +962,12 @@ export async function sendNotificationEmails(
     if (!n) continue;
     const owned = and(eq(notifications.id, n.id), eq(notifications.emailLeaseToken, leaseToken));
     try {
+      const [subjectVisible] = await db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .leftJoin(tasks, eq(tasks.id, notifications.taskId))
+        .leftJoin(documents, onDocument)
+        .where(and(owned, visible));
       const [recipient] = await db
         .select({ email: users.email, enabled: workspaceMembers.notifyEmail })
         .from(workspaceMembers)
@@ -989,6 +995,7 @@ export async function sendNotificationEmails(
       const access = (await memberAccess(db, n.workspaceId, active)).get(n.userId);
       const owner = n.module ?? (n.taskId ? "tasks" : n.data.documentId ? "docs" : null);
       if (
+        !subjectVisible ||
         !recipient?.enabled ||
         preference?.email === false ||
         (owner && !hasModuleLevel(access?.[owner], "read")) ||

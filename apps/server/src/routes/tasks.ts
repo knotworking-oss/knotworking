@@ -27,6 +27,7 @@ import { createTaskLink, deleteTaskLink, listTaskLinks } from "../services/task-
 import { createTaskRelation, deleteTaskRelation } from "../services/task-relations";
 import { createTask, deleteTask, duplicateTask, getTask, queryTasks, updateTask } from "../services/tasks";
 import { validate } from "../validate";
+import { taskWindowSummary } from "../services/task-window";
 import { commentRoutes } from "./comments";
 import { customFieldRoutes } from "./custom-fields";
 import { taskViewRoutes } from "./task-views";
@@ -53,6 +54,11 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
   // ── Tasks ──
   .get("/tasks", validate("query", taskListQuerySchema), async (c) =>
     c.json(await queryTasks(c.var.db, c.var.workspace.id, c.req.valid("query"))),
+  )
+  .get("/tasks/counts", validate("query", z.object({ cutoff: z.iso.datetime() })), async (c) =>
+    c.json(
+      await taskWindowSummary(c.var.db, c.var.workspace.id, c.req.valid("query").cutoff, canRead(c, "time")),
+    ),
   )
   .get(
     "/tasks/:id",

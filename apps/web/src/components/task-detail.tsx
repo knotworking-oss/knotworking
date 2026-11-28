@@ -370,7 +370,34 @@ export function TaskDependencies({
   context?: { relations: TaskRelation[]; tasks: TaskSummary[] };
 }) {
   const task = useTask(initial);
-  const { idx, canEditTasks: canEdit, createTaskRelation, deleteTaskRelation } = useWorkspace();
+  const { idx, sync, canEditTasks: canEdit, createTaskRelation, deleteTaskRelation } = useWorkspace();
+  const [removed, setRemoved] = useState<ReadonlySet<string>>(() => new Set());
+  const [removing, setRemoving] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(
+    () =>
+      sync.onChanges((changes) => {
+        const relations = changes.filter((change) => change.entity === "task_relation");
+        if (!relations.length) return;
+        setRemoved((previous) => {
+          const next = new Set(previous);
+          for (const change of relations) {
+            if (change.action === "delete") next.add(change.entityId);
+            else next.delete(change.entityId);
+          }
+          return next;
+        });
+      }),
+    [sync],
+  );
+  async function remove(id: string) {
+    setRemoving((previous) => new Set([...previous, id]));
+    if (await deleteTaskRelation(id)) setRemoved((previous) => new Set([...previous, id]));
+    setRemoving((previous) => {
+      const next = new Set(previous);
+      next.delete(id);
+      return next;
+    });
+  }
   const relations = [
     ...new Map(
       [...(context?.relations ?? []), ...(idx.boot.taskRelations ?? [])].map((relation) => [
@@ -378,7 +405,7 @@ export function TaskDependencies({
         relation,
       ]),
     ).values(),
-  ];
+  ].filter((relation) => !removed.has(relation.id) && !removing.has(relation.id));
   const related = new Map(context?.tasks.map((related) => [related.id, related]));
   const blockedBy = relations.filter((r) => r.blockedTaskId === task.id);
   const blocking = relations.filter((r) => r.blockingTaskId === task.id);
@@ -406,7 +433,7 @@ export function TaskDependencies({
         canEdit={canEdit}
         exclude={(id) => linked.has(id) || wouldCreateBlockingCycle(relations, id, task.id)}
         onAdd={(id) => createTaskRelation(id, task.id)}
-        onRemove={deleteTaskRelation}
+        onRemove={remove}
         badge={openBlockers > 0 ? <BlockedBadge count={openBlockers} showLabel /> : undefined}
       />
       <DependencyGroup
@@ -418,7 +445,7 @@ export function TaskDependencies({
         canEdit={canEdit}
         exclude={(id) => linked.has(id) || wouldCreateBlockingCycle(relations, task.id, id)}
         onAdd={(id) => createTaskRelation(task.id, id)}
-        onRemove={deleteTaskRelation}
+        onRemove={remove}
       />
     </section>
   );

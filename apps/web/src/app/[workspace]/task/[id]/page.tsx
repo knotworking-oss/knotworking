@@ -118,7 +118,7 @@ export default async function TaskPage({ params }: Props) {
             <TaskDescription key={task.id} taskId={task.id} initial={description} />
             <CustomFieldValues key={`fields:${task.id}`} target="task" id={task.id} />
             <Subtasks key={task.id} initial={initial} initialChildren={children} />
-            <TaskDependencies initial={initial} context={context} />
+            <TaskDependencies key={task.id} initial={initial} context={context} />
             <TaskLinks key={task.id} taskId={task.id} teamId={task.teamId} />
             <TaskTime initial={initial} initialEntries={time?.entries} />
             <TaskAttachments taskId={task.id} initial={attachments} />

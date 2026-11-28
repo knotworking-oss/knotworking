@@ -85,6 +85,15 @@ describe("planner bootstrap and team features", () => {
     expect(full.closedWindow).toBeUndefined();
     expect(full.tasks.some((task: { id: string }) => task.id === oldId)).toBe(true);
     const direct = await (await request(`/tasks/${oldId}?context=true`)).json();
+    const matching = new URLSearchParams({
+      projectId,
+      filter: JSON.stringify({ version: 1, expression: { field: "hasSubtasks", op: "eq", value: true } }),
+    });
+    expect((await (await request(`/tasks?${matching}`)).json()).tasks).toMatchObject([
+      { id: direct.parentId },
+    ]);
+    const counts = `/tasks/counts?cutoff=${encodeURIComponent(snapshot.closedWindow.cutoff)}`;
+    expect(await (await request(counts)).json()).toEqual(snapshot.closedWindow);
     expect(direct.context.tasks).toContainEqual(expect.objectContaining({ id: direct.parentId }));
     expect(direct.context.relations).toContainEqual(expect.objectContaining({ blockedTaskId: oldId }));
     const { rollups } = await (await request(`/projects/${projectId}/subtask-rollups`)).json();
@@ -125,6 +134,8 @@ describe("planner bootstrap and team features", () => {
       (state: { teamId: string; type: string }) => state.teamId === teamId && state.type === "unstarted",
     ).id;
     expect((await request(`/tasks/${oldId}`, "PATCH", { stateId: openStateId })).status).toBe(200);
+    const { projectCounts } = await (await request(counts)).json();
+    expect(projectCounts[projectId]).toMatchObject({ open: 2, completed: 0, logged: 25 });
     const delta = await (await request(`/sync?after=${start}`)).json();
     expect(delta.changes).toContainEqual(
       expect.objectContaining({ entity: "task", entityId: oldId, action: "upsert" }),

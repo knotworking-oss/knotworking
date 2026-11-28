@@ -28,6 +28,7 @@ import type { DropHandler } from "./task-dnd";
 import { TaskList } from "./task-list";
 import { useNewTask } from "./new-task-dialog";
 import { OlderTasksControl, useOlderTasks } from "./older-tasks";
+import { FilteredTasksControl, needsFullTaskGraph, useFilteredTasks } from "./filtered-tasks";
 import { TaskFilterBar } from "./task-filter-bar";
 import type { SavedTaskView } from "@/lib/api";
 import { SaveTaskViewDialog } from "./save-task-view-dialog";
@@ -113,6 +114,15 @@ export function TasksView({
     filter,
   });
   const { tasks } = history;
+  const serverFiltered = Boolean(idx.boot.closedWindow) && needsFullTaskGraph(filter);
+  const remote = useFilteredTasks({
+    filter: serverFiltered ? filter : undefined,
+    teamId,
+    projectId,
+    assigneeId,
+    sort: ordering,
+  });
+  const remoteTasks = serverFiltered ? remote.tasks : undefined;
   const newTask = useNewTask();
 
   const groups = useMemo(() => {
@@ -121,14 +131,16 @@ export function TasksView({
     if (projectId) filters.push({ field: "projectId", op: "eq", value: projectId });
     if (assigneeId) filters.push({ field: "assigneeId", op: "eq", value: assigneeId });
     if (filter) filters.push(filter.expression);
-    const shown = filters.length
-      ? filterTaskRows(
-          tasks,
-          { version: 1, expression: { and: filters } },
-          (id) => idx.states.get(id)?.type ?? null,
-          [...(idx.boot.taskRelations ?? []), ...(history.relations ?? [])],
-        )
-      : tasks;
+    const shown =
+      remoteTasks ??
+      (filters.length
+        ? filterTaskRows(
+            tasks,
+            { version: 1, expression: { and: filters } },
+            (id) => idx.states.get(id)?.type ?? null,
+            [...(idx.boot.taskRelations ?? []), ...(history.relations ?? [])],
+          )
+        : tasks);
     const groupTasks = (rows: typeof shown, field: typeof grouping) => {
       if (field !== "status") return groupTasksBy(rows, idx, field, ordering, projectId);
       return teamId
@@ -153,6 +165,7 @@ export function TasksView({
     ordering,
     filter,
     history.relations,
+    remoteTasks,
     grouping,
     subgrouping,
     view,
@@ -238,8 +251,9 @@ export function TasksView({
           />
         }
       />
-      <OlderTasksControl history={history} />
-      {view === "calendar" ? (
+      {serverFiltered ? <FilteredTasksControl result={remote} /> : <OlderTasksControl history={history} />}
+      {serverFiltered && (remote.loading || remote.error) && !remote.tasks.length ? null : view ===
+        "calendar" ? (
         <TaskCalendar tasks={groups.flatMap((group) => group.tasks)} />
       ) : (
         <BulkTaskSelection

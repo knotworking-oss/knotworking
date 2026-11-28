@@ -379,6 +379,7 @@ const ROUTES: Record<string, Classification> = {
   "PATCH /v1/workspaces/:slug/crm/activities/:id": "token-ok",
   "PATCH /v1/workspaces/:slug/settings": "token-forbidden",
   "GET /v1/workspaces/:slug/tasks": "token-ok",
+  "GET /v1/workspaces/:slug/tasks/counts": "token-ok",
   "GET /v1/workspaces/:slug/tasks/custom-fields": "token-ok",
   "POST /v1/workspaces/:slug/tasks/custom-fields": "token-action",
   "PATCH /v1/workspaces/:slug/tasks/custom-fields/:id": "token-action",

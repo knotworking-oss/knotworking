@@ -9,6 +9,7 @@ import {
 import { taskEvents, tasks, teams, type Database, type Transaction } from "@knotworking/db";
 import { and, desc, eq, isNull, lt } from "drizzle-orm";
 import { notFound } from "../errors";
+import { activityTriggers, queueAutomationEvent } from "./automation-events";
 
 type TrackedTask = Pick<typeof tasks.$inferSelect, Exclude<TaskActivityField, "labelIds">>;
 
@@ -40,9 +41,15 @@ export async function recordTaskActivity(
   source: TaskActivitySource,
   details: TaskActivityDetails,
 ) {
-  await tx
+  const events = await tx
     .insert(taskEvents)
-    .values(taskIds.map((taskId) => ({ workspaceId, taskId, actorId, source, details })));
+    .values(taskIds.map((taskId) => ({ workspaceId, taskId, actorId, source, details })))
+    .returning({ id: taskEvents.id, taskId: taskEvents.taskId });
+  if (source === "automation") return;
+  const triggers = activityTriggers(details);
+  for (const event of events) {
+    await queueAutomationEvent(tx, workspaceId, event.taskId, event.id, triggers);
+  }
 }
 
 export async function listTaskActivity(

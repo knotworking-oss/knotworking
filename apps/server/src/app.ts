@@ -79,6 +79,9 @@ import { notificationRoutes } from "./routes/notifications";
 import { registerNotificationDelivery } from "./services/notifications";
 import { structureRoutes } from "./routes/structure";
 import { taskRoutes } from "./routes/tasks";
+import { automationPipelineRoutes } from "./routes/automation-pipelines";
+import { taskAutomationRoutes } from "./routes/task-automation";
+import { deriveAutomationKey } from "./services/task-automation";
 import { timeRoutes } from "./routes/time";
 import { tokenActionRoutes } from "./routes/token-actions";
 import { DEFAULT_STREAM_REVALIDATE_MS, workspaceRoutes } from "./routes/workspace";
@@ -168,6 +171,7 @@ export function createApp({
   const staffPinKey = deriveStaffPinKey(secret);
   const attachmentLinkKey = deriveAttachmentLinkKey(secret);
   const assistantKeyKey = deriveAssistantKeyKey(secret);
+  const automationKey = deriveAutomationKey(secret);
   const assistantProviders = assistantDeps?.providers ?? createProviderRegistry();
   const assistantTurns = new AssistantTurnRunner(
     db,
@@ -205,6 +209,7 @@ export function createApp({
     c.set("assistantTurns", assistantTurns);
     c.set("assistantProviders", assistantProviders);
     c.set("assistantKeyKey", assistantKeyKey);
+    c.set("automationKey", automationKey);
     c.set("internalFetch", (request: Request) => Promise.resolve(app.fetch(request)));
     await next();
   });
@@ -325,6 +330,8 @@ export function createApp({
     .route("/v1/me", assistantKeyRoutes)
     .route("/v1/workspaces/:slug", workspaceRoutes)
     .route("/v1/workspaces/:slug", taskRoutes)
+    .route("/v1/workspaces/:slug", automationPipelineRoutes)
+    .route("/v1/workspaces/:slug", taskAutomationRoutes)
     .route("/v1/workspaces/:slug", docRoutes)
     .route("/v1/workspaces/:slug", timeRoutes)
     .route("/v1/workspaces/:slug", structureRoutes)

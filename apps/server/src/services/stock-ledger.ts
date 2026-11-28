@@ -1,3 +1,5 @@
+import { queuePipelineEvent } from "./automation-pipeline-events";
+import { workspaceToday } from "./time-zone";
 import { despatchAllocated } from "./despatch-allocations";
 /** Shared stock ledger contract: units, tenant-scoped lookups, balances, serializers and posting. */
 import {
@@ -240,8 +242,16 @@ export async function insertMovements(
   workspaceId: string,
   rows: Omit<typeof stockMovements.$inferInsert, "workspaceId">[],
 ) {
-  return tx
+  const movements = await tx
     .insert(stockMovements)
     .values(rows.map((r) => ({ ...r, workspaceId })))
     .returning();
+  await queuePipelineEvent(
+    tx,
+    workspaceId,
+    "stock.received",
+    movements.filter((row) => row.type === "receipt").map((row) => row.lotId),
+    () => workspaceToday(tx, workspaceId),
+  );
+  return movements;
 }

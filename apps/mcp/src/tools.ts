@@ -13,6 +13,7 @@ import {
 import { fetchBootstrap, fetchMe, Model } from "./model";
 import { registerAttachmentTools } from "./tools/attachments";
 import { registerAttendanceTools } from "./tools/attendance";
+import { registerAutomationTools } from "./tools/automation";
 import { registerCostingTools } from "./tools/costing";
 import { registerWorkforceTools } from "./tools/workforce";
 import { registerHseTools } from "./tools/hse";
@@ -405,6 +406,7 @@ export function createKnotworkingServer(options: ToolsOptions): McpServer {
   // ════════════════════════════ Modules (one file each) ════════════════════════════
   const workspaceTools = { define, slugOf, workspaceParam, load, modelFor, meId };
   registerTaskTools(workspaceTools);
+  registerAutomationTools(workspaceTools);
   registerDocTools(workspaceTools);
   registerTimeTools(workspaceTools);
   registerAssetTools({ define, slugOf, workspaceParam });

@@ -1,6 +1,11 @@
 "use client";
 
-import { taskActivityFields, type TaskActivityDetails, type TaskActivityField } from "@knotworking/core";
+import {
+  taskActivityFields,
+  type TaskActivityDetails,
+  type TaskActivityField,
+  type TaskActivitySource,
+} from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import { useState } from "react";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
@@ -47,6 +52,7 @@ function activityText(details: TaskActivityDetails) {
 type ActivityEvent = {
   id: string;
   actorId: string | null;
+  source: TaskActivitySource;
   createdAt: string;
   details: TaskActivityDetails;
 };
@@ -115,7 +121,9 @@ export function TaskActivity({ taskId }: { taskId: string }) {
               >
                 <span>
                   <span className="font-medium">
-                    {(event.actorId && idx.users.get(event.actorId)?.name) || "Unknown member"}
+                    {event.source === "automation"
+                      ? "Automation"
+                      : (event.actorId && idx.users.get(event.actorId)?.name) || "Unknown member"}
                   </span>{" "}
                   {activityText(event.details)}
                 </span>

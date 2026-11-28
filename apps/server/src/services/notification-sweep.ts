@@ -1,3 +1,4 @@
+import { withAutomationScope } from "./automation-events";
 import {
   addDaysToIsoDate,
   hasModuleLevel,
@@ -213,7 +214,7 @@ async function sweepWorkspace(
     if (active.has("maintenance")) await sweepMaintenance(ctx);
     if (active.has("site")) await sweepSite(ctx, active.has("checklists"), active.has("production"));
     if (active.has("recipes") && active.has("food_items")) await sweepRecipes(ctx);
-    if (active.has("quality")) await sweepQuality(ctx);
+    if (active.has("quality")) await withAutomationScope(active.has("automation"), () => sweepQuality(ctx));
     if (active.has("labels")) await sweepLabels(ctx);
     if (active.has("sops")) await sweepSops(ctx, activeModules);
     if (active.has("attendance")) await sweepAttendance(ctx);

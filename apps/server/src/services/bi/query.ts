@@ -192,6 +192,13 @@ function shapeRow(row: Record<string, unknown>, columns: CompiledColumn[]): Reco
  * Runs a query spec as the viewer: checks access and the spec, compiles it, runs it under the
  * analytic guard, and (with `compare`) runs the comparison period and joins it on the group keys.
  */
+export function checkBiQueryForViewer(spec: BiQuerySpec, viewer: BiViewer): BiDataset {
+  const dataset = datasetFor(spec, viewer);
+  const issues = checkBiQuery(spec, dataset);
+  if (issues.length) throw invalid(issues);
+  return dataset;
+}
+
 export async function runBiQuery(
   db: Database,
   workspace: BiWorkspace,
@@ -199,9 +206,7 @@ export async function runBiQuery(
   input: unknown,
 ): Promise<BiQueryResult> {
   const spec = parseBiQuerySpec(input);
-  const dataset = datasetFor(spec, viewer);
-  const issues = checkBiQuery(spec, dataset);
-  if (issues.length) throw invalid(issues);
+  const dataset = checkBiQueryForViewer(spec, viewer);
   return cachedBiResult(db, workspace, viewer, spec, () =>
     // Certified metrics are computed by their module's services, never compiled to SQL.
     dataset.virtual

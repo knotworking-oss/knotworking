@@ -102,3 +102,6 @@ export * from "./workforce";
 export * from "./workforce-rota";
 export * from "./payroll-runs";
 export * from "./bi";
+export * from "./task-automation";
+
+export * from "./automation-pipeline";

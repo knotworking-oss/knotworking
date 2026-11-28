@@ -1799,3 +1799,21 @@ export const getCustomerDocument = (slug: string, id: string) =>
 export type CustomerDocument = Awaited<ReturnType<typeof getCustomerDocument>>;
 export const getInvoicingSettings = (slug: string) =>
   load((api) => unwrap(ws(api).invoicing.settings.$get({ param: { slug } })));
+
+export const getAutomation = (slug: string) =>
+  load((api) => unwrap(ws(api).automation.$get({ param: { slug } })));
+
+export const getAutomationWebhooks = (slug: string) =>
+  load((api) => unwrap(ws(api).automation.webhooks.$get({ param: { slug } })));
+
+export const getTaskCustomFields = (slug: string) =>
+  load((api) => unwrap(ws(api).tasks["custom-fields"].$get({ param: { slug } })));
+
+export const getAutomationPipelines = (slug: string) =>
+  load((api) => unwrap(ws(api).automation.pipelines.$get({ param: { slug } })));
+
+export const getPipelineOptions = (slug: string) =>
+  load((api) => unwrap(ws(api).automation["pipeline-options"].$get({ param: { slug } })));
+
+export const getAutomationRun = (slug: string, id: string) =>
+  load((api) => unwrap(ws(api).automation.runs[":id"].$get({ param: { slug, id } })));

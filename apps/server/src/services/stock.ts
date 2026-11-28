@@ -255,7 +255,12 @@ async function balancesFor(db: Executor, lotIds: string[], locationId?: string) 
 }
 
 /** One row per item: on hand, split by lot status, lots in stock and the earliest expiry. */
-export async function listStockLevels(db: Database, workspaceId: string, query: StockLevelsQuery) {
+export async function listStockLevels(
+  db: Database,
+  workspaceId: string,
+  query: StockLevelsQuery,
+  todayOn?: string,
+) {
   // Balance per lot (at one location when filtered), non-zero only, from the stored balances.
   const perLot = lotBalances(db, workspaceId, { locationId: query.locationId });
   const lots = db
@@ -309,7 +314,7 @@ export async function listStockLevels(db: Database, workspaceId: string, query: 
   );
   if (query.expiringWithinDays !== undefined) {
     where.push(
-      sql`${perItem.earliestExpiry} <= ${addDays(await today(db, workspaceId), query.expiringWithinDays)}`,
+      sql`${perItem.earliestExpiry} <= ${addDays(todayOn ?? (await today(db, workspaceId)), query.expiringWithinDays)}`,
     );
   }
 
@@ -337,7 +342,7 @@ export async function listStockLevels(db: Database, workspaceId: string, query: 
       .where(and(...where));
     return row?.n ?? 0;
   });
-  const day = await today(db, workspaceId);
+  const day = todayOn ?? (await today(db, workspaceId));
   return {
     levels: rows.map((r) => ({
       item: itemSummary(r.item),

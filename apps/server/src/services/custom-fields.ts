@@ -263,7 +263,7 @@ function validatedColumns(field: Definition, value: Exclude<CustomFieldValue, nu
 }
 
 export async function setCustomFieldValue(
-  db: Database,
+  db: Executor,
   workspaceId: string,
   actorId: string,
   target: CustomFieldTarget,

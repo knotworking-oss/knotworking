@@ -63,7 +63,8 @@ describe("module manifest", () => {
 describe("parseActiveModules", () => {
   it("defaults to every module that is on by default, and `all` adds the flagged ones", () => {
     const standard = moduleIds.filter(
-      (id) => id !== "calendar" && id !== "accounting" && id !== "bi" && id !== "invoicing",
+      (id) =>
+        id !== "calendar" && id !== "accounting" && id !== "bi" && id !== "invoicing" && id !== "automation",
     );
     expect(parseActiveModules(undefined)).toEqual(standard);
     expect(parseActiveModules("  ")).toEqual(standard);
@@ -253,6 +254,7 @@ describe("resolveModuleAccess", () => {
       client_services: "none",
       crm: "none",
       invoicing: "none",
+      automation: "none",
     });
   });
 

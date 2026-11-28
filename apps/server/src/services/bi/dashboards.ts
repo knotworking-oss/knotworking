@@ -16,6 +16,7 @@ import {
   hasModuleLevel,
   type BiDashboardSpec,
   type BiDashboardViewer,
+  type BiDashboardViewParams,
   type BiIssue,
 } from "@knotworking/core";
 import {
@@ -291,7 +292,7 @@ export async function duplicateDashboard(
   workspaceId: string,
   id: string,
   viewer: BiDashboardViewer,
-  options: { title?: string; scope?: string } = {},
+  options: { title?: string; scope?: string; view?: BiDashboardViewParams } = {},
 ) {
   const source = await loadVisible(db, workspaceId, id, viewer);
   const parsed = biDashboardSpecSchema.safeParse(source.spec);
@@ -301,11 +302,24 @@ export async function duplicateDashboard(
     visibleCatalogue({ modules: viewer.modules, role: viewer.role }),
   );
   const count = (s: BiDashboardSpec) => s.sections.reduce((n, x) => n + x.widgets.length, 0);
+  const view = options.view;
+  const draftSpec = view
+    ? {
+        ...spec,
+        params: { ...spec.params, period: view.period ?? spec.params.period },
+        sections: spec.sections.map((section) => ({
+          ...section,
+          widgets: section.widgets.map((widget) =>
+            widget.type === "text" ? widget : { ...widget, query: biWidgetQuery(widget, spec, view) },
+          ),
+        })),
+      }
+    : spec;
   const created = await createDashboard(db, workspaceId, viewer, {
     title: (options.title ?? (source.isTemplate ? source.title : `Copy of ${source.title}`)).slice(0, 120),
     description: source.description ?? undefined,
     scope: options.scope ?? source.scope,
-    spec,
+    spec: draftSpec,
   });
   return { ...created, omittedWidgets: count(parsed.data) - count(spec) };
 }

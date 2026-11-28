@@ -848,6 +848,20 @@
       "when": 1795852808465,
       "tag": "0137_planner_custom_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1795885107015,
+      "tag": "0138_task_automation",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1795888929430,
+      "tag": "0139_automation_pipelines",
+      "breakpoints": true
     }
   ]
 }

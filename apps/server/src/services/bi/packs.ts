@@ -131,12 +131,22 @@ export async function takeSnapshot(
   viewer: BiDashboardViewer,
   input: unknown,
 ) {
+  const prepared = await prepareDashboardSnapshot(db, workspace, dashboardId, viewer, input);
+  return db.transaction((tx) => saveDashboardSnapshot(tx, prepared));
+}
+
+export async function prepareDashboardSnapshot(
+  db: Database,
+  workspace: BiWorkspace,
+  dashboardId: string,
+  viewer: BiDashboardViewer,
+  input: unknown,
+) {
   assertManager(viewer);
   const data = parseDashboardInput(biSnapshotCreateSchema, input ?? {});
   const dashboard = await getDashboard(db, workspace.id, dashboardId, viewer);
   const view = data.params ?? { filters: {} };
   const results = await dashboardData(db, workspace, dashboardId, viewer, view);
-  // The spec and the results must be the same version (someone may have saved in between).
   if (results.version !== dashboard.version) {
     throw new ApiError(
       409,
@@ -145,26 +155,31 @@ export async function takeSnapshot(
     );
   }
   const spec = biDashboardSpecSchema.parse(dashboard.spec);
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(biSnapshots)
-      .values({
-        workspaceId: workspace.id,
-        dashboardId,
-        dashboardVersion: results.version,
-        title: data.title ?? `${dashboard.title}, as at ${workspace.today}`,
-        asAt: workspace.today,
-        spec,
-        results: { widgets: results.widgets },
-        catalogueVersion: BI_CATALOGUE_VERSION,
-        definitions: definitionsOf(spec),
-        view: results.view,
-        takenBy: viewer.userId,
-      })
-      .returning();
-    await recordSnapshot(tx, workspace.id, viewer.userId, row!);
-    return { ...snapshotHeader(row!), description: dashboard.description };
-  });
+  return {
+    description: dashboard.description,
+    values: {
+      workspaceId: workspace.id,
+      dashboardId,
+      dashboardVersion: results.version,
+      title: data.title ?? `${dashboard.title}, as at ${workspace.today}`,
+      asAt: workspace.today,
+      spec,
+      results: { widgets: results.widgets },
+      catalogueVersion: BI_CATALOGUE_VERSION,
+      definitions: definitionsOf(spec),
+      view: results.view,
+      takenBy: viewer.userId,
+    },
+  };
+}
+
+export async function saveDashboardSnapshot(
+  tx: Transaction,
+  { description, values }: Awaited<ReturnType<typeof prepareDashboardSnapshot>>,
+) {
+  const [row] = await tx.insert(biSnapshots).values(values).returning();
+  await recordSnapshot(tx, values.workspaceId, values.takenBy, row!);
+  return { ...snapshotHeader(row!), description };
 }
 
 export async function listSnapshots(

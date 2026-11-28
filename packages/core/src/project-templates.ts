@@ -54,6 +54,8 @@ export interface ProjectTemplateStep {
   daysFromStart: number;
   /** Guidance put in the task description. */
   detail?: string;
+  /** A section declared by this template. */
+  section?: string;
   /** A page in the workspace (path under `/<workspace>/`) linked from the task description. */
   link?: { label: string; path: string };
 }
@@ -72,6 +74,8 @@ export interface ProjectTemplate {
   dateLabel: string;
   /** Materialize the anchor date as a project milestone. */
   milestone?: boolean;
+  /** Project sections in display order. */
+  sections?: readonly string[];
   /** Starter tasks: everything a Tasks-only workspace gets. */
   tasks: readonly ProjectTemplateStep[];
   /** Steps that apply when the module is on and the creator can read it. */
@@ -90,13 +94,34 @@ export const projectTemplates: Record<ProjectTemplateId, ProjectTemplate> = {
     workflow: "people",
     audience: "Any team welcoming a new starter",
     dateLabel: "Employee start date",
+    sections: ["Before the start date", "First week"],
     tasks: [
-      { key: "equipment", title: "Prepare equipment and workspace", daysFromStart: -7 },
-      { key: "accounts", title: "Set up accounts and access", daysFromStart: -3 },
-      { key: "agenda", title: "Send the first-day agenda", daysFromStart: -1 },
-      { key: "introductions", title: "Introduce the team and review key policies", daysFromStart: 0 },
-      { key: "training", title: "Schedule role training", daysFromStart: 3 },
-      { key: "check_in", title: "Hold the first-week check-in", daysFromStart: 7 },
+      {
+        key: "equipment",
+        title: "Prepare equipment and workspace",
+        daysFromStart: -7,
+        section: "Before the start date",
+      },
+      {
+        key: "accounts",
+        title: "Set up accounts and access",
+        daysFromStart: -3,
+        section: "Before the start date",
+      },
+      {
+        key: "agenda",
+        title: "Send the first-day agenda",
+        daysFromStart: -1,
+        section: "Before the start date",
+      },
+      {
+        key: "introductions",
+        title: "Introduce the team and review key policies",
+        daysFromStart: 0,
+        section: "First week",
+      },
+      { key: "training", title: "Schedule role training", daysFromStart: 3, section: "First week" },
+      { key: "check_in", title: "Hold the first-week check-in", daysFromStart: 7, section: "First week" },
     ],
     moduleSteps: {},
   },
@@ -106,12 +131,23 @@ export const projectTemplates: Record<ProjectTemplateId, ProjectTemplate> = {
     audience: "Teams starting work with a client",
     dateLabel: "Kickoff date",
     milestone: true,
+    sections: ["Prepare", "Kickoff", "Follow up"],
     tasks: [
-      { key: "scope", title: "Confirm scope, contacts and responsibilities", daysFromStart: -5 },
-      { key: "agenda", title: "Share the kickoff agenda", daysFromStart: -2 },
-      { key: "meeting", title: "Hold the kickoff meeting", daysFromStart: 0 },
-      { key: "actions", title: "Send decisions and next actions", daysFromStart: 1 },
-      { key: "milestones", title: "Confirm milestones and review dates", daysFromStart: 3 },
+      {
+        key: "scope",
+        title: "Confirm scope, contacts and responsibilities",
+        daysFromStart: -5,
+        section: "Prepare",
+      },
+      { key: "agenda", title: "Share the kickoff agenda", daysFromStart: -2, section: "Prepare" },
+      { key: "meeting", title: "Hold the kickoff meeting", daysFromStart: 0, section: "Kickoff" },
+      { key: "actions", title: "Send decisions and next actions", daysFromStart: 1, section: "Follow up" },
+      {
+        key: "milestones",
+        title: "Confirm milestones and review dates",
+        daysFromStart: 3,
+        section: "Follow up",
+      },
     ],
     moduleSteps: {},
   },
@@ -539,8 +575,9 @@ export function planProjectTemplate(
   for (const moduleId of projectTemplateModules(templateId)) {
     if (!canUse(moduleId)) continue;
     for (const { replaces, ...step } of template.moduleSteps[moduleId] ?? []) {
-      const task = { ...step, module: moduleId };
       const index = replaces ? planned.findIndex((p) => p.key === replaces) : -1;
+      const section = step.section ?? planned[index]?.section;
+      const task = { ...step, ...(section ? { section } : {}), module: moduleId };
       if (index >= 0) planned[index] = task;
       else planned.push(task);
     }

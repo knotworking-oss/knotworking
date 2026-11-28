@@ -223,6 +223,8 @@ Post an update on a project to save a rich-text status message, set its health, 
 
 Task details show related tasks and duplicates. A related link appears on both tasks. A duplicate can point to one original and can move to a canceled workflow state when linked. These links are fetched from `GET /tasks/:id/links`, while blocking dependencies continue to drive blocked filters and timeline arrows.
 
+The Employee onboarding and Client kickoff templates define ordered sections. The task preview shows each step's section, and creating the project assigns its tasks to those sections within the same transaction.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

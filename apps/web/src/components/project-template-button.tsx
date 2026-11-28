@@ -275,6 +275,7 @@ function ProjectTemplateForm({ commandId, onClose }: { commandId: string; onClos
                         updateTask(task.id, { daysFromStart: offset });
                     }}
                   />
+                  {task.section && <span className="text-xs text-muted-foreground">{task.section}</span>}
                   {task.module && (
                     <Badge variant="outline" title="Links to this module">
                       {moduleDefinitions[task.module].name}

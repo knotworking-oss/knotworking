@@ -12,6 +12,7 @@ import type { Database } from "@knotworking/db";
 import { ApiError, badRequest } from "../errors";
 import { executeLedgerCommand } from "./ledger-command";
 import { createMilestone } from "./project-milestones";
+import { createSection } from "./project-sections";
 import type { NotificationRow, NotifiedCallback } from "./notifications";
 import { createProject } from "./projects";
 import { createTask } from "./tasks";
@@ -103,6 +104,7 @@ export async function createProjectFromTemplate(
           title: task.title,
           dueDate: addDaysToIsoDate(input.startDate, task.daysFromStart),
           description: stepDescription(task.step, creator.slug),
+          section: task.step?.section,
           order,
         }))
         .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.order - b.order);
@@ -114,6 +116,11 @@ export async function createProjectFromTemplate(
         targetDate: planned.at(-1)!.dueDate,
       });
       const template = projectTemplates[input.templateId];
+      const sectionIds = new Map<string, string>();
+      for (const name of template.sections ?? []) {
+        const section = await createSection(tx, workspaceId, project.id, actorId, { name });
+        sectionIds.set(name, section.id);
+      }
       const milestone = template.milestone
         ? await createMilestone(tx, workspaceId, project.id, actorId, {
             name: template.dateLabel,
@@ -121,7 +128,8 @@ export async function createProjectFromTemplate(
           })
         : null;
       // The regular task service inserts at the top of the team's manual order.
-      for (const { order: _order, description, ...task } of [...planned].reverse()) {
+      for (const { order: _order, description, section, ...task } of [...planned].reverse()) {
+        const sectionId = section ? sectionIds.get(section) : undefined;
         await createTask(
           tx,
           workspaceId,
@@ -129,6 +137,7 @@ export async function createProjectFromTemplate(
           {
             ...task,
             ...(description ? { description } : {}),
+            ...(sectionId ? { sectionId } : {}),
             projectId: project.id,
             ...(milestone && task.dueDate <= input.startDate ? { milestoneId: milestone.id } : {}),
             teamId: input.teamId,

@@ -20,6 +20,7 @@ export interface DraftTemplateTask {
   daysFromStart: number;
   /** The module whose step it is (null: a starter or custom task). */
   module: ModuleId | null;
+  section?: string;
 }
 
 /** The template's plan for this viewer, as editable rows. */
@@ -33,6 +34,7 @@ export function draftTemplateTasks(
     title: task.title,
     daysFromStart: task.daysFromStart,
     module: task.module,
+    ...(task.section ? { section: task.section } : {}),
   }));
 }
 

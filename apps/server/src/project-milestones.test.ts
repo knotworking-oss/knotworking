@@ -89,7 +89,7 @@ describe("project milestones", () => {
     expect((await (await call("/bootstrap")).json()).projectMilestones).toEqual([]);
   });
 
-  it("declares and links the kickoff milestone once when a template command is retried", async () => {
+  it("creates kickoff milestones and sections once when a template command is retried", async () => {
     const input = {
       commandId: newId(),
       templateId: "client_kickoff",
@@ -102,9 +102,22 @@ describe("project milestones", () => {
     expect(await create("/projects/from-template", input)).toEqual(project);
     const milestones = await (await call(`/projects/${project.id}/milestones`)).json();
     expect(milestones.milestones).toMatchObject([{ name: "Kickoff date", targetDate: input.startDate }]);
+    const { sections } = await (await call(`/projects/${project.id}/sections`)).json();
+    expect(sections.map((section: { name: string }) => section.name)).toEqual([
+      "Prepare",
+      "Kickoff",
+      "Follow up",
+    ]);
     const result = await (await call(`/tasks?projectId=${project.id}`)).json();
     for (const task of result.tasks) {
       expect(task.milestoneId).toBe(task.dueDate <= input.startDate ? milestones.milestones[0].id : null);
+      const expectedSection =
+        task.dueDate < input.startDate
+          ? sections[0]
+          : task.dueDate === input.startDate
+            ? sections[1]
+            : sections[2];
+      expect(task.sectionId).toBe(expectedSection.id);
     }
   });
 

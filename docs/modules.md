@@ -217,6 +217,10 @@ Add, rename, or reorder sections from a project's page. In **Display → Group b
 
 The People section lists the project lead and contributors. Task writers can add or remove contributors. The lead and contributors follow the project by default, and anyone with Tasks read access can choose their own follow preference. Changing membership leaves an explicit follow or unfollow preference in place. Project access still follows the workspace's Tasks grant.
 
+## Project status updates
+
+Post an update on a project to save a rich-text status message, set its health, and notify its followers. Updates and their comments load in pages. An active project's lead gets a reminder after seven workspace calendar days without an update, at most once per workspace week.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

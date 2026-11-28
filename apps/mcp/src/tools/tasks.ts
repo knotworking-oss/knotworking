@@ -457,6 +457,31 @@ export function registerTaskTools(ctx: WorkspaceToolContext) {
   );
 
   define(
+    "post_project_update",
+    {
+      module: "tasks",
+      title: "Post a project status update",
+      description: "Post a status update, set the project's health, and notify its lead and followers.",
+      annotations: CREATE,
+      input: {
+        workspace: workspaceParam,
+        project: id("Project"),
+        health: z.enum(projectHealths),
+        body: z.string().trim().min(1).max(20_000).describe("Status update text."),
+      },
+    },
+    async ({ workspace, project, health, body }, api) => {
+      const slug = await slugOf(api, workspace);
+      return api.call(
+        api.client.v1.workspaces[":slug"].projects[":id"].updates.$post({
+          param: { slug, id: project },
+          json: { health, body: toDoc(body) },
+        }),
+      );
+    },
+  );
+
+  define(
     "list_comments",
     {
       module: "tasks",

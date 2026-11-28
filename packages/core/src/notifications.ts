@@ -11,6 +11,8 @@ export const notificationTypes = [
   "task_assigned",
   "task_status_changed",
   "task_commented",
+  "project_update_posted",
+  "project_update_due",
   "mentioned",
   // Due dates, found by the sweep (`services/notification-sweep.ts`).
   "training_due",
@@ -89,6 +91,16 @@ export const notificationTypeInfo: Record<
   task_commented: {
     label: "Task comments",
     description: "Someone comments on a task you follow",
+    module: "tasks",
+  },
+  project_update_posted: {
+    label: "Project updates",
+    description: "Someone posts a status update on a project you follow",
+    module: "tasks",
+  },
+  project_update_due: {
+    label: "Project update reminders",
+    description: "An active project you lead needs an update",
     module: "tasks",
   },
   mentioned: { label: "Mentions", description: "Someone @-mentions you in a task or page", module: null },
@@ -344,6 +356,9 @@ export function notificationPath(n: {
   if (n.taskId) return `/task/${n.taskId}`;
   if (n.data.documentId) return `/docs/${n.data.documentId}`;
   switch (n.type) {
+    case "project_update_posted":
+    case "project_update_due":
+      return n.data.subjectId ? `/projects/${n.data.subjectId}#project-updates` : "/projects";
     case "training_due":
       return n.data.staffId ? `/training/staff/${n.data.staffId}` : "/training/due";
     case "cleaning_due":
@@ -425,6 +440,10 @@ export function describeNotification(type: string, actor: string, data: Notifica
     : "";
   const state = dueWords[data.dueState ?? "due"];
   switch (type) {
+    case "project_update_posted":
+      return `${actor} posted an update for "${title}"`;
+    case "project_update_due":
+      return `"${title}" is due for a project update`;
     case "task_assigned":
       return `${actor} assigned you "${data.taskTitle}"`;
     case "task_status_changed":

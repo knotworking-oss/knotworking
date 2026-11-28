@@ -84,6 +84,7 @@ export const projects = pgTable(
     targetDate: date("target_date"),
     sortOrder: text("sort_order").notNull(),
     completedAt: ts("completed_at"),
+    lastUpdateAt: ts("last_update_at"),
     ...timestamps(),
   },
   (t) => [index("projects_workspace_idx").on(t.workspaceId)],
@@ -155,6 +156,37 @@ export const projectMembers = pgTable(
     ...timestamps(),
   },
   (t) => [uniqueIndex("project_members_project_user_key").on(t.projectId, t.userId)],
+);
+
+export const projectUpdates = pgTable(
+  "project_updates",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    health: text("health").$type<ProjectHealth>().notNull(),
+    body: jsonb("body").$type<DocContent>().notNull(),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("project_updates_project_id_idx").on(t.projectId, t.id)],
+);
+
+export const projectUpdateComments = pgTable(
+  "project_update_comments",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    updateId: uuid("update_id")
+      .notNull()
+      .references(() => projectUpdates.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    body: jsonb("body").$type<DocContent>().notNull(),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("project_update_comments_update_id_idx").on(t.updateId, t.id)],
 );
 
 // ─── Tasks ──────────────────────────────────────────────────────────────────

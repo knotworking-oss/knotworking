@@ -9,6 +9,7 @@ export * from "./modules";
 export * from "./project-templates";
 export * from "./project-milestones";
 export * from "./project-sections";
+export * from "./project-updates";
 export * from "./purchase-requests";
 export * from "./client-services";
 export * from "./crm";

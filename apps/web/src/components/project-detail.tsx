@@ -16,7 +16,7 @@ import { TimeSummary } from "@knotworking/ui/components/time-tracking";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
-import { formatShortDate } from "@/lib/format";
+import { formatDateTime, formatShortDate } from "@/lib/format";
 import { parseOrdering } from "@/lib/model";
 import { noProgress, projectProgress } from "@/lib/projects";
 import { projectTime } from "@/lib/time";
@@ -29,6 +29,7 @@ import { ProjectActions } from "./project-actions";
 import { ProjectMilestones } from "./project-milestones";
 import { ProjectSections } from "./project-sections";
 import { ProjectPeople } from "./project-people";
+import { ProjectUpdates } from "./project-updates";
 import { ProjectTimeline } from "./project-timeline";
 import { TasksView } from "./tasks-view";
 import { ViewSwitcher } from "./view-switcher";
@@ -111,6 +112,14 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <ProjectStatusBadge status={project.status} />
             {project.health && <ProjectHealthBadge health={project.health} />}
+            {project.lastUpdateAt && (
+              <span className="text-muted-foreground">
+                Status updated{" "}
+                <time dateTime={project.lastUpdateAt}>
+                  {formatDateTime(project.lastUpdateAt, idx.boot.workspace.timeZone)}
+                </time>
+              </span>
+            )}
             <span className="flex items-center gap-2">
               {lead && (
                 <MemberAvatar userId={lead.id} name={lead.name} src={lead.avatarUrl} className="size-5" />
@@ -141,6 +150,7 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
         <ProjectMilestones projectId={id} />
         <ProjectSections projectId={id} />
         <ProjectPeople key={id} projectId={id} />
+        <ProjectUpdates key={`updates:${id}`} projectId={id} />
         {mode === "timeline" ? (
           <ProjectTimeline projectId={id} />
         ) : (

@@ -346,6 +346,7 @@ const WRITE_TOOLS = [
   "create_document",
   "update_document",
   "create_project",
+  "post_project_update",
   "update_project",
   "add_task_dependency",
   "log_time",
@@ -1684,6 +1685,19 @@ describe("rate limits on the new tools", () => {
 });
 
 describe("projects", () => {
+  it("posts a project status update and changes the project's health", async () => {
+    const { call, fake } = await session();
+    const project = fake.store.projects[0]!;
+    const result = await call("post_project_update", {
+      project: project.id,
+      health: "at_risk",
+      body: "Waiting for customer sign-off.",
+    });
+    expect(result.isError).toBe(false);
+    expect(result.data).toMatchObject({ projectId: project.id, health: "at_risk", body: { type: "doc" } });
+    expect(project.health).toBe("at_risk");
+  });
+
   it("create_project resolves lead and teams by name and returns the summary", async () => {
     const { call, fake } = await session();
     const { data, isError } = await call("create_project", {

@@ -197,6 +197,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
       "project_milestone",
       "project_section",
       "project_member",
+      "project_update",
       "comment",
     ],
   },

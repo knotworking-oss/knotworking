@@ -8,7 +8,10 @@ import {
   dateDueState,
   nonconformanceNotifiable,
   NOTIFY_LOOKBACK_DAYS,
+  PROJECT_UPDATE_INTERVAL_DAYS,
   overdueByMoreThanInterval,
+  weekStartInZone,
+  startOfDayInZone,
   todayInZone,
   TRAINING_NOTIFY_DAYS,
   type DueState,
@@ -24,6 +27,7 @@ import {
   type Transaction,
   notificationSweeps,
   productLabels,
+  projects,
   qualityAudits,
   qualityNonconformances,
   siteCorrectiveActions,
@@ -102,6 +106,7 @@ const dueStateOf = (state: DueState): NotificationDueState => (state === "overdu
 
 /** The modules the sweep covers. */
 const SWEPT_MODULES = [
+  "tasks",
   "training",
   "haccp",
   "maintenance",
@@ -202,6 +207,7 @@ async function sweepWorkspace(
       drafts,
     };
 
+    if (active.has("tasks")) await sweepProjectUpdates(ctx);
     if (active.has("training")) await sweepTraining(ctx);
     if (active.has("haccp")) await sweepHaccp(ctx, active.has("production"));
     if (active.has("maintenance")) await sweepMaintenance(ctx);
@@ -261,6 +267,33 @@ interface Ctx {
 }
 
 const DAY_MS = 86_400_000;
+
+async function sweepProjectUpdates(ctx: Ctx) {
+  const cutoff = startOfDayInZone(addDaysToIsoDate(ctx.today, -PROJECT_UPDATE_INTERVAL_DAYS), ctx.timeZone);
+  const week = weekStartInZone(ctx.now, ctx.timeZone);
+  const due = await ctx.db
+    .select({ id: projects.id, name: projects.name, leadId: projects.leadId })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.workspaceId, ctx.workspaceId),
+        isNull(projects.deletedAt),
+        eq(projects.status, "active"),
+        isNotNull(projects.leadId),
+        sql`coalesce(${projects.lastUpdateAt}, ${projects.createdAt}) <= ${cutoff.toISOString()}::timestamptz`,
+      ),
+    );
+  for (const project of due) {
+    if (!project.leadId || !hasModuleLevel(ctx.access.get(project.leadId)?.tasks, "read")) continue;
+    ctx.drafts.push({
+      userId: project.leadId,
+      type: "project_update_due",
+      module: "tasks",
+      data: { title: project.name, subjectId: project.id },
+      dedupeKey: `project-update:${project.id}:${week}`,
+    });
+  }
+}
 
 /**
  * Whether an occurrence fell due before the look-back window. Undated ones (never done, or a pest

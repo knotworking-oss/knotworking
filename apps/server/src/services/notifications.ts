@@ -28,6 +28,7 @@ import {
   notificationPreferences,
   notifications,
   productLabels,
+  projects,
   productionBatches,
   purchaseOrders,
   qualityAudits,
@@ -680,6 +681,8 @@ const documentOf = sql`(${notifications.data}->>'documentId')::uuid`;
  * An archived subject (a status, not a deletion) still shows its notification.
  */
 const deletedSubjects: { type: NotificationType; module?: ModuleId; table: AnyPgTable; key?: "staffId" }[] = [
+  { type: "project_update_posted", table: projects },
+  { type: "project_update_due", table: projects },
   { type: "audit_upcoming", table: qualityAudits },
   { type: "nonconformance_assigned", table: qualityNonconformances },
   { type: "nonconformance_due", table: qualityNonconformances },

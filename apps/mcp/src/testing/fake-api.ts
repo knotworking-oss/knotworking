@@ -10,6 +10,7 @@ import {
   newId,
   projectCreateSchema,
   projectUpdateSchema,
+  projectUpdateCreateSchema,
   searchQuerySchema,
   searchTerms,
   taskCommentCreateSchema,
@@ -464,6 +465,14 @@ export function createFakeApi() {
 
   const findTask = (id: string) => store.tasks.find((t) => t.id === id);
   app.get(`${ws}/projects/:id/milestones`, (c) => c.json({ milestones: [] }));
+  app.post(`${ws}/projects/:id/updates`, async (c) => {
+    const project = store.projects.find((row) => row.id === c.req.param("id"));
+    if (!project) return c.json(err("not_found", "Project not found"), 404);
+    const input = projectUpdateCreateSchema.safeParse(await c.req.json());
+    if (!input.success) return c.json(err("invalid_input", "Invalid status update"), 400);
+    project.health = input.data.health;
+    return c.json({ id: newId(), projectId: project.id, ...input.data }, 201);
+  });
   app.get(`${ws}/tasks/views`, (c) => c.json({ views: store.taskViews }));
   app.get(`${ws}/tasks/views/:id`, (c) => {
     const view = store.taskViews.find((row) => row.id === c.req.param("id"));

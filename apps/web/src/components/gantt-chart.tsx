@@ -160,7 +160,12 @@ export function GanttChart({
     () =>
       timelineRange(
         [
-          ...tasks.flatMap((t) => [t.startDate, t.dueDate]),
+          ...tasks.flatMap((t) => [
+            t.startDate,
+            t.dueDate,
+            t.subtaskRollup?.startDate,
+            t.subtaskRollup?.dueDate,
+          ]),
           project?.startDate,
           project?.targetDate,
           ...(milestones ?? []).map((row) => row.targetDate),
@@ -416,6 +421,12 @@ export function GanttChart({
                   ) : (
                     <span className="min-w-0 flex-1 truncate">{task.title}</span>
                   )}
+                  {task.subtaskRollup && (
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      <span className="sr-only">Subtasks completed </span>
+                      {task.subtaskRollup.completed}/{task.subtaskRollup.total}
+                    </span>
+                  )}
                 </li>
               ))}
               {rows.length === 0 && (
@@ -506,6 +517,21 @@ export function GanttChart({
                 ))}
               </svg>
 
+              {rows.map(({ task }, index) => {
+                const span = task.subtaskRollup ? taskSpan(task.subtaskRollup) : null;
+                if (!span || !task.subtaskRollup) return null;
+                const box = barBox(span, range, zoom);
+                return (
+                  <div
+                    key={task.id}
+                    role="img"
+                    aria-label={`${task.title} subtask dates, ${describeDates(task.subtaskRollup)}`}
+                    title={`Subtask dates · ${describeDates(task.subtaskRollup)}`}
+                    className="absolute h-1 rounded bg-primary/45"
+                    style={{ left: box.x, width: box.width, top: (index + 1) * ROW_HEIGHT - 6 }}
+                  />
+                );
+              })}
               {rows.map(({ task }, index) => {
                 const entry = boxes.get(task.id);
                 if (!entry) return null;
@@ -743,6 +769,12 @@ function Unscheduled({
               </Link>
             ) : (
               <span className="min-w-0 flex-1 truncate">{t.title}</span>
+            )}
+            {t.subtaskRollup && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                <span className="sr-only">Subtasks completed </span>
+                {t.subtaskRollup.completed}/{t.subtaskRollup.total}
+              </span>
             )}
             {canEdit ? (
               <span className="flex items-center gap-1" aria-label={`Dates for ${t.title}`} role="group">

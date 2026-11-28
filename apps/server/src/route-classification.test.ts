@@ -412,6 +412,7 @@ const ROUTES: Record<string, Classification> = {
   "POST /v1/workspaces/:slug/tasks/:id/timer": "token-ok",
   "POST /v1/workspaces/:slug/timer/stop": "token-ok",
   "GET /v1/workspaces/:slug/projects/:id/time": "token-ok",
+  "GET /v1/workspaces/:slug/projects/:id/subtask-rollups": "token-ok",
   // Attachments: workspace data. A read token may download; uploads and deletes need write scope
   // (and a non-guest role).
   // GET lists a module record's files (needs read on its module); POST/DELETE check write/manage there.

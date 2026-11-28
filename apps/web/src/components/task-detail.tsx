@@ -1,6 +1,6 @@
 "use client";
 
-import { wouldCreateBlockingCycle, type Priority } from "@knotworking/core";
+import { summarizeSubtasks, wouldCreateBlockingCycle, type Priority } from "@knotworking/core";
 import { BlockedBadge } from "@knotworking/ui/components/blocked-badge";
 import { Button } from "@knotworking/ui/components/button";
 import {
@@ -33,7 +33,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type { TaskRelation, TaskSummary } from "@/lib/api";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
-import { isOverdue } from "@/lib/format";
+import { formatShortDate, isOverdue } from "@/lib/format";
 import { isOverlayOpen, isTypingTarget } from "@/lib/keyboard";
 import { orderTasks } from "@/lib/model";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -270,16 +270,36 @@ export function Subtasks({
   initialChildren?: TaskSummary[];
 }) {
   const task = useTask(initial);
-  const { idx, tasks, slug, canEditTasks: canEdit } = useWorkspace();
+  const { idx, tasks, slug, sync, canEditTasks: canEdit } = useWorkspace();
+  const [removed, setRemoved] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(
+    () =>
+      sync.onChanges((changes) => {
+        const deleted = changes.filter(
+          (row) =>
+            row.entity === "task" &&
+            row.action === "delete" &&
+            initialChildren.some((child) => child.id === row.entityId),
+        );
+        if (deleted.length)
+          setRemoved((previous) => new Set([...previous, ...deleted.map((row) => row.entityId)]));
+      }),
+    [sync, initialChildren],
+  );
   const newTask = useNewTask();
   const byId = new Map(initialChildren.map((child) => [child.id, idx.tasks.get(child.id) ?? child]));
   for (const child of tasks) if (child.parentId === task.id) byId.set(child.id, child);
   const children = orderTasks(
-    [...byId.values()].filter((child) => child.parentId === task.id),
+    [...byId.values()].filter(
+      (child) =>
+        child.parentId === task.id &&
+        (!removed.has(child.id) || idx.tasks.has(child.id)) &&
+        idx.teams.has(child.teamId),
+    ),
     "manual",
   );
   if (children.length === 0 && !canEdit) return null;
-  const done = children.filter((c) => idx.states.get(c.stateId)?.type === "completed").length;
+  const rollup = summarizeSubtasks(children, (id) => idx.states.get(id)?.type === "completed");
 
   return (
     <section className="mt-4 flex flex-col gap-1">
@@ -288,10 +308,19 @@ export function Subtasks({
           Subtasks
           {children.length > 0 && (
             <span className="ml-2 tabular-nums">
-              {done}/{children.length}
+              {rollup.completed}/{rollup.total}
             </span>
           )}
         </h2>
+        {(rollup.startDate || rollup.dueDate) && (
+          <span className="text-xs text-muted-foreground">
+            {rollup.startDate && rollup.dueDate
+              ? `${formatShortDate(rollup.startDate)} – ${formatShortDate(rollup.dueDate)}`
+              : rollup.startDate
+                ? `Starts ${formatShortDate(rollup.startDate)}`
+                : `Due ${formatShortDate(rollup.dueDate)}`}
+          </span>
+        )}
         {canEdit && (
           <Button
             variant="ghost"

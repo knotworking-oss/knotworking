@@ -20,6 +20,7 @@ import { emailNotifier } from "../services/notifications";
 import { createProjectFromTemplate } from "../services/project-templates";
 import { createProject, deleteProject, listProjects, updateProject } from "../services/projects";
 import { listTaskActivity } from "../services/task-activity";
+import { projectSubtaskRollups } from "../services/subtask-rollups";
 import { bulkChangeTasks } from "../services/task-bulk";
 import { getTaskFollowing, setTaskFollowing } from "../services/task-followers";
 import { createTaskLink, deleteTaskLink, listTaskLinks } from "../services/task-links";
@@ -230,6 +231,9 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
 
   // ── Projects ──
   .get("/projects", async (c) => c.json({ projects: await listProjects(c.var.db, c.var.workspace.id) }))
+  .get("/projects/:id/subtask-rollups", validate("param", idParam), async (c) =>
+    c.json(await projectSubtaskRollups(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+  )
   .post("/projects", requireWriter, validate("json", projectCreateSchema), async (c) =>
     c.json(await createProject(c.var.db, c.var.workspace.id, c.var.user.id, c.req.valid("json")), 201),
   )

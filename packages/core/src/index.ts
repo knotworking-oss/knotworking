@@ -69,6 +69,7 @@ export * from "./sync-store";
 export * from "./workspace-slugs";
 export * from "./search";
 export * from "./task-relations";
+export * from "./subtask-rollup";
 export * from "./task-activity";
 export * from "./task-filter";
 export * from "./task-views";

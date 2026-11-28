@@ -115,7 +115,7 @@ export default async function TaskPage({ params }: Props) {
               <TaskProperties initial={initial} stacked />
             </section>
             <TaskDescription key={task.id} taskId={task.id} initial={description} />
-            <Subtasks initial={initial} initialChildren={children} />
+            <Subtasks key={task.id} initial={initial} initialChildren={children} />
             <TaskDependencies initial={initial} context={context} />
             <TaskLinks key={task.id} taskId={task.id} teamId={task.teamId} />
             <TaskTime initial={initial} initialEntries={time?.entries} />

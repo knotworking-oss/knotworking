@@ -1,4 +1,4 @@
-import { newId, olderClosedTaskFilter } from "@knotworking/core";
+import { newId, olderClosedTaskFilter, summarizeSubtasks } from "@knotworking/core";
 import { tasks } from "@knotworking/db";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -42,6 +42,8 @@ describe("planner bootstrap and team features", () => {
         stateId: doneId,
         title: "Old child",
         parentId: opened.id,
+        startDate: "2026-01-03",
+        dueDate: "2026-01-06",
         estimateMinutes: 90,
         labelIds: [boot.labels[0].id],
       })
@@ -85,6 +87,12 @@ describe("planner bootstrap and team features", () => {
     const direct = await (await request(`/tasks/${oldId}?context=true`)).json();
     expect(direct.context.tasks).toContainEqual(expect.objectContaining({ id: direct.parentId }));
     expect(direct.context.relations).toContainEqual(expect.objectContaining({ blockedTaskId: oldId }));
+    const { rollups } = await (await request(`/projects/${projectId}/subtask-rollups`)).json();
+    expect(rollups).toEqual({
+      [direct.parentId]: { total: 1, completed: 1, startDate: "2026-01-03", dueDate: "2026-01-06" },
+    });
+    const { children } = await (await request(`/tasks/${direct.parentId}`)).json();
+    expect(rollups[direct.parentId]).toEqual(summarizeSubtasks(children, (id) => id === doneId));
     const historical = { version: 1, expression: olderClosedTaskFilter(snapshot.closedWindow.cutoff) };
     const query = new URLSearchParams({
       projectId,

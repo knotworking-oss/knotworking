@@ -99,7 +99,7 @@ export function LotDetail({
   const hasStock = lot.balances.length > 0;
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-6 py-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <h2 className="flex flex-wrap items-center gap-2 text-xl font-semibold tracking-tight">

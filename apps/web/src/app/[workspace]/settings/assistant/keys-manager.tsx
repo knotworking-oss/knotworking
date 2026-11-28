@@ -58,7 +58,7 @@ export function KeysManager({ keys, settings }: { keys: AssistantKey[]; settings
   };
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-6 py-8">
       <Card>
         <CardHeader>
           <CardTitle>Your API keys</CardTitle>

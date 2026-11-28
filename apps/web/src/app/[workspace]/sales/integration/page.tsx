@@ -18,7 +18,7 @@ export default async function Page({
       <PageHeader>
         <h1 className="font-medium">Sales integration</h1>
       </PageHeader>
-      <div className="mx-auto w-full max-w-5xl flex-1 space-y-5 overflow-y-auto p-6">
+      <div className="workspace-content flex-1 space-y-5 overflow-y-auto py-6">
         <p className="text-sm">
           System of record: <strong>Knotworking</strong>. External customer, product, price and order mappings
           are retained for a future adapter. No external sales connection is configured.

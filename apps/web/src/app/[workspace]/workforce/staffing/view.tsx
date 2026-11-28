@@ -99,7 +99,7 @@ export function StaffingView({
     (s) => !shortOnly || s.requirements.some((r) => r.applies && r.shortfall > 0),
   );
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
+    <div className="workspace-content flex flex-col gap-6 py-6">
       <Card className="gap-4 p-5">
         <h2 className="font-medium">Staffing check</h2>
         <form

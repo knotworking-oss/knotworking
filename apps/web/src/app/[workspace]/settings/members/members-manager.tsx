@@ -143,7 +143,7 @@ export function MembersManager({ slug, members, invitations, canManage, isOwner,
   }
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-8 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-8 py-8">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold tracking-tight">Members</h2>

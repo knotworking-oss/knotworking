@@ -230,6 +230,20 @@
     }
 }
 
+@layer components {
+  .workspace-content {
+    width: 100%;
+    min-width: 0;
+    padding-inline: 1rem;
+  }
+
+  @media (min-width: 40rem) {
+    .workspace-content {
+      padding-inline: 1.5rem;
+    }
+  }
+}
+
 /*
  * Print sheets (`PrintPage` in apps/web): a paper-white page that previews on screen as an A4 sheet,
  * and prints without the app chrome (sidebar, header, assistant, toasts). Black on white whatever

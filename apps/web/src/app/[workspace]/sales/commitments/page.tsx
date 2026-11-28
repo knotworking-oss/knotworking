@@ -28,7 +28,7 @@ export default async function Page({
       <PageHeader>
         <h1 className="font-medium">Delivery commitments</h1>
       </PageHeader>
-      <div className="flex-1 space-y-5 overflow-y-auto p-6">
+      <div className="workspace-content flex-1 space-y-5 overflow-y-auto py-6">
         <form className="flex flex-wrap items-end gap-3">
           <label className="space-y-1 text-sm">
             From

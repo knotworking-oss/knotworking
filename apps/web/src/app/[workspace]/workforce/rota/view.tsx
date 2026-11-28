@@ -128,7 +128,7 @@ export function RotaView({
     (s) => s.active || rota?.entries.some((e) => e.shiftId === s.id),
   );
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
+    <div className="workspace-content flex flex-col gap-6 py-6">
       <MyShifts slug={slug} today={today} />
       <Card className="gap-4 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -31,7 +31,7 @@ export default async function WorkCentresPage({
         <h1 className="font-medium">Work centres</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
+        <div className="workspace-content space-y-4 py-4 md:py-6">
           <nav aria-label="Filter by status" className="flex flex-wrap gap-1.5">
             {(["active", "archived", "all"] as const).map((s) => (
               <Button key={s} size="sm" variant={status === s ? "secondary" : "ghost"} asChild>

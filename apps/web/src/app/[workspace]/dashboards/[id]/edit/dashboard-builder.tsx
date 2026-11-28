@@ -161,7 +161,7 @@ function UnreadableSpec({
       <PageHeader>
         <h1 className="truncate font-medium">Edit: {dashboard.title}</h1>
       </PageHeader>
-      <div className="mx-auto flex max-w-4xl flex-1 flex-col gap-4 overflow-y-auto p-6">
+      <div className="workspace-content flex flex-1 flex-col gap-4 overflow-y-auto py-6">
         <p className="text-sm">
           This dashboard's definition doesn't match the current format, so the builder can't open it without
           losing parts of it. Fix it through the API or your AI agent (the problems are listed below), or
@@ -416,7 +416,7 @@ function Builder({
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
         {tab === "json" ? (
-          <div className="mx-auto flex max-w-4xl flex-col gap-3 p-6">
+          <div className="workspace-content flex flex-col gap-3 py-6">
             <p className="text-sm text-muted-foreground">
               The dashboard as the API stores it. It is read-only here: change it in the Design tab, or
               through your AI agent.
@@ -431,7 +431,7 @@ function Builder({
             />
           </div>
         ) : (
-          <div className="mx-auto flex max-w-7xl flex-col gap-6 p-6">
+          <div className="workspace-content flex flex-col gap-6 py-6">
             {catalogue.length === 0 && (
               <p className="rounded-md border p-3 text-sm text-muted-foreground">
                 You can't read any of the data dashboards use yet, so only text widgets can be added. Ask an

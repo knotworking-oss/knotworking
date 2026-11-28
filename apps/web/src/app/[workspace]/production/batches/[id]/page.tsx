@@ -111,7 +111,7 @@ export default async function BatchPage({ params }: Props) {
           plannedOn={batch.plannedOn}
         />
         {cost && (
-          <div className="mx-auto w-full max-w-6xl px-6 pb-8">
+          <div className="workspace-content pb-8">
             <BatchCostPanel slug={slug} currency={currency} cost={cost} compact foodItems={foodItems} />
           </div>
         )}

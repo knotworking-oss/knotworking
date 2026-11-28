@@ -51,7 +51,7 @@ export function NpdBoard({
   const canWrite = useWorkspace().can("npd", "write");
   const [creating, setCreating] = useState(false);
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-4 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex gap-2">
           <Button

@@ -36,7 +36,7 @@ export default async function Page({
       <PageHeader actions={<ModuleDashboardsLink module="sales" />}>
         <h1 className="font-medium">Sales</h1>
       </PageHeader>
-      <div className="flex-1 space-y-5 overflow-y-auto px-6 py-6">
+      <div className="workspace-content flex-1 space-y-5 overflow-y-auto py-6">
         <div className="flex items-start justify-end gap-4">
           {hasModuleLevel(boot.modules.find((m) => m.id === "sales")?.access, "write") && (
             <Button asChild>

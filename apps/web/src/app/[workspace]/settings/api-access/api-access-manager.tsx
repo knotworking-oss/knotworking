@@ -78,7 +78,7 @@ export function ApiAccessManager({
 
   const kinds = Object.keys(kindTitles) as PersonOnlyKind[];
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-10 py-8">
       <div>
         <h2 className="text-xl font-semibold tracking-tight">API access</h2>
         {!data.canManage && (

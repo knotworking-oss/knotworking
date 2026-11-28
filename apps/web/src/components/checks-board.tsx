@@ -80,7 +80,7 @@ export function ChecksBoard({
   const live = general ? templates : templates.filter((t) => t.status === "active");
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-6 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 className="text-xl font-semibold tracking-tight">
           {general ? "Checklists" : "Pre-start and changeover checks"}

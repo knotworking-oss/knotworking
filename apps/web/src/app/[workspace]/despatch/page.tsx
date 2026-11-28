@@ -36,7 +36,7 @@ export default async function DespatchPage({
       <PageHeader>
         <h1 className="font-medium">Despatch</h1>
       </PageHeader>
-      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 overflow-y-auto px-6 py-6">
+      <div className="workspace-content flex flex-1 flex-col gap-4 overflow-y-auto py-6">
         <div className="flex flex-wrap items-center justify-end gap-3">
           {["write", "manage"].includes(boot.modules.find((m) => m.id === "despatch")?.access ?? "none") && (
             <Button asChild>

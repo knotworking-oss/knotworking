@@ -48,7 +48,7 @@ export default async function DespatchPage({
         <h1 className="font-medium">{d.reference}</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-5xl flex-col gap-5 px-6 py-6">
+        <div className="workspace-content flex flex-col gap-5 py-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-xl font-semibold">{d.reference}</h2>

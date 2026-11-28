@@ -55,7 +55,7 @@ export default async function CrmPipelinePage({
         <h1 className="font-medium">Pipeline{mine ? " · Mine" : ""}</h1>
       </PageHeader>
       <div className="flex-1 overflow-auto">
-        <div className="space-y-4 p-4 md:p-6">
+        <div className="workspace-content space-y-4 py-4 md:py-6">
           {pipeline.truncated && (
             <p className="text-sm text-muted-foreground">
               Showing the first 500 open opportunities. Filter to your own to see the rest.

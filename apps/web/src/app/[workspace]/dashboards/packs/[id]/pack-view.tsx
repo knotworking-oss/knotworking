@@ -67,7 +67,7 @@ export function PackView({
     a[1].label.localeCompare(b[1].label),
   );
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-8 p-6 print:max-w-none print:p-0">
+    <div className="workspace-content flex flex-col gap-8 py-6 print:p-0">
       <div className="flex flex-wrap items-center gap-2 print:hidden">
         <Badge variant={pack.status === "issued" ? "secondary" : "outline"}>
           {pack.status === "issued" ? "Issued" : "Draft"}

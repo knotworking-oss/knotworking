@@ -30,7 +30,7 @@ export default async function TimePage({
       <PageHeader actions={<ModuleDashboardsLink module="time" />}>
         <h1 className="font-medium">Time</h1>
       </PageHeader>
-      <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-6">
+      <div className="workspace-content flex flex-1 flex-col gap-5 overflow-y-auto py-6">
         <TimeReportToolbar filters={filters} />
         {error && (
           <Alert variant="destructive">

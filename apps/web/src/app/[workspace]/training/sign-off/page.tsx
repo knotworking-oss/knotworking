@@ -19,7 +19,7 @@ export default async function TrainingSignOffPage({ params }: { params: Promise<
         <h1 className="font-medium">Training</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-8 sm:px-6">
+        <div className="workspace-content flex flex-col gap-4 py-8">
           <h2 className="text-xl font-semibold tracking-tight">Awaiting sign-off</h2>
           <TrainingNav slug={slug} pendingCount={pending.total} />
           <SignOffList slug={slug} records={pending.records} />

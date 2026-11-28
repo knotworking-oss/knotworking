@@ -75,7 +75,7 @@ export function ApiTokensManager({ slug, tokens }: { slug: string; tokens: ApiTo
   }, [revealed]);
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-6 py-8">
       <h2 className="text-xl font-semibold tracking-tight">API tokens</h2>
 
       {revealed && (

@@ -69,7 +69,7 @@ export function BatchPackingPanel({ slug, packing }: { slug: string; packing: Ba
   }
   const open = packing.open;
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-8">
+    <div className="workspace-content pb-8">
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle>Packing</CardTitle>

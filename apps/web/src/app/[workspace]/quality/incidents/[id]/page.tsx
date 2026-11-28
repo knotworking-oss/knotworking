@@ -24,7 +24,7 @@ export default async function Page({ params }: { params: Promise<{ workspace: st
         <h1>{c.title}</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-7xl space-y-6 p-6">
+        <div className="workspace-content space-y-6 py-6">
           <IncidentOverview incident={c} ownerName={name(c.ownerUserId)} />
           <section className="rounded-md border p-4">
             <h2 className="font-medium">Initial assessment</h2>

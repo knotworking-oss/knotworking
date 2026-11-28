@@ -171,7 +171,7 @@ export function HrAbsences({
   }
   const active = selected && ["pending", "approved", "reported", "recorded"].includes(selected.state);
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-5 p-6">
+    <div className="workspace-content flex flex-col gap-5 py-6">
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}

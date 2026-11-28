@@ -30,7 +30,7 @@ export default async function ImpactPage({
         <PageHeader>
           <h1 className="font-medium">Distribution impact</h1>
         </PageHeader>
-        <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 overflow-y-auto px-6 py-6">
+        <div className="workspace-content flex flex-1 flex-col gap-4 overflow-y-auto py-6">
           <form method="get" className="flex gap-2">
             <Input
               name="q"
@@ -86,7 +86,7 @@ export default async function ImpactPage({
         <h1 className="font-medium">Distribution impact</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-6">
+        <div className="workspace-content flex flex-col gap-6 py-6">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <form method="get" className="flex flex-wrap items-end gap-3">
               <input type="hidden" name="lot" value={lotId} />

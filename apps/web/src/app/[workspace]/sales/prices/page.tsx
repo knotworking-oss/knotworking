@@ -22,7 +22,7 @@ export default async function Page({
       <PageHeader>
         <h1 className="font-medium">Customer price agreements</h1>
       </PageHeader>
-      <div className="mx-auto w-full max-w-5xl flex-1 space-y-5 overflow-y-auto p-6">
+      <div className="workspace-content flex-1 space-y-5 overflow-y-auto py-6">
         <PriceManager slug={slug} today={today} currency={currency} prices={page.prices} />
         <nav className="flex gap-4 text-sm" aria-label="Price pages">
           <span>{page.total} agreements</span>

@@ -75,7 +75,7 @@ export default async function RequirementsPage({
         </Breadcrumb>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8">
+        <div className="workspace-content flex flex-col gap-6 py-8">
           <form className="flex flex-wrap items-end gap-3">
             <Field className="w-44">
               <FieldLabel htmlFor="req-from">From</FieldLabel>

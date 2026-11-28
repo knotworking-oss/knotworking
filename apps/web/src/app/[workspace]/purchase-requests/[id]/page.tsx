@@ -26,7 +26,7 @@ export default async function PurchaseRequestPage({
         </Link>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl space-y-4 p-4 md:p-6">
+        <div className="workspace-content space-y-4 py-4 md:py-6">
           <div className="flex flex-wrap items-start gap-3">
             <h1 className="text-xl font-semibold break-words">{request.title}</h1>
             <Badge variant="secondary">{purchaseRequestStatusLabels[request.status]}</Badge>

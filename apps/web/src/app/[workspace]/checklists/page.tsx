@@ -47,7 +47,7 @@ export default async function ChecklistsPage({
         batches={[]}
         general
       />
-      <div className="mx-auto max-w-6xl space-y-4 px-6 pb-8">
+      <div className="workspace-content space-y-4 pb-8">
         <RecordPages
           offset={history.offset}
           limit={history.limit}

@@ -18,7 +18,7 @@ export default async function Page({
       <PageHeader>
         <h1 className="font-medium">Contractor permits</h1>
       </PageHeader>
-      <div className="flex-1 space-y-5 overflow-y-auto p-6">
+      <div className="workspace-content flex-1 space-y-5 overflow-y-auto py-6">
         <div className="flex flex-wrap items-start justify-end gap-3">
           {hasModuleLevel(boot.modules.find((m) => m.id === "hse")?.access, "write") && (
             <Button asChild>

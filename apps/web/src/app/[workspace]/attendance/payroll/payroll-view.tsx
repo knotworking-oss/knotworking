@@ -75,7 +75,7 @@ export function PayrollView({
   const total = preview.rows.reduce((n, r) => n + r.basicMinutes + r.overtimeMinutes, 0);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-8 sm:px-6">
+    <div className="workspace-content flex flex-col gap-4 py-8">
       <h2 className="text-xl font-semibold tracking-tight">Payroll export</h2>
       <AttendanceNav slug={slug} />
 

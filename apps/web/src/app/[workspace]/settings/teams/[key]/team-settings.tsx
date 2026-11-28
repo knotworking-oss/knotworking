@@ -51,7 +51,7 @@ interface Props {
 
 export function TeamSettings({ slug, canManage, team, states, taskCounts, people, memberIds }: Props) {
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-6 py-8">
       <div className="flex items-center gap-3">
         <span className="flex size-10 items-center justify-center rounded-lg border bg-background text-xl">
           {team.icon ?? team.name[0]}

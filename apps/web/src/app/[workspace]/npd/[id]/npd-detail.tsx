@@ -107,7 +107,7 @@ export function NpdDetail({
   const signable = npdSignoffKeys.filter((k) => k !== "customer_signoff" || p.customerName);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-6 py-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <p className="text-sm text-muted-foreground">

@@ -19,7 +19,7 @@ export default async function OrgChartPage({ params }: { params: Promise<{ works
         <h1 className="font-medium">Org chart</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-8 sm:px-6">
+        <div className="workspace-content flex flex-col gap-4 py-8">
           {!placed && (
             <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
               Nobody has a title or a manager yet, so everyone is at the top.

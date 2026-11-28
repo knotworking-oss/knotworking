@@ -14,7 +14,7 @@ export default async function CrmStagesPage({ params }: { params: Promise<{ work
         <h1 className="font-medium">Pipeline stages</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl space-y-4 p-4 md:p-6">
+        <div className="workspace-content space-y-4 py-4 md:py-6">
           <p className="text-sm text-muted-foreground">
             The open stages an opportunity moves through, in order, with the likelihood of winning at each for
             the weighted pipeline. Won and lost are outcomes, not stages. A stage with open opportunities

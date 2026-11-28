@@ -194,7 +194,7 @@ export function PayrollRuns({ slug, today }: { slug: string; today: string }) {
     });
   }
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
+    <div className="workspace-content flex flex-col gap-6 py-6">
       <Card className="gap-4 p-5">
         <h2 className="font-medium">Prepare a payroll run</h2>
         <p className="text-sm text-muted-foreground">

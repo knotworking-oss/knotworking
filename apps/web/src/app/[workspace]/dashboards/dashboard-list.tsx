@@ -129,7 +129,7 @@ export function DashboardList({
   }
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6">
+    <div className="workspace-content flex flex-col gap-4 py-6">
       <div className="flex flex-wrap items-center gap-2">
         <Select
           value={scope ?? ALL}

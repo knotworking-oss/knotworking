@@ -55,7 +55,7 @@ export default async function AssetPage({ params }: { params: Promise<{ workspac
         <h1 className="truncate font-medium">{asset.name}</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
+        <div className="workspace-content space-y-6 py-4 md:py-6">
           <div className="flex flex-wrap items-center gap-3">
             <AssetKindBadge kind={asset.kind} status={asset.status} />
             {asset.code && <span className="font-mono text-sm">{asset.code}</span>}

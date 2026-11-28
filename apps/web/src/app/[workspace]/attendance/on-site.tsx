@@ -61,7 +61,7 @@ export function OnSiteView({
   const left = onSite.possiblyLeft.staff.length + onSite.possiblyLeft.visitors.length;
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-8 sm:px-6">
+    <div className="workspace-content flex flex-col gap-4 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold tracking-tight">On site now</h2>

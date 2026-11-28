@@ -35,7 +35,7 @@ export default async function CrmOpportunitiesPage({
         <h1 className="font-medium">Opportunities</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
+        <div className="workspace-content space-y-4 py-4 md:py-6">
           <div className="flex flex-wrap gap-2">
             {filters.map((value) => (
               <Button key={value} asChild size="sm" variant={status === value ? "secondary" : "ghost"}>

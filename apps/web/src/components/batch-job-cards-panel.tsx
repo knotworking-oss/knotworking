@@ -54,7 +54,7 @@ export function BatchJobCardsPanel({
   }
   if (!data.jobCards.length && !canMake) return null;
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-8">
+    <div className="workspace-content pb-8">
       <Card>
         <CardHeader className="flex-row items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2">

@@ -86,7 +86,7 @@ export default async function JobCardPage({ params }: Props) {
         </Breadcrumb>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
+        <div className="workspace-content space-y-6 py-4 md:py-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-1">
               <h1 className="flex flex-wrap items-center gap-2 text-lg font-medium">

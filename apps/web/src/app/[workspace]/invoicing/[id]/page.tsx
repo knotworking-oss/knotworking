@@ -55,7 +55,7 @@ export default async function Page({ params }: { params: Promise<{ workspace: st
         </Link>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <article className="mx-auto max-w-5xl space-y-5 p-4 md:p-6">
+        <article className="workspace-content space-y-5 py-4 md:py-6">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl font-semibold">{title}</h1>
             <Badge variant="secondary" className="capitalize">

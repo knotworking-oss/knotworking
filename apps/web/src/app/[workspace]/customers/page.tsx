@@ -28,8 +28,8 @@ export default async function CustomersPage({
       <PageHeader>
         <h1 className="font-medium">Customers</h1>
       </PageHeader>
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <form method="get" className="mx-auto mb-4 flex max-w-5xl gap-2">
+      <div className="workspace-content flex-1 overflow-y-auto py-6">
+        <form method="get" className="mb-4 flex gap-2">
           <Input
             name="q"
             aria-label="Find customers by name or code"
@@ -40,7 +40,7 @@ export default async function CustomersPage({
           <Button variant="outline">Search</Button>
         </form>
         <CustomersManager slug={slug} customers={page.customers} />
-        <nav aria-label="Customer pages" className="mx-auto mt-4 flex max-w-5xl items-center gap-4 text-sm">
+        <nav aria-label="Customer pages" className="mt-4 flex items-center gap-4 text-sm">
           <span>{page.total} customers</span>
           {offset > 0 && <Link href={href(Math.max(0, offset - page.limit))}>Previous</Link>}
           {offset + page.customers.length < page.total && <Link href={href(offset + page.limit)}>Next</Link>}

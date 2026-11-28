@@ -69,7 +69,7 @@ export default async function WorkspaceLayout({
                     boot.tasks.filter((i) => i.assigneeId === me.user.id && isOpen(i.stateId)).length
                   }
                 />
-                <SidebarInset className="h-dvh overflow-hidden">{children}</SidebarInset>
+                <SidebarInset className="h-dvh min-w-0 overflow-hidden">{children}</SidebarInset>
                 <AssistantPanel slug={slug} />
               </SidebarProvider>
             </CommandMenuProvider>

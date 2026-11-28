@@ -41,7 +41,7 @@ export default async function Page({
         <span>/</span>
         <h1 className="font-medium">{r.reference}</h1>
       </PageHeader>
-      <article className="mx-auto w-full max-w-4xl flex-1 space-y-6 overflow-y-auto p-6">
+      <article className="workspace-content flex-1 space-y-6 overflow-y-auto py-6">
         <div>
           <h1 className="text-xl font-medium">
             {r.reference} · {r.status}

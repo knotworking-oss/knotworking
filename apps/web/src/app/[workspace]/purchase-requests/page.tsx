@@ -45,7 +45,7 @@ export default async function PurchaseRequestsPage({
         <h1 className="font-medium">Purchase requests</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
+        <div className="workspace-content space-y-4 py-4 md:py-6">
           <nav aria-label="Purchase request views" className="flex flex-wrap gap-2">
             {views.map((view) => (
               <Button

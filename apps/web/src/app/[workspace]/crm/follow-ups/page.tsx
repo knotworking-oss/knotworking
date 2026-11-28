@@ -36,7 +36,7 @@ export default async function CrmFollowUpsPage({
         <h1 className="font-medium">Follow-ups</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl space-y-4 p-4 md:p-6">
+        <div className="workspace-content space-y-4 py-4 md:py-6">
           <div className="flex flex-wrap gap-2">
             {link({ owner: "mine" }, "Mine", owner === "mine")}
             {link({ owner: "all" }, "Everyone", owner === "all")}

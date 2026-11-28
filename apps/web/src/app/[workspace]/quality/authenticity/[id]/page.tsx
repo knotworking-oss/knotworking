@@ -18,7 +18,7 @@ export default async function Page({ params }: { params: Promise<{ workspace: st
         <h1 className="font-medium">{detail.title}</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-5 p-6">
+        <div className="workspace-content space-y-5 py-6">
           <AuthenticityStatus assessment={detail} />
           <div className="flex flex-wrap gap-4 text-sm">
             <Link className="underline" href={`/${slug}/quality/authenticity/${id}/print`}>

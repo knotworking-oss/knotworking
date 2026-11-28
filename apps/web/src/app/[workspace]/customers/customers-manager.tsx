@@ -31,7 +31,7 @@ export function CustomersManager({ slug, customers }: { slug: string; customers:
   const canWrite = useWorkspace().can("customers", "write");
   const [editing, setEditing] = useState<Customer | "new" | null>(null);
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-4">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-end gap-3">
         {canWrite && <Button onClick={() => setEditing("new")}>New customer</Button>}
       </div>

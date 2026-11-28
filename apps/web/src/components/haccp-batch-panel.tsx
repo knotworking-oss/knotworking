@@ -35,7 +35,7 @@ export function HaccpBatchPanel({ slug, record }: { slug: string; record: HaccpB
   const running = record.batch.status === "in_progress";
   if (record.ccps.length === 0 && record.logs.length === 0) return null;
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-8">
+    <div className="workspace-content pb-8">
       <Card className="py-0">
         <CardHeader className="pt-4">
           <CardTitle className="flex items-center gap-2">

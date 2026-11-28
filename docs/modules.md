@@ -221,6 +221,8 @@ The People section lists the project lead and contributors. Task writers can add
 
 Post an update on a project to save a rich-text status message, set its health, and notify its followers. Updates and their comments load in pages. An active project's lead gets a reminder after seven workspace calendar days without an update, at most once per workspace week.
 
+Task details show related tasks and duplicates. A related link appears on both tasks. A duplicate can point to one original and can move to a canceled workflow state when linked. These links are fetched from `GET /tasks/:id/links`, while blocking dependencies continue to drive blocked filters and timeline arrows.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

@@ -50,6 +50,7 @@ describe("task queries", () => {
     await post("/task-relations", { blockingTaskId: blocker.id, blockedTaskId: blocked.id });
     await post("/task-relations", { blockingTaskId: closed.id, blockedTaskId: plain.id });
     await post("/task-relations", { blockingTaskId: hidden.id, blockedTaskId: plain.id });
+    await post(`/tasks/${blocker.id}/links`, { kind: "duplicate_of", targetId: plain.id });
     expect((await call(`/teams/${archivedTeamId}`, "PATCH", { archived: true })).status).toBe(200);
     blockedId = blocked.id;
     blockerId = blocker.id;
@@ -77,6 +78,7 @@ describe("task queries", () => {
         ],
       },
       { field: "hasSubtasks", op: "eq", value: true },
+      { field: "blocked", op: "eq", value: true },
       { field: "labelId", op: "ne", value: labelId },
       { field: "dueDate", op: "gte", value: "2026-12-05" },
       { field: "dueDate", op: "eq", value: null },

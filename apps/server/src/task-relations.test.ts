@@ -52,6 +52,67 @@ describe("task start dates and dependencies", () => {
   const relate = (blockingTaskId: string, blockedTaskId: string, extra: object = {}) =>
     call("POST", "/task-relations", { blockingTaskId, blockedTaskId, ...extra });
 
+  it("keeps symmetric links independent of blocking dependencies", async () => {
+    const a = await newTask("Research");
+    const b = await newTask("Proposal");
+    const path = (id: string) => `/tasks/${id}/links`;
+    const after = await cursor();
+    const response = await call("POST", path(a.id), { kind: "related", targetId: b.id });
+    expect(response.status).toBe(201);
+    const { id } = await response.json();
+    expect(await (await call("GET", path(b.id), undefined, marcus)).json()).toEqual({
+      links: [{ id, kind: "related", task: { id: a.id, title: "Research", reference: a.reference } }],
+    });
+    expect((await call("POST", path(b.id.toUpperCase()), { kind: "related", targetId: a.id })).status).toBe(
+      409,
+    );
+    expect((await call("POST", path(a.id), { kind: "related", targetId: a.id.toUpperCase() })).status).toBe(
+      400,
+    );
+    expect((await call("POST", path(a.id), { kind: "related", targetId: newId() })).status).toBe(404);
+    expect((await call("POST", path(a.id), { kind: "related", targetId: b.id }, marcus)).status).toBe(403);
+    expect((await call("DELETE", `/task-relations/${id}`)).status).toBe(404);
+    expect((await relate(a.id, b.id)).status).toBe(201);
+    expect((await boot()).taskRelations).not.toContainEqual(expect.objectContaining({ id }));
+    expect(await changesAfter(after)).toContainEqual(
+      expect.objectContaining({
+        entity: "task_link",
+        entityId: id,
+        data: { taskIds: [a.id, b.id].sort() },
+      }),
+    );
+    expect((await call("DELETE", `/tasks/${a.id}`)).status).toBe(204);
+    expect(await (await call("GET", path(b.id))).json()).toEqual({ links: [] });
+  });
+
+  it("shows duplicates in both directions and can close the duplicate atomically", async () => {
+    const a = await newTask("Duplicate");
+    const b = await newTask("Original");
+    const c = await newTask("Another original");
+    const canceled = (await boot()).workflowStates.find(
+      (s: { teamId: string; type: string }) => s.teamId === teamId && s.type === "canceled",
+    );
+    const path = (id: string) => `/tasks/${id}/links`;
+    const response = await call("POST", path(a.id), { kind: "duplicate_of", targetId: b.id, close: true });
+    expect(response.status).toBe(201);
+    const { id: linkId } = await response.json();
+    expect(await (await call("GET", `/tasks/${a.id}`)).json()).toMatchObject({
+      stateId: canceled.id,
+      canceledAt: expect.any(String),
+    });
+    expect(await (await call("GET", path(a.id.toUpperCase()))).json()).toMatchObject({
+      links: [{ kind: "duplicate_of", task: { id: b.id } }],
+    });
+    expect(await (await call("GET", path(b.id))).json()).toMatchObject({
+      links: [{ kind: "duplicated_by", task: { id: a.id } }],
+    });
+    expect((await call("POST", path(b.id), { kind: "duplicate_of", targetId: a.id })).status).toBe(409);
+    expect((await call("POST", path(a.id), { kind: "duplicate_of", targetId: c.id })).status).toBe(409);
+    expect((await call("DELETE", `${path(c.id)}/${linkId}`)).status).toBe(404);
+    expect((await call("DELETE", `${path(b.id)}/${linkId}`)).status).toBe(204);
+    expect(await (await call("GET", path(a.id))).json()).toEqual({ links: [] });
+  });
+
   it("duplicates task properties into a fresh task", async () => {
     const original = await newTask("Duplicate me", {
       priority: 2,

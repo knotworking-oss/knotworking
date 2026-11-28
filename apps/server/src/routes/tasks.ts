@@ -6,6 +6,7 @@ import {
   taskBulkSchema,
   taskCreateSchema,
   taskListQuerySchema,
+  taskLinkCreateSchema,
   taskRelationCreateSchema,
   taskUpdateSchema,
 } from "@knotworking/core";
@@ -21,6 +22,7 @@ import { createProject, deleteProject, listProjects, updateProject } from "../se
 import { listTaskActivity } from "../services/task-activity";
 import { bulkChangeTasks } from "../services/task-bulk";
 import { getTaskFollowing, setTaskFollowing } from "../services/task-followers";
+import { createTaskLink, deleteTaskLink, listTaskLinks } from "../services/task-links";
 import { createTaskRelation, deleteTaskRelation } from "../services/task-relations";
 import { createTask, deleteTask, duplicateTask, getTask, queryTasks, updateTask } from "../services/tasks";
 import { validate } from "../validate";
@@ -32,6 +34,7 @@ import { projectMemberRoutes } from "./project-members";
 import { projectUpdateRoutes } from "./project-updates";
 
 const idParam = z.object({ id: z.uuid() });
+const linkTaskParam = z.object({ id: z.uuid().transform((id) => id.toLowerCase()) });
 
 /**
  * Tasks module (`tasks`): tasks, their dependencies, comments and projects. Mounted at
@@ -70,6 +73,38 @@ export const taskRoutes = new Hono<WorkspaceEnv>()
       c.json(
         await listTaskActivity(c.var.db, c.var.workspace.id, c.req.valid("param").id, c.req.valid("query")),
       ),
+  )
+  .get("/tasks/:id/links", validate("param", linkTaskParam), async (c) =>
+    c.json(await listTaskLinks(c.var.db, c.var.workspace.id, c.req.valid("param").id)),
+  )
+  .post(
+    "/tasks/:id/links",
+    requireWriter,
+    validate("param", linkTaskParam),
+    validate("json", taskLinkCreateSchema),
+    async (c) =>
+      c.json(
+        await createTaskLink(
+          c.var.db,
+          c.var.workspace.id,
+          c.var.user.id,
+          c.req.valid("param").id,
+          c.req.valid("json"),
+          emailNotifier(c.var),
+          c.var.credential.kind,
+        ),
+        201,
+      ),
+  )
+  .delete(
+    "/tasks/:id/links/:linkId",
+    requireWriter,
+    validate("param", linkTaskParam.extend({ linkId: z.uuid() })),
+    async (c) => {
+      const { id, linkId } = c.req.valid("param");
+      await deleteTaskLink(c.var.db, c.var.workspace.id, c.var.user.id, id, linkId);
+      return c.body(null, 204);
+    },
   )
   .get("/tasks/:id/following", validate("param", idParam), async (c) =>
     c.json(await getTaskFollowing(c.var.db, c.var.workspace.id, c.req.valid("param").id, c.var.user.id)),

@@ -1,3 +1,14 @@
+import { z } from "zod";
+
+export const taskLinkKinds = ["related", "duplicate_of"] as const;
+export type TaskRelationKind = "blocks" | (typeof taskLinkKinds)[number];
+const targetId = z.uuid().transform((id) => id.toLowerCase());
+export const taskLinkCreateSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("related"), targetId }),
+  z.strictObject({ kind: z.literal("duplicate_of"), targetId, close: z.boolean().optional() }),
+]);
+export type TaskLinkCreateInput = z.infer<typeof taskLinkCreateSchema>;
+
 /**
  * Task dependencies, as clients see them: `blockingTaskId` blocks `blockedTaskId`.
  * Pure helpers shared by every client (the server enforces the same rules).

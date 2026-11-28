@@ -9,6 +9,7 @@ import type {
   TagColorName,
   TaskActivityDetails,
   TaskActivitySource,
+  TaskRelationKind,
   TaskViewScope,
   TaskViewSpec,
   WorkflowStateType,
@@ -319,11 +320,8 @@ export const taskFollowers = pgTable(
 );
 
 /**
- * Dependencies: `blocking_task_id` blocks `blocked_task_id` (read the other way,
- * the blocked task is "blocked by" it). One row per ordered pair; self-relations
- * and cycles are rejected by the API. Like `task_labels`, rows are hard-deleted
- * (the unique pair can then be re-created) and the delete is still recorded in
- * the sync log as a tombstone.
+ * Directed dependencies and duplicates, plus symmetric links stored in ID order.
+ * For duplicates, blocking_task_id is the duplicate and blocked_task_id is its original.
  */
 export const taskRelations = pgTable(
   "task_relations",
@@ -336,14 +334,23 @@ export const taskRelations = pgTable(
     blockedTaskId: uuid("blocked_task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<TaskRelationKind>().notNull().default("blocks"),
     creatorId: uuid("creator_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps(),
   },
   (t) => [
-    uniqueIndex("task_relations_blocking_blocked_key").on(t.blockingTaskId, t.blockedTaskId),
+    uniqueIndex("task_relations_blocking_blocked_key").on(t.blockingTaskId, t.blockedTaskId, t.kind),
+    uniqueIndex("task_relations_duplicate_key")
+      .on(t.blockingTaskId)
+      .where(sql`${t.kind} = 'duplicate_of'`),
     index("task_relations_blocked_idx").on(t.blockedTaskId),
     index("task_relations_workspace_idx").on(t.workspaceId),
     check("task_relations_not_self", sql`${t.blockingTaskId} <> ${t.blockedTaskId}`),
+    check("task_relations_kind", sql`${t.kind} in ('blocks', 'related', 'duplicate_of')`),
+    check(
+      "task_relations_related_order",
+      sql`${t.kind} <> 'related' or ${t.blockingTaskId} < ${t.blockedTaskId}`,
+    ),
   ],
 );
 

@@ -17,6 +17,7 @@ import { TaskAttachments } from "@/components/task-attachments";
 import { TaskActivity } from "@/components/task-activity";
 import { TaskComments } from "@/components/task-comments";
 import { TaskFollowing } from "@/components/task-following";
+import { TaskLinks } from "@/components/task-links";
 import { TaskDescription } from "@/components/task-description";
 import { TaskTime } from "@/components/task-time";
 import {
@@ -116,6 +117,7 @@ export default async function TaskPage({ params }: Props) {
             <TaskDescription key={task.id} taskId={task.id} initial={description} />
             <Subtasks initial={initial} initialChildren={children} />
             <TaskDependencies initial={initial} context={context} />
+            <TaskLinks key={task.id} taskId={task.id} teamId={task.teamId} />
             <TaskTime initial={initial} initialEntries={time?.entries} />
             <TaskAttachments taskId={task.id} initial={attachments} />
             <Backlinks

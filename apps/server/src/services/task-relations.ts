@@ -29,7 +29,7 @@ type ChangeList = Parameters<typeof recordChanges>[3];
 const MAX_DEPTH = 1000;
 
 export function serializeTaskRelation(row: RelationRow) {
-  const { deletedAt: _deleted, workspaceId: _ws, ...rest } = row;
+  const { deletedAt: _deleted, workspaceId: _ws, kind: _kind, ...rest } = row;
   return rest;
 }
 
@@ -47,12 +47,25 @@ export async function listTaskRelations(db: Executor, workspaceId: string, scope
     .innerJoin(teams, and(eq(teams.id, tasks.teamId), isNull(teams.deletedAt)))
     .innerJoin(blocking, and(eq(blocking.id, taskRelations.blockingTaskId), isNull(blocking.deletedAt)))
     .innerJoin(blockingTeam, and(eq(blockingTeam.id, blocking.teamId), isNull(blockingTeam.deletedAt)))
-    .where(and(eq(taskRelations.workspaceId, workspaceId), isNull(taskRelations.deletedAt), scope));
+    .where(
+      and(
+        eq(taskRelations.workspaceId, workspaceId),
+        eq(taskRelations.kind, "blocks"),
+        isNull(taskRelations.deletedAt),
+        scope,
+      ),
+    );
   return rows.map((r) => serializeTaskRelation(r.relation));
 }
 
-/** Whether `from` reaches `to` by following "blocks" edges (`from` blocks … blocks `to`). */
-async function blocksTransitively(tx: Transaction, workspaceId: string, from: string, to: string) {
+/** Whether `from` reaches `to` through directed links of the given kind. */
+export async function reachesTask(
+  tx: Transaction,
+  workspaceId: string,
+  kind: "blocks" | "duplicate_of",
+  from: string,
+  to: string,
+) {
   const seen = new Set<string>([from]);
   let frontier = [from];
   for (let depth = 0; frontier.length > 0; depth++) {
@@ -63,6 +76,7 @@ async function blocksTransitively(tx: Transaction, workspaceId: string, from: st
       .where(
         and(
           eq(taskRelations.workspaceId, workspaceId),
+          eq(taskRelations.kind, kind),
           inArray(taskRelations.blockingTaskId, frontier),
           isNull(taskRelations.deletedAt),
         ),
@@ -79,15 +93,16 @@ async function blocksTransitively(tx: Transaction, workspaceId: string, from: st
   return false;
 }
 
-async function assertLiveTasks(tx: Transaction, workspaceId: string, ids: string[]) {
+export async function assertLiveTasks(tx: Executor, workspaceId: string, ids: string[]) {
   const found = await tx
-    .select({ id: tasks.id })
+    .select({ id: tasks.id, teamId: tasks.teamId, stateId: tasks.stateId })
     .from(tasks)
     .innerJoin(teams, and(eq(teams.id, tasks.teamId), isNull(teams.deletedAt)))
     .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.id, ids), isNull(tasks.deletedAt)));
   for (const id of ids) {
     if (!found.some((t) => t.id === id)) throw notFound("Task");
   }
+  return found;
 }
 
 /**
@@ -118,12 +133,13 @@ export async function createTaskRelation(
           and(
             eq(taskRelations.blockingTaskId, blockingTaskId),
             eq(taskRelations.blockedTaskId, blockedTaskId),
+            eq(taskRelations.kind, "blocks"),
           ),
         );
       if (existing) {
         throw new ApiError(409, "relation_exists", "These tasks are already linked");
       }
-      if (await blocksTransitively(tx, workspaceId, blockedTaskId, blockingTaskId)) {
+      if (await reachesTask(tx, workspaceId, "blocks", blockedTaskId, blockingTaskId)) {
         throw new ApiError(
           409,
           "relation_cycle",
@@ -142,7 +158,7 @@ export async function createTaskRelation(
         })
         .returning();
       await recordChanges(tx, workspaceId, actorId, [
-        { entity: "task_relation", entityId: row!.id, action: "upsert", data: row },
+        { entity: "task_relation", entityId: row!.id, action: "upsert", data: serializeTaskRelation(row!) },
       ]);
       await recordTaskActivity(tx, workspaceId, [blockingTaskId, blockedTaskId], actorId, source, {
         kind: "dependency_added",
@@ -169,7 +185,13 @@ export async function deleteTaskRelation(
     await lockWorkspaceLog(tx, workspaceId);
     const [row] = await tx
       .delete(taskRelations)
-      .where(and(eq(taskRelations.id, id), eq(taskRelations.workspaceId, workspaceId)))
+      .where(
+        and(
+          eq(taskRelations.id, id),
+          eq(taskRelations.workspaceId, workspaceId),
+          eq(taskRelations.kind, "blocks"),
+        ),
+      )
       .returning();
     if (!row) throw notFound("Relation");
     await recordChanges(tx, workspaceId, actorId, [
@@ -188,12 +210,23 @@ export async function deleteRelationsOfTask(tx: Transaction, taskId: string): Pr
   const removed = await tx
     .delete(taskRelations)
     .where(or(eq(taskRelations.blockingTaskId, taskId), eq(taskRelations.blockedTaskId, taskId)))
-    .returning({ id: taskRelations.id });
-  return removed.map((r) => ({
-    entity: "task_relation" as const,
-    entityId: r.id,
-    action: "delete" as const,
-  }));
+    .returning();
+  return removed.map(relationDeleteChange);
+}
+
+/** A link change invalidates the on-demand list on both tasks. */
+export function taskLinkChange(row: RelationRow): ChangeList[number] {
+  return {
+    entity: "task_link",
+    entityId: row.id,
+    action: "upsert",
+    data: { taskIds: [row.blockingTaskId, row.blockedTaskId] },
+  };
+}
+
+function relationDeleteChange(row: RelationRow): ChangeList[number] {
+  if (row.kind !== "blocks") return taskLinkChange(row);
+  return { entity: "task_relation", entityId: row.id, action: "delete" };
 }
 
 /**
@@ -219,14 +252,12 @@ export async function relationChangesForTeamVisibility(
       ),
     );
   if (!visible) {
-    return touching.map((r) => ({
-      entity: "task_relation" as const,
-      entityId: r.id,
-      action: "delete" as const,
-    }));
+    return touching.map(relationDeleteChange);
   }
   const visibleIds = new Set((await listTaskRelations(tx, workspaceId)).map((r) => r.id));
-  return touching
-    .filter((r) => visibleIds.has(r.id))
-    .map((r) => ({ entity: "task_relation" as const, entityId: r.id, action: "upsert" as const, data: r }));
+  return touching.flatMap((r): ChangeList => {
+    if (r.kind !== "blocks") return [taskLinkChange(r)];
+    if (!visibleIds.has(r.id)) return [];
+    return [{ entity: "task_relation", entityId: r.id, action: "upsert", data: serializeTaskRelation(r) }];
+  });
 }

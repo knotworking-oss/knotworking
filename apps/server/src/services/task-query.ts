@@ -80,6 +80,7 @@ export function taskFilterSql(filter: TaskFilter) {
             join ${workflowStates} as ${blockerState} on ${blockerState.id} = ${blocker.stateId}
             where ${taskRelations.workspaceId} = ${tasks.workspaceId}
               and ${taskRelations.blockedTaskId} = ${tasks.id} and ${taskRelations.deletedAt} is null
+              and ${taskRelations.kind} = 'blocks'
               and ${blockerState.type} not in ('completed', 'canceled')
           )`,
             value,

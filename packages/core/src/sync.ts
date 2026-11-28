@@ -53,6 +53,7 @@ export const syncEntityTypes = [
   "task",
   "task_label",
   "task_relation",
+  "task_link",
   "task_view",
   "task_follower",
   "document",

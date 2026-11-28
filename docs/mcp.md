@@ -212,6 +212,8 @@ Every workspace-scoped tool takes an optional `workspace` slug (see `KNOTWORKING
 
 The `task_activity` resource in `find_records` (tool `list_task_activity`) reads the newest events for a task by ID. It accepts `limit` (1–100, default 25) and `before`. Pass the returned `nextCursor` as `before` for the next page.
 
+With Automation enabled, use the `task_recurrences` resource (`list_task_recurrences` and `get_task_recurrence`) to see repeat schedules and their next dates. Use the source task's UUID to look up a schedule. `set_task_recurrence` creates, updates or pauses a schedule and requires write access to Tasks and Automation.
+
 `query_tasks` sends a versioned JSON filter to the server and returns task summaries with raw IDs. Use `sort`, `group` and `limit` to control the page, and pass `nextCursor` back as `cursor` to continue. The tool works independently of the workspace snapshot. See [Task queries](architecture.md#task-queries) for the filter grammar.
 
 Use `find_records` with the `task_views` resource (tool `list_views`) to find a saved task view. `run_view` uses its stored filter, team scope and sort on the server. Pass its `nextCursor` back as `cursor` for older pages.

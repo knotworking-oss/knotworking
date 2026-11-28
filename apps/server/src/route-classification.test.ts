@@ -34,6 +34,25 @@ type Classification =
  * Keys are "METHOD path" exactly as Hono registers them.
  */
 const ROUTES: Record<string, Classification> = {
+  "GET /v1/workspaces/:slug/automation/pipelines": "token-ok",
+  "GET /v1/workspaces/:slug/automation/pipeline-options": "token-ok",
+  "GET /v1/workspaces/:slug/automation/runs/:id": "token-ok",
+  "POST /v1/workspaces/:slug/automation/pipelines": "token-forbidden",
+  "PUT /v1/workspaces/:slug/automation/pipelines/:id": "token-forbidden",
+  "DELETE /v1/workspaces/:slug/automation/pipelines/:id": "token-forbidden",
+  "POST /v1/workspaces/:slug/automation/pipelines/:id/run": "token-forbidden",
+  "GET /v1/workspaces/:slug/automation": "token-ok",
+  "GET /v1/workspaces/:slug/automation/recurrences/:taskId": "token-ok",
+  "PUT /v1/workspaces/:slug/automation/recurrences/:taskId": "token-ok",
+  "DELETE /v1/workspaces/:slug/automation/recurrences/:taskId": "token-ok",
+  "POST /v1/workspaces/:slug/automation/rules": "token-forbidden",
+  "PUT /v1/workspaces/:slug/automation/rules/:id": "token-forbidden",
+  "DELETE /v1/workspaces/:slug/automation/rules/:id": "token-forbidden",
+  "POST /v1/workspaces/:slug/automation/dry-run": "token-forbidden",
+  "GET /v1/workspaces/:slug/automation/webhooks": "token-forbidden",
+  "POST /v1/workspaces/:slug/automation/webhooks": "token-forbidden",
+  "PUT /v1/workspaces/:slug/automation/webhooks/:id": "token-forbidden",
+  "DELETE /v1/workspaces/:slug/automation/webhooks/:id": "token-forbidden",
   "GET /v1/workspaces/:slug/checklists/due": "token-ok",
   "GET /v1/workspaces/:slug/checklists/templates": "token-ok",
   "GET /v1/workspaces/:slug/checklists/templates/:id": "token-ok",
@@ -1120,6 +1139,14 @@ const TOKEN_ACTION_ROUTES: Record<string, TokenActionId> = {
  * `forbidTokens` route fails the accounting test until it is listed here or made a token action.
  */
 const PERSON_ONLY_ROUTES: Record<string, string> = {
+  "POST /v1/workspaces/:slug/automation/pipelines": "Manage and run automation pipelines",
+  "PUT /v1/workspaces/:slug/automation/pipelines/:id": "Manage and run automation pipelines",
+  "DELETE /v1/workspaces/:slug/automation/pipelines/:id": "Manage and run automation pipelines",
+  "POST /v1/workspaces/:slug/automation/pipelines/:id/run": "Manage and run automation pipelines",
+  "POST /v1/workspaces/:slug/automation/rules": "Manage and preview task automation rules",
+  "PUT /v1/workspaces/:slug/automation/rules/:id": "Manage and preview task automation rules",
+  "DELETE /v1/workspaces/:slug/automation/rules/:id": "Manage and preview task automation rules",
+  "POST /v1/workspaces/:slug/automation/dry-run": "Manage and preview task automation rules",
   "POST /v1/workspaces/:slug/checklists/checks": "Record completed checklists",
   "POST /v1/workspaces/:slug/checklists/checks/:id/correct": "Correct checklist results",
   "POST /v1/workspaces/:slug/checklists/actions/:id/resolve": "Resolve checklist follow-ups",

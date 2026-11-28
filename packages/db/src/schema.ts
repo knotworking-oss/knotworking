@@ -586,3 +586,6 @@ export * from "./schema/purchase-requests";
 export * from "./schema/client-services";
 export * from "./schema/crm";
 export * from "./schema/invoicing";
+export * from "./schema/task-automation";
+
+export * from "./schema/automation-pipeline";

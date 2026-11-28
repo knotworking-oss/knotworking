@@ -139,6 +139,20 @@ Phase 3.3.1 adds `authenticity_assessments` (item/supplier scope, active/archive
 - `service_quotes` stores the customer snapshot, fee or hourly rate, quoted minutes if applicable, and the linked delivery project. Delivery sign-off records approved minutes for hourly work. `service_quote_events` retains signed revisions and reasons. Only quote IDs and revisions enter the sync log.
 - CRM (`0110_crm`): `crm_stages` holds a workspace's ordered open stages with a win probability (removed stages are archived; names are unique among live ones). `crm_leads` holds the contact, source, owner and status, and the customer and time of conversion (`converted` exactly when both are set). `crm_opportunities` belongs to a customer or a lead, sits on a stage, records value, currency, expected close, an optional Sales quote (`sales_orders`) or Client services quote (each linked to one opportunity at most, by partial unique index) and the won/lost outcome with reason. `crm_activities` attach to one lead or one opportunity, with an owner, an optional due date and completion. Leads and opportunities carry a revision for stale-write checks; sync rows carry ids and revisions only.
 
+## Task automation
+
+- `task_recurrences` stores one schedule per source task, the task fields to copy, the next workspace calendar date, and the last task created by the schedule.
+- `automation_rules` stores the trigger, team scope, task filter and actions. `automation_runs` records executions, including skipped and failed runs, with a unique key per rule, event and trigger.
+- `automation_webhooks` stores the endpoint, subscriptions, filter and encrypted signing secret. `webhook_deliveries` stores the signed payload's body, retry state and response status. Receivers can use the delivery ID to recognise retries.
+
+Schedules, rules, signing secrets and histories are read on demand through permission-checked endpoints. They are excluded from workspace bootstrap and sync.
+
+## Automation pipelines
+
+- `automation_pipelines` stores the workspace, owner and ordered step definitions, including an optional workspace-local schedule.
+- `automation_pipeline_runs` preserves the definition used for each run, the business date, results and recipients. The unique occurrence key prevents duplicate scheduled runs and makes a retried manual request return the same run. A renewable lease fences workers. Each write step commits its side effect and checkpoint together.
+- Reports are read on demand. Results are filtered for the reader's current source access and stay out of workspace sync and bootstrap.
+
 ## Sales (3.4.1)
 
 - `sales_orders`: shared customer/site IDs, quote/order kind, status, revision, retained recipient/address facts, currency, customer reference, terms, notes, optional source quote, creation and latest signed decision. A source quote creates at most one draft order. Customer changes never rewrite signed history.

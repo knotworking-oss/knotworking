@@ -85,6 +85,7 @@ export interface Services {
   assistantProviders: AssistantProviderRegistry;
   /** Key members' provider API keys are sealed under, derived from the server secret. */
   assistantKeyKey: Buffer;
+  automationKey: Buffer;
   /** Accounting adapters installed in this process; empty unless configured (docs/accounting.md). */
   accountingAdapters: AccountingAdapterRegistry;
   xero: XeroConnectionService | undefined;

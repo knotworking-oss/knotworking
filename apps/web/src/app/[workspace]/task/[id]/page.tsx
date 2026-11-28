@@ -18,6 +18,7 @@ import { TaskActivity } from "@/components/task-activity";
 import { TaskComments } from "@/components/task-comments";
 import { TaskFollowing } from "@/components/task-following";
 import { TaskLinks } from "@/components/task-links";
+import { TaskRepeat } from "@/components/task-repeat";
 import { CustomFieldValues } from "@/components/custom-field-values";
 import { TaskDescription } from "@/components/task-description";
 import { TaskTime } from "@/components/task-time";
@@ -72,6 +73,7 @@ export default async function TaskPage({ params }: Props) {
       <PageHeader
         actions={
           <>
+            <TaskRepeat key={`repeat:${task.id}`} taskId={task.id} />
             <TaskFollowing key={task.id} taskId={task.id} initial={following} />
             <TaskActions initial={initial} teamKey={team.key} />
           </>

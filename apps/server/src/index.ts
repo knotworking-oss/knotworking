@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { createDb } from "@knotworking/db";
 import { createApp } from "./app";
+import { deriveAutomationKey, startTaskAutomation } from "./services/task-automation";
 import { createAuth, enabledProviders } from "./auth";
 import { createCalendarDeps } from "./calendar";
 import { startCalendarScheduler } from "./calendar/scheduler";
@@ -69,6 +70,9 @@ const stopSweep = config.notificationSweepIntervalMs
   : () => {};
 
 const stopEmails = startNotificationEmailWorker(handle.db);
+const stopAutomation = config.activeModules.includes("automation")
+  ? startTaskAutomation(handle.db, config.activeModules, deriveAutomationKey(config.secret))
+  : async () => {};
 
 // Abandoned Xero sign-ins hold encrypted, unconfirmed credentials until they are deleted.
 const stopXeroSweep = xero ? startXeroAttemptSweep(xero, { intervalMs: 10 * 60_000 }) : () => {};
@@ -114,6 +118,7 @@ const shutdown = async () => {
   stopSweep();
   stopAccounting();
   stopXeroSweep();
+  await stopAutomation();
   await stopEmails();
   server.close();
   await handle.close();

@@ -131,12 +131,22 @@ export async function takeSnapshot(
   viewer: BiDashboardViewer,
   input: unknown,
 ) {
+  const prepared = await prepareDashboardSnapshot(db, workspace, dashboardId, viewer, input);
+  return db.transaction((tx) => saveDashboardSnapshot(tx, prepared));
+}
+
+export async function prepareDashboardSnapshot(
+  db: Database,
+  workspace: BiWorkspace,
+  dashboardId: string,
+  viewer: BiDashboardViewer,
+  input: unknown,
+) {
   assertManager(viewer);
   const data = parseDashboardInput(biSnapshotCreateSchema, input ?? {});
   const dashboard = await getDashboard(db, workspace.id, dashboardId, viewer);
   const view = data.params ?? { filters: {} };
   const results = await dashboardData(db, workspace, dashboardId, viewer, view);
-  // The spec and the results must be the same version (someone may have saved in between).
   if (results.version !== dashboard.version) {
     throw new ApiError(
       409,
@@ -145,26 +155,31 @@ export async function takeSnapshot(
     );
   }
   const spec = biDashboardSpecSchema.parse(dashboard.spec);
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(biSnapshots)
-      .values({
-        workspaceId: workspace.id,
-        dashboardId,
-        dashboardVersion: results.version,
-        title: data.title ?? `${dashboard.title}, as at ${workspace.today}`,
-        asAt: workspace.today,
-        spec,
-        results: { widgets: results.widgets },
-        catalogueVersion: BI_CATALOGUE_VERSION,
-        definitions: definitionsOf(spec),
-        view: results.view,
-        takenBy: viewer.userId,
-      })
-      .returning();
-    await recordSnapshot(tx, workspace.id, viewer.userId, row!);
-    return { ...snapshotHeader(row!), description: dashboard.description };
-  });
+  return {
+    description: dashboard.description,
+    values: {
+      workspaceId: workspace.id,
+      dashboardId,
+      dashboardVersion: results.version,
+      title: data.title ?? `${dashboard.title}, as at ${workspace.today}`,
+      asAt: workspace.today,
+      spec,
+      results: { widgets: results.widgets },
+      catalogueVersion: BI_CATALOGUE_VERSION,
+      definitions: definitionsOf(spec),
+      view: results.view,
+      takenBy: viewer.userId,
+    },
+  };
+}
+
+export async function saveDashboardSnapshot(
+  tx: Transaction,
+  { description, values }: Awaited<ReturnType<typeof prepareDashboardSnapshot>>,
+) {
+  const [row] = await tx.insert(biSnapshots).values(values).returning();
+  await recordSnapshot(tx, values.workspaceId, values.takenBy, row!);
+  return { ...snapshotHeader(row!), description };
 }
 
 export async function listSnapshots(
@@ -310,6 +325,33 @@ function presentAnalysis(row: SnapshotRow, viewer: BiDashboardViewer, access: Sn
   return { ...snapshotHeader(row), results: { analysis: shown } };
 }
 
+async function requireSnapshotAccess(
+  db: Executor,
+  workspaceId: string,
+  row: Pick<SnapshotRow, "id" | "kind" | "takenBy"> | undefined,
+  viewer: BiDashboardViewer,
+) {
+  if (!row || !hasModuleLevel(viewer.modules.bi, "read")) throw notFound("Snapshot");
+  const access = await snapshotAccess(db, workspaceId, viewer);
+  // An analysis is also open to whoever made it (a member, or their agent).
+  const own = row.kind === "analysis" && row.takenBy === viewer.userId;
+  if (!own && !canOpen(access, row.id)) throw notFound("Snapshot");
+  return access;
+}
+
+export async function assertSnapshotVisible(
+  db: Executor,
+  workspaceId: string,
+  id: string,
+  viewer: BiDashboardViewer,
+) {
+  const [row] = await db
+    .select({ id: biSnapshots.id, kind: biSnapshots.kind, takenBy: biSnapshots.takenBy })
+    .from(biSnapshots)
+    .where(and(eq(biSnapshots.workspaceId, workspaceId), eq(biSnapshots.id, id)));
+  await requireSnapshotAccess(db, workspaceId, row, viewer);
+}
+
 /**
  * A snapshot with its figures (as the viewer may see them), and the snapshot of the same dashboard
  * taken just before it when they may open that one, for comparison. 404 when they may not open it.
@@ -319,11 +361,8 @@ export async function getSnapshot(db: Executor, workspaceId: string, id: string,
     .select()
     .from(biSnapshots)
     .where(and(eq(biSnapshots.workspaceId, workspaceId), eq(biSnapshots.id, id)));
-  const access = await snapshotAccess(db, workspaceId, viewer);
-  // An analysis is also open to whoever made it (a member, or their agent).
-  const own = row?.kind === "analysis" && row.takenBy === viewer.userId;
-  if (!row || !viewer.modules.bi || viewer.modules.bi === "none" || !(own || canOpen(access, id)))
-    throw notFound("Snapshot");
+  if (!row) throw notFound("Snapshot");
+  const access = await requireSnapshotAccess(db, workspaceId, row, viewer);
   const previous = await latestEarlier(db, workspaceId, row, (candidate) => canOpen(access, candidate));
   return {
     ...presentSnapshot(row, viewer, access),

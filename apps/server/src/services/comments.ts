@@ -56,7 +56,7 @@ export async function listTaskComments(db: Database, workspaceId: string, taskId
 }
 
 export async function createTaskComment(
-  db: Database,
+  db: Executor,
   workspaceId: string,
   actorId: string,
   taskId: string,

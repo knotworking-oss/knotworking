@@ -9,6 +9,8 @@ import type { ModuleId } from "./modules";
  */
 export const notificationTypes = [
   "task_assigned",
+  "automation_notice",
+  "automation_report_ready",
   "task_status_changed",
   "task_commented",
   "project_update_posted",
@@ -83,6 +85,16 @@ export const notificationTypeInfo: Record<
   { label: string; description: string; module: ModuleId | null }
 > = {
   task_assigned: { label: "Task assigned", description: "A task is assigned to you", module: "tasks" },
+  automation_report_ready: {
+    label: "Automation reports",
+    description: "A scheduled or manual report is ready",
+    module: "automation",
+  },
+  automation_notice: {
+    label: "Task automations",
+    description: "An automation sends you a notification",
+    module: "tasks",
+  },
   task_status_changed: {
     label: "Task status changed",
     description: "Someone moves a task you follow",
@@ -356,6 +368,8 @@ export function notificationPath(n: {
   if (n.taskId) return `/task/${n.taskId}`;
   if (n.data.documentId) return `/docs/${n.data.documentId}`;
   switch (n.type) {
+    case "automation_report_ready":
+      return n.data.subjectId ? `/automation/runs/${n.data.subjectId}` : "/automation";
     case "project_update_posted":
     case "project_update_due":
       return n.data.subjectId ? `/projects/${n.data.subjectId}#project-updates` : "/projects";
@@ -444,6 +458,10 @@ export function describeNotification(type: string, actor: string, data: Notifica
       return `${actor} posted an update for "${title}"`;
     case "project_update_due":
       return `"${title}" is due for a project update`;
+    case "automation_report_ready":
+      return `"${title}" is ready`;
+    case "automation_notice":
+      return data.snippet ?? `Automation ran on "${data.taskTitle}"`;
     case "task_assigned":
       return `${actor} assigned you "${data.taskTitle}"`;
     case "task_status_changed":

@@ -182,6 +182,8 @@ const personOnly = (module: ModuleId, label: string, kind: PersonOnlyKind): Pers
  * {@link tokenActions} entry.
  */
 export const personOnlyActions: readonly PersonOnlyAction[] = [
+  personOnly("automation", "Manage and preview task automation rules", "safety"),
+  personOnly("automation", "Manage and run automation pipelines", "safety"),
   personOnly("workforce", "Manage personal leave and sickness requests", "attestation"),
   personOnly("workforce_hr", "Access private HR absence records", "attestation"),
   personOnly("workforce_hr", "Prepare, approve and export payroll runs", "sign_off"),

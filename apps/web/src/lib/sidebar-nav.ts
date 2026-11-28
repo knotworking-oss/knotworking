@@ -41,6 +41,7 @@ import {
   UsersRound,
   Warehouse,
   Workflow,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { recipeTerms } from "./recipe-terms";
@@ -153,6 +154,15 @@ export const globalRoots: readonly string[] = [
 ];
 
 export const navAreas: readonly NavArea[] = [
+  {
+    id: "automation",
+    label: "Automation",
+    description: "Scheduled reports, pipelines and task rules",
+    icon: Zap,
+    group: "Work",
+    visible: needs("automation"),
+    sections: [{ items: [{ label: "Automation", path: "automation", icon: Zap }] }],
+  },
   {
     id: "bi",
     label: "Dashboards",

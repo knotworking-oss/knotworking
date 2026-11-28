@@ -11,7 +11,7 @@ import {
 import { Button } from "@knotworking/ui/components/button";
 import { Input } from "@knotworking/ui/components/input";
 import { Plus, X } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { useSearchParam } from "./view-switcher";
 
@@ -46,6 +46,26 @@ export function TaskFilterBar({
   actions?: ReactNode;
 }) {
   const setParam = useSearchParam();
+  return (
+    <TaskFilterControls
+      filter={filter}
+      actions={actions}
+      onChange={(value) => setParam("filter", value ? JSON.stringify(value) : clearParam)}
+    />
+  );
+}
+
+export function TaskFilterControls({
+  filter,
+  onChange,
+  actions,
+  embedded = false,
+}: {
+  filter?: TaskFilter;
+  onChange: (value?: TaskFilter) => void;
+  actions?: ReactNode;
+  embedded?: boolean;
+}) {
   const { idx } = useWorkspace();
   const [field, setField] = useState<Field>("stateType");
   const [value, setValue] = useState("");
@@ -66,7 +86,7 @@ export function TaskFilterBar({
 
   function write(next: TaskFilterExpression[]) {
     if (next.length === 0) {
-      setParam("filter", clearParam);
+      onChange();
       setError(undefined);
       return;
     }
@@ -79,12 +99,11 @@ export function TaskFilterBar({
       setError("This view has reached its filter limit.");
       return;
     }
-    setParam("filter", encoded);
+    onChange(checked.data);
     setError(undefined);
   }
 
-  function add(event: FormEvent) {
-    event.preventDefault();
+  function add() {
     if (!value) return;
     const draft = {
       field,
@@ -122,8 +141,63 @@ export function TaskFilterBar({
     }
   }
 
+  const controls = (
+    <>
+      <select
+        className={selectClass}
+        aria-label="Filter field"
+        value={field}
+        onChange={(event) => {
+          setField(event.target.value as Field);
+          setValue("");
+        }}
+      >
+        {Object.entries(fieldNames).map(([id, name]) => (
+          <option key={id} value={id}>
+            {name}
+          </option>
+        ))}
+      </select>
+      {field === "dueDate" ? (
+        <Input
+          className="h-8 w-auto"
+          aria-label="Filter date"
+          type="date"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      ) : (
+        <select
+          className={selectClass}
+          aria-label="Filter value"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        >
+          <option value="">Choose value</option>
+          {options.map(({ id, name }) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
+          ))}
+        </select>
+      )}
+      <Button
+        type={embedded ? "button" : "submit"}
+        onClick={embedded ? add : undefined}
+        variant="ghost"
+        size="sm"
+        disabled={!value}
+      >
+        <Plus /> Add filter
+      </Button>
+    </>
+  );
+
   return (
-    <section aria-label="Task filters" className="flex flex-wrap items-center gap-2 border-b px-6 py-2">
+    <section
+      aria-label="Task filters"
+      className={`flex flex-wrap items-center gap-2 ${embedded ? "" : "border-b px-6 py-2"}`}
+    >
       {conditions.map((condition, index) => (
         <Button
           type="button"
@@ -135,49 +209,19 @@ export function TaskFilterBar({
           {describe(condition)} <X aria-label="Remove" />
         </Button>
       ))}
-      <form onSubmit={add} className="flex flex-wrap items-center gap-2">
-        <select
-          className={selectClass}
-          aria-label="Filter field"
-          value={field}
-          onChange={(event) => {
-            setField(event.target.value as Field);
-            setValue("");
+      {embedded ? (
+        <div className="flex flex-wrap items-center gap-2">{controls}</div>
+      ) : (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            add();
           }}
+          className="flex flex-wrap items-center gap-2"
         >
-          {Object.entries(fieldNames).map(([id, name]) => (
-            <option key={id} value={id}>
-              {name}
-            </option>
-          ))}
-        </select>
-        {field === "dueDate" ? (
-          <Input
-            className="h-8 w-auto"
-            aria-label="Filter date"
-            type="date"
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-          />
-        ) : (
-          <select
-            className={selectClass}
-            aria-label="Filter value"
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-          >
-            <option value="">Choose value</option>
-            {options.map(({ id, name }) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
-        )}
-        <Button type="submit" variant="ghost" size="sm" disabled={!value}>
-          <Plus /> Add filter
-        </Button>
-      </form>
+          {controls}
+        </form>
+      )}
       {conditions.length > 0 && (
         <Button type="button" variant="ghost" size="sm" onClick={() => write([])}>
           Clear filters

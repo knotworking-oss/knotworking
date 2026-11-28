@@ -61,6 +61,7 @@ export const moduleIds = [
   "client_services",
   "crm",
   "invoicing",
+  "automation",
 ] as const;
 export type ModuleId = (typeof moduleIds)[number];
 
@@ -103,6 +104,16 @@ export interface ModuleDefinition {
 }
 
 export const modules: Record<ModuleId, ModuleDefinition> = {
+  automation: {
+    id: "automation",
+    name: "Automation",
+    description: "Scheduled cross-module reports and actions, recurring tasks, rules and signed webhooks.",
+    dependsOn: [],
+    enhancedBy: ["tasks", "stock", "quality", "governance", "bi"],
+    defaultAccess: "role",
+    defaultActive: false,
+    syncEntities: [],
+  },
   invoicing: {
     id: "invoicing",
     name: "Invoicing",

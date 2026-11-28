@@ -7,6 +7,7 @@ import type { WorkspaceEnv } from "../env";
 import { notFound } from "../errors";
 import { memberModuleLevels } from "../services/module-access";
 import { withTimeZoneScope } from "../services/time-zone";
+import { withAutomationScope } from "../services/automation-events";
 
 /** Resolves `:slug` to a workspace the current user belongs to, with their module access. */
 export const workspaceAccess = createMiddleware<WorkspaceEnv>(async (c, next) => {
@@ -60,7 +61,9 @@ export async function withWorkspaceAccess(c: Context<WorkspaceEnv>, slug: string
     modules,
   });
   // The request's zone lookups (services' `workspaceTimeZone`) start from this one, not a SELECT each.
-  await withTimeZoneScope(next, { workspaceId: row.id, timeZone });
+  await withAutomationScope(activeModules.includes("automation"), () =>
+    withTimeZoneScope(next, { workspaceId: row.id, timeZone }),
+  );
 }
 
 /**

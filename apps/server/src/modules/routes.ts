@@ -11,6 +11,7 @@ import type { ModuleId } from "@knotworking/core";
  * Works on concrete paths (`/tasks/0190…/timer`) and on route patterns (`/tasks/:id/timer`).
  */
 const RULES: readonly [RegExp, ModuleId | "platform"][] = [
+  [/^\/automation(\/|$)/, "automation"],
   [/^\/accounting(\/|$)/, "accounting"],
   // Dashboards: the catalogue and queries. Each query also checks the modules its dataset reads.
   [/^\/bi(\/|$)/, "bi"],

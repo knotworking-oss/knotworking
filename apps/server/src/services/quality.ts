@@ -1,3 +1,4 @@
+import { queuePipelineEvent } from "./automation-pipeline-events";
 import {
   addDaysIso,
   addMonthsIso,
@@ -1014,6 +1015,7 @@ export async function createAudit(
       .values({ ...fields, ...(id ? { id } : {}), workspaceId, reference, createdBy: actorId })
       .returning();
     await recordChanges(tx, workspaceId, actorId, [auditChange(row!)]);
+    await queuePipelineEvent(tx, workspaceId, "quality.audit_planned", [row!.id], today);
     return getAudit(tx, workspaceId, row!.id, today);
   });
 }

@@ -1,3 +1,4 @@
+import { queuePipelineEvent } from "./automation-pipeline-events";
 import {
   addDaysIso,
   complaintCategoryLabels,
@@ -101,6 +102,7 @@ async function generateFor(
   const { generate, next } = programmeOccurrences(programme, today);
   if (next === programme.nextPlannedOn) return programme;
   const changes: ChangeInput[] = [];
+  const plannedIds: string[] = [];
   for (const plannedOn of generate) {
     const [existing] = await tx
       .select({ id: qualityAudits.id })
@@ -129,6 +131,7 @@ async function generateFor(
       })
       .returning();
     changes.push(auditChange(audit!));
+    plannedIds.push(audit!.id);
   }
   const [row] = await tx
     .update(qualityAuditProgrammes)
@@ -137,6 +140,7 @@ async function generateFor(
     .returning();
   changes.push(programmeChange(row!));
   await recordChanges(tx, workspaceId, actorId, changes);
+  await queuePipelineEvent(tx, workspaceId, "quality.audit_planned", plannedIds, today);
   return row!;
 }
 

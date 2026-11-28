@@ -5,6 +5,7 @@ Knotworking is a **platform** plus **modules**. The platform is always on: sign-
 | Module                         | Id               | Depends on                            | What it holds                                                                                                                                                                                                                                                                                                           |
 | ------------------------------ | ---------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Tasks                          | `tasks`          |                                       | Tasks, workflow states, labels, dependencies, comments, projects                                                                                                                                                                                                                                                        |
+| Automation                     | `automation`     |                                       | Scheduled pipelines, cross-module reports, task rules, recurring tasks and signed webhooks |
 | Documents                      | `docs`           |                                       | The wiki: documents, version history, backlinks                                                                                                                                                                                                                                                                         |
 | Time                           | `time`           | `tasks`                               | Logged time, timers, time reports                                                                                                                                                                                                                                                                                       |
 | Calendar                       | `calendar`       |                                       | Workspace meetings and each member's connected calendars                                                                                                                                                                                                                                                                |
@@ -89,7 +90,7 @@ Phase 3 adds **Customers** (`customers`, no dependencies) and **Despatch** (`des
 
 ## Module activation and access
 
-**1. The environment decides which modules are available.** `KNOTWORKING_MODULES` is a comma-separated list of ids (`tasks,docs`). Unset means every module except those flagged off by default (`calendar`, `accounting`, `invoicing`, `bi`): they need server configuration or create financial records, so an administrator switches them on deliberately. `all` includes those modules (handy for trying the demo); `none` means the platform alone. An unknown id or a missing dependency (`time` without `tasks`) stops the API at startup, except for `food_items` in a list written before it left Items (see [Food items](#food-items-module)). The API and MCP server read the same variable.
+**1. The environment decides which modules are available.** `KNOTWORKING_MODULES` is a comma-separated list of ids (`tasks,docs`). Unset enables the default modules. Administrators opt in to `calendar`, `accounting`, `invoicing`, `bi` and `automation`. `all` includes those modules (handy for trying the demo); `none` means the platform alone. An unknown id or a missing dependency (`time` without `tasks`) stops the API at startup, except for `food_items` in a list written before it left Items (see [Food items](#food-items-module)). The API and MCP server read the same variable.
 
 **2. Owners and admins decide which available modules the workspace uses.** First-run setup offers **General Business** for work, documents, customers and people operations, and **Food Manufacturing** to use all server-enabled modules. Existing workspaces also follow the server until an admin saves a custom selection under **Workspace settings → Modules**. Enabling a module in the form selects its dependencies. Clearing a module also clears the modules that depend on it. To resume following the server, select **Food Manufacturing** and save.
 
@@ -180,6 +181,25 @@ A module is done when all of this is true. The tests named here fail if a step i
 The task page fetches Activity on demand. `GET /tasks/:id/activity` requires Tasks read access and supports read-scoped tokens. It returns the newest events first, with a default limit of 25 and a maximum of 100. Pass `nextCursor` as `before` for older entries. MCP exposes the same history through `list_task_activity`.
 
 Task creation, direct edits including label changes, and explicit dependency additions and removals are recorded in the task write transaction. Dependency events appear on both tasks. Description edits record whether a description was present before and after. Events identify the actor and whether the write came through a session, a personal token or an internal service. History starts with this migration.
+
+## Automation module
+
+Enable `automation` in `KNOTWORKING_MODULES`. In **Automation**, managers can create a pipeline with a daily, weekly, monthly, or manual schedule. A pipeline can also run when a Stock receipt is recorded or a Quality audit is planned. Schedules use the workspace time zone. One scheduled run is recorded per matching local date. After downtime, the next tick can run today's occurrence if its time has passed.
+
+**Morning Operations Brief** starts with Stock and Quality, adds Governance when a readable standard is available, and can notify selected members. Choose a location or use all locations for Stock, choose a standard for Governance, and add any of the other steps available to you:
+
+- Run a Dashboards query against its permission-filtered dataset catalogue, with measures, groups, filters and relative periods.
+- Save a dated snapshot of a dashboard or copy a dashboard to a draft with preset filters and period. Publish drafts through Dashboards.
+- Create a Tasks follow-up when a selected metric from an earlier step meets a threshold.
+- Notify workspace members after the other steps finish. The notification links to the report.
+
+Each run saves the outcomes and data for its sections, including partial results when a source is unavailable. An unavailable metric skips any dependent follow-up. Sources and actions use the current permissions of the pipeline owner for scheduled runs and of the initiating manager for manual runs. Report owners, recipients and Automation managers can open the report. Each section also checks the reader's current source permissions. Archived pipelines stop producing reports and retain their history.
+
+With `tasks` enabled, open **Repeat** on a task to schedule copies daily, weekly or monthly. Set the interval, first date and weekdays for a weekly schedule. Choose a fixed schedule or wait until the previous task is completed, canceled or removed. Dates use the workspace time zone. The dialog shows the next scheduled date and lets you pause or remove the schedule. Resuming skips elapsed dates and keeps the original cadence.
+
+In **Automation**, managers can configure rules for new tasks, state or assignee changes, added labels, and overdue tasks. Rules can apply to the whole workspace or one team and can filter the tasks they act on. Run a dry run against a task to check whether a rule would match before enabling it. Changes made by a rule do not start another rule. The run history records the outcome.
+
+Webhook endpoints use public IPv4 over HTTPS. Save the signing secret when creating the endpoint. Each delivery contains an `x-knotworking-delivery` ID, an `x-knotworking-timestamp` in Unix seconds and an `x-knotworking-signature` of the form `sha256=<hex digest>`. Compute HMAC-SHA256 over the timestamp, delivery ID and raw request body joined by periods. Compare the signatures in constant time, check the timestamp and use the delivery ID to deduplicate retries.
 
 ## Planner settings
 

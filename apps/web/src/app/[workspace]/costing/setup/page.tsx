@@ -27,7 +27,7 @@ export default async function CostingSetupPage({ params }: { params: Promise<{ w
         <h1 className="font-medium">Costing</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6">
+        <div className="workspace-content flex flex-col gap-6 py-8">
           <CostingNav slug={slug} />
           <RatesForm slug={slug} currency={currency} data={rates} canManage={canManage} />
           <StandardCostForm

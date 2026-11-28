@@ -94,7 +94,7 @@ export function ShiftsView({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-8 sm:px-6">
+    <div className="workspace-content flex flex-col gap-4 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 className="text-xl font-semibold tracking-tight">Shifts</h2>
         <Button onClick={() => setAdding({})}>

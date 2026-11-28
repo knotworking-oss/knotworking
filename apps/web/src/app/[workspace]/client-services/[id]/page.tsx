@@ -37,7 +37,7 @@ export default async function ServiceQuotePage({
         </PageHeader>
       </div>
       <article className="print-sheet print-scroll flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl space-y-4 p-4 md:p-6">
+        <div className="workspace-content space-y-4 py-4 md:py-6">
           <div className="flex flex-wrap items-start gap-3">
             <h1 className="text-xl font-semibold break-words">{quote.title}</h1>
             <Badge variant="secondary">{serviceQuoteStatusLabels[quote.status]}</Badge>

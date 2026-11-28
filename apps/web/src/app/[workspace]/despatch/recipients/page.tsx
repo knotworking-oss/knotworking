@@ -20,7 +20,7 @@ export default async function RecipientsPage({
       <PageHeader>
         <h1 className="font-medium">Lot recipients</h1>
       </PageHeader>
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="workspace-content flex-1 overflow-y-auto py-6">
         <LotRecipients slug={slug} page={page} showImpact={await canReadModule(slug, "production")} />
       </div>
     </>

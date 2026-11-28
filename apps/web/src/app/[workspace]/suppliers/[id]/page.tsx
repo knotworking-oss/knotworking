@@ -22,7 +22,7 @@ export default async function SupplierPage({
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
         {showAuthenticity && (
-          <div className="mx-auto max-w-6xl px-6 pt-4 text-sm">
+          <div className="workspace-content pt-4 text-sm">
             <Link className="underline" href={`/${slug}/quality/authenticity?supplierId=${id}`}>
               View supplier authenticity assessments
             </Link>

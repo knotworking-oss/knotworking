@@ -141,7 +141,7 @@ export function DespatchEditor({
   }
   return (
     <div className="flex-1 overflow-y-auto">
-      <form onSubmit={submit} className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-6">
+      <form onSubmit={submit} className="workspace-content flex flex-col gap-6 py-6">
         <Link href={`/${slug}/despatch`} className="text-sm text-muted-foreground hover:underline">
           Back to despatches
         </Link>

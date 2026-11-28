@@ -46,7 +46,7 @@ export default async function RoutingPage({ params }: Props) {
         </Breadcrumb>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
+        <div className="workspace-content space-y-6 py-4 md:py-6">
           <div className="space-y-1">
             <h1 className="text-lg font-medium">{routing.name}</h1>
             <p className="text-sm text-muted-foreground">

@@ -76,7 +76,7 @@ export function LibraryBoard({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-8 py-8">
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-xl font-semibold tracking-tight">Hazard library</h2>

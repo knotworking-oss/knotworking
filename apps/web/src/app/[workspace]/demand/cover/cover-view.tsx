@@ -63,7 +63,7 @@ export function CoverView({
   const counted = [stock && "stock available now", production && "planned batches"].filter(Boolean);
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-4 py-8">
       <div className="flex flex-col gap-2">
         <DemandNav slug={slug} current="cover" />
         <div>

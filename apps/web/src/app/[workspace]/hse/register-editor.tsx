@@ -109,7 +109,7 @@ export function RegisterEditor({ slug, today, record }: { slug: string; today: s
     <form
       onSubmit={submit}
       onChange={() => setCommandId(newId())}
-      className="mx-auto w-full max-w-4xl space-y-5 p-6"
+      className="workspace-content space-y-5 py-6"
     >
       <h1 className="text-xl font-medium">{record ? `Edit draft: ${record.title}` : "New HSE register"}</h1>
       <p className="text-sm text-muted-foreground">

@@ -26,7 +26,7 @@ export function LotReservations({
     display: lot.onHand.base ? (base / lot.onHand.base) * lot.onHand.display : 0,
   });
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-8">
+    <div className="pb-8">
       <Card>
         <CardHeader>
           <CardTitle>Reservations</CardTitle>

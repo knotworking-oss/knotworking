@@ -71,7 +71,7 @@ export function AccountingSettings({
     }
   }
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
+    <div className="workspace-content flex flex-col gap-6 py-6">
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}

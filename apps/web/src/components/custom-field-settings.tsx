@@ -91,7 +91,7 @@ export function CustomFieldSettings() {
     }
   }
   return (
-    <section className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-5">
+    <section className="workspace-content flex flex-col gap-4 py-5">
       {canManage && (
         <Button size="sm" className="self-end" onClick={() => setEditing(null)}>
           New field

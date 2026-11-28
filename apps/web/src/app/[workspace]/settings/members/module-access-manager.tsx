@@ -33,7 +33,7 @@ export function ModuleAccessManager({ slug, access }: { slug: string; access: Mo
 
   if (access.modules.length === 0) return null;
   return (
-    <section className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-6 pb-10">
+    <section className="workspace-content flex flex-col gap-3 pb-10">
       <h2 className="font-medium">Module access</h2>
       <Card className="overflow-x-auto py-0">
         <ModuleAccessTable

@@ -13,7 +13,7 @@ export function SnapshotPage({ slug, snapshot }: { slug: string; snapshot: Snaps
   const { idx } = useWorkspace();
   const taker = snapshot.takenBy ? (idx.users.get(snapshot.takenBy)?.name ?? "Someone") : "Someone";
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6 p-6 print:max-w-none print:p-0">
+    <div className="workspace-content flex flex-col gap-6 py-6 print:p-0">
       <div className="flex flex-wrap items-center gap-2">
         <p className="mr-auto text-sm text-muted-foreground">
           {snapshot.kind === "analysis" ? "Made" : "Taken"} by {taker} on{" "}

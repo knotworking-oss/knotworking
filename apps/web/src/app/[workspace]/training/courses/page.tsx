@@ -28,7 +28,7 @@ export default async function TrainingCoursesPage({ params }: { params: Promise<
         <h1 className="font-medium">Training</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-8 sm:px-6">
+        <div className="workspace-content flex flex-col gap-4 py-8">
           <CoursesManager
             slug={slug}
             courses={courses}

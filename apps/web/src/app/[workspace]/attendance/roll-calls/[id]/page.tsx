@@ -25,7 +25,7 @@ export default async function RollCallPage({
         </h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-8 sm:px-6">
+        <div className="workspace-content flex flex-col gap-4 py-8">
           <p className="text-sm text-muted-foreground">
             Started {siteDateTime(call.startedAt, settings.timeZone)}
             {call.endedAt && `, ended ${siteDateTime(call.endedAt, settings.timeZone)}`}

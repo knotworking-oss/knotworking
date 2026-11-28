@@ -145,7 +145,7 @@ export function SalesEditor({
     <form
       onSubmit={submit}
       onChange={() => setCommandId(newId())}
-      className="mx-auto w-full max-w-5xl space-y-6 p-6"
+      className="workspace-content space-y-6 py-6"
     >
       <h1 className="text-xl font-medium">
         {order ? `${amend ? "Amend" : "Edit"} ${order.reference}` : "New quote or order"}

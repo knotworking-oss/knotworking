@@ -63,7 +63,7 @@ export function ReleaseRules({
       r.requireCcpReviewed && "CCP monitoring reviewed",
     ].filter(Boolean) as string[];
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-4 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-sm text-muted-foreground">

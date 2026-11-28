@@ -68,7 +68,7 @@ export function BatchPerformancePanel({
     ) : null;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-8">
+    <div className="workspace-content pb-8">
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle>Performance</CardTitle>

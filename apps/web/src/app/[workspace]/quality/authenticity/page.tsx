@@ -52,7 +52,7 @@ export default async function Page({
         <h1 className="font-medium">Food authenticity</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-5 p-6">
+        <div className="workspace-content space-y-5 py-6">
           <QualityNav slug={slug} />
           <h2 className="text-xl font-semibold">Food fraud vulnerability assessments</h2>
           <CreateAuthenticity

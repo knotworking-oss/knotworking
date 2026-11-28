@@ -96,7 +96,7 @@ export function SpecificationsManager({
   const filtered = !!(filters.q || filters.kind || filters.review || filters.status !== "active");
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-4 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold tracking-tight">Specifications</h2>

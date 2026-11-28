@@ -38,7 +38,7 @@ export default async function Page({
         <h1 className="font-medium">Invoicing</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
+        <div className="workspace-content space-y-4 py-4 md:py-6">
           {hasModuleLevel(access, "manage") && (
             <InvoicingSettingsForm
               slug={slug}

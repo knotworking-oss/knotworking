@@ -31,7 +31,7 @@ export default async function OutstandingPage({ params }: { params: Promise<{ wo
         <h1 className="font-medium">Acknowledgements outstanding</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-8">
+        <div className="workspace-content flex flex-col gap-4 py-8">
           <p className="text-sm text-muted-foreground">
             {items.length} outstanding across {sorted.length} people. Days count from when the current version
             took effect.

@@ -111,7 +111,7 @@ export function LeaveAndAvailability({
     });
   }
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-5 p-6">
+    <div className="workspace-content flex flex-col gap-5 py-6">
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}

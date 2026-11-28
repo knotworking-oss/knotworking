@@ -20,7 +20,7 @@ export default async function TestingSetupPage({ params }: { params: Promise<{ w
         <h1 className="font-medium">Testing</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-8">
+        <div className="workspace-content flex flex-col gap-4 py-8">
           <TestingNav slug={slug} />
           <TestingSetup
             slug={slug}

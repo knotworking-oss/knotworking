@@ -62,7 +62,7 @@ export function DeviationsBoard({
   const [raising, setRaising] = useState(false);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-4 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold tracking-tight">Deviations and corrective actions</h2>

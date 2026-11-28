@@ -20,7 +20,7 @@ export default async function Page({
         <h1>Live incidents, withdrawals and recalls</h1>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-6 p-6">
+        <div className="workspace-content space-y-6 py-6">
           <QualityNav slug={slug} />
           <p className="text-sm text-muted-foreground">
             Coordinate a real case using recorded distribution evidence. Contact logs do not send messages.

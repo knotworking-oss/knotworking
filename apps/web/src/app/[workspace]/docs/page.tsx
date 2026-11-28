@@ -43,7 +43,7 @@ export default async function DocsIndexPage({ params }: { params: Promise<{ work
             </EmptyContent>
           </Empty>
         )}
-        <div className="grid gap-4 p-6 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="workspace-content grid gap-4 py-6 sm:grid-cols-2 xl:grid-cols-3">
           {top.map((d) => (
             <Link
               key={d.id}

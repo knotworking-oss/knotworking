@@ -110,7 +110,7 @@ export function DemandLines({
   const importName = (id: string) => imports.find((i) => i.id === id)?.fileName ?? "an import";
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-4 py-8">
       <div className="flex flex-col gap-2">
         <DemandNav slug={slug} current="lines" />
         <div>

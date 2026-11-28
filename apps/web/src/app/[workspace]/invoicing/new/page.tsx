@@ -48,7 +48,7 @@ export default async function Page({
         </Link>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <section className="mx-auto max-w-4xl space-y-4 p-4 md:p-6">
+        <section className="workspace-content space-y-4 py-4 md:py-6">
           <h1 className="text-xl font-semibold">New invoice</h1>
           {source && <p className="text-sm text-muted-foreground">From {source.reference}</p>}
           <InvoiceEditor slug={slug} today={today} currency={boot.workspace.currency} source={source} />

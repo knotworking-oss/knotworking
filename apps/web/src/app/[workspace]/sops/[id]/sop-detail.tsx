@@ -92,7 +92,7 @@ export function SopDetailView({
   const hasReviewTab = canWrite && sop.inReview;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
+    <div className="workspace-content flex flex-col gap-6 py-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -149,7 +149,7 @@ export function SopDetailView({
                   </Button>
                 </div>
               </Card>
-              <DocRenderer content={current.content as DocContent} />
+              <DocRenderer className="max-w-prose" content={current.content as DocContent} />
             </>
           ) : (
             <p className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
@@ -190,7 +190,7 @@ export function SopDetailView({
                   )}
                 </Card>
                 <h2 className="text-lg font-semibold">{review.title}</h2>
-                <DocRenderer content={review.content as DocContent} />
+                <DocRenderer className="max-w-prose" content={review.content as DocContent} />
               </>
             ) : null}
           </TabsContent>

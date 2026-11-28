@@ -6,7 +6,7 @@ import {
   todayInZone,
   type ModuleId,
 } from "@knotworking/core";
-import { automationPipelineRuns, notifications } from "@knotworking/db";
+import { automationPipelineRuns, notifications, tasks } from "@knotworking/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { tickAutomationPipelines } from "./services/automation-pipelines";
@@ -178,6 +178,11 @@ describe("cross-module automation pipelines", () => {
       }),
       201,
     );
+    expect((await grant("bi", "read")).status).toBe(200);
+    await body(await req(`/bi/dashboards/${dashboard.id}/publish`, "POST", { audience: "workspace" }));
+    expect((await req(`/bi/dashboards/${dashboard.id}`, "GET", undefined, recipient.cookie)).status).toBe(
+      200,
+    );
     const pipeline = await body(
       await req("/automation/pipelines", "POST", {
         name: "Data and dashboards",
@@ -187,6 +192,7 @@ describe("cross-module automation pipelines", () => {
           { id: newId(), title: "Lots", kind: "bi.query", query },
           { id: newId(), title: "Frozen board", kind: "bi.snapshot", dashboardId: dashboard.id },
           { id: newId(), title: "Prepared dashboard", kind: "bi.dashboard_draft", dashboardId: dashboard.id },
+          { id: newId(), title: "Notify", kind: "automation.notify", recipients: [recipient.id] },
         ],
       }),
       201,
@@ -209,6 +215,17 @@ describe("cross-module automation pipelines", () => {
       status: "draft",
       title: "Prepared dashboard",
     });
+    const viewerReport = await body(
+      await req(`/automation/runs/${first.id}`, "GET", undefined, recipient.cookie),
+    );
+    for (const reportStep of viewerReport.steps.slice(1, 3)) {
+      expect(reportStep.output).toEqual({
+        status: "completed",
+        note: "You do not have access to the generated artifact",
+      });
+    }
+    expect((await req(`/bi/snapshots/${snapshot.id}`, "GET", undefined, recipient.cookie)).status).toBe(404);
+    expect((await req(`/bi/dashboards/${draft.id}`, "GET", undefined, recipient.cookie)).status).toBe(404);
   });
 
   it("records a missing source as unavailable and preserves results from other sections", async () => {
@@ -394,5 +411,70 @@ describe("cross-module automation pipelines", () => {
     const report = await body(await req(`/automation/runs/${id}`));
     expect(report).toMatchObject({ status: "failed", steps: [{ output: { status: "unavailable" } }] });
     expect(report.steps[0].output.rows).toBeUndefined();
+  });
+  it("does not act on an earlier checkpoint after its source grant is revoked", async () => {
+    const withTasks = [...modules, "tasks"] as const;
+    const taskApp = await makeApp({ seed: false, activeModules: withTasks, handle: ctx.handle });
+    const call = (path: string, method = "GET", json?: unknown, cookie = owner) =>
+      taskApp.req(`/v1/workspaces/acme${path}`, { method, json, cookie });
+    expect((await grant("automation", "manage")).status).toBe(200);
+    expect((await grant("quality", "read")).status).toBe(200);
+    const { teams } = await body(await call("/bootstrap"));
+    const source = newId();
+    const title = "Follow-up from a revoked checkpoint";
+    const pipeline = await body(
+      await call(
+        "/automation/pipelines",
+        "POST",
+        {
+          name: "Resumed audit pipeline",
+          enabled: false,
+          schedule: null,
+          steps: [
+            { id: source, title: "Audit requirements", kind: "quality.audit_requirements" },
+            {
+              id: newId(),
+              title,
+              kind: "tasks.follow_up",
+              teamId: teams[0].id,
+              assigneeId: null,
+              condition: { stepId: source, metric: "overdue_audits", operator: "gt", value: 0 },
+            },
+          ],
+        },
+        recipient.cookie,
+      ),
+      201,
+    );
+    const { id } = await body(
+      await call(
+        `/automation/pipelines/${pipeline.id}/run`,
+        "POST",
+        { commandId: newId() },
+        recipient.cookie,
+      ),
+      202,
+    );
+    await ctx.handle.db
+      .update(automationPipelineRuns)
+      .set({
+        status: "running",
+        startedAt: now,
+        leaseId: newId(),
+        leaseUntil: new Date(now.getTime() - 1),
+        outputs: { [source]: { status: "completed", metrics: { overdue_audits: 1 } } },
+      })
+      .where(eq(automationPipelineRuns.id, id));
+    expect((await grant("quality", "none")).status).toBe(200);
+
+    await tickAutomationPipelines(ctx.handle.db, withTasks, now);
+    const report = await body(await call(`/automation/runs/${id}`));
+    expect(report).toMatchObject({
+      status: "partial",
+      steps: [{ output: { status: "completed" } }, { output: { status: "unavailable" } }],
+    });
+    expect(await ctx.handle.db.select({ id: tasks.id }).from(tasks).where(eq(tasks.title, title))).toEqual(
+      [],
+    );
   });
 });

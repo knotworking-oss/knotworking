@@ -29,6 +29,7 @@ import { and, asc, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import { ApiError, notFound } from "../errors";
 import { preparePipelineStep, type PipelineEffect } from "./automation-pipeline-steps";
 import { getDashboard, listDashboards } from "./bi/dashboards";
+import { assertSnapshotVisible } from "./bi/packs";
 import { checkBiQueryForViewer, describeCatalogue } from "./bi/query";
 import { listStandards } from "./governance-standards";
 import { memberModuleLevels } from "./module-access";
@@ -247,6 +248,25 @@ export function queueManualPipeline(
   });
 }
 
+async function visiblePipelineOutput(
+  db: Executor,
+  workspaceId: string,
+  output: PipelineOutput | null,
+  viewer: BiDashboardViewer,
+): Promise<PipelineOutput | null> {
+  if (!output?.artifact) return output;
+  const { artifact } = output;
+  try {
+    if (artifact.kind === "dashboard") await getDashboard(db, workspaceId, artifact.id, viewer);
+    if (artifact.kind === "snapshot") await assertSnapshotVisible(db, workspaceId, artifact.id, viewer);
+    return output;
+  } catch (error) {
+    if (!(error instanceof ApiError) || (error.status !== 403 && error.status !== 404)) throw error;
+    const { artifact: _hidden, ...visible } = output;
+    return { ...visible, note: "You do not have access to the generated artifact" };
+  }
+}
+
 export async function readPipelineRun(
   db: Database,
   workspaceId: string,
@@ -288,7 +308,7 @@ export async function readPipelineRun(
       id: step.id,
       title: allowed ? step.title : pipelineCapabilities[step.kind].label,
       output: allowed
-        ? (run.outputs[step.id] ?? null)
+        ? await visiblePipelineOutput(db, workspaceId, run.outputs[step.id] ?? null, viewer)
         : { status: "unavailable" as const, note: "You do not have access to this section" },
     });
   }
@@ -386,6 +406,14 @@ async function processRun(db: Database, candidate: Run, available: readonly Modu
     const viewer = await viewerFor(db, workspaceId, run.actorId, active);
     let prepared: Awaited<ReturnType<typeof preparePipelineStep>>;
     try {
+      if (viewer && hasModuleLevel(viewer.modules.automation, "manage") && step.kind === "tasks.follow_up") {
+        const sourceId = step.condition.stepId;
+        const source = run.definition.steps.find(({ id }) => id === sourceId);
+        if (!source) throw notFound("Source step");
+        // Resuming a checkpoint can reuse a metric produced under earlier grants.
+        // The transaction below also fences changes to these grants before applying the task.
+        assertStepAccess(source, viewer);
+      }
       prepared =
         viewer && hasModuleLevel(viewer.modules.automation, "manage")
           ? await preparePipelineStep(

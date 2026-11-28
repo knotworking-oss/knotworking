@@ -195,7 +195,7 @@ Enable `automation` in `KNOTWORKING_MODULES`. In **Automation**, managers can cr
 
 Each run saves the outcomes and data for its sections, including partial results when a source is unavailable. An unavailable metric skips any dependent follow-up. Sources and actions use the current permissions of the pipeline owner for scheduled runs and of the initiating manager for manual runs. Report owners, recipients and Automation managers can open the report. Each section also checks the reader's current source permissions. Archived pipelines stop producing reports and retain their history.
 
-With `tasks` enabled, open **Repeat** on a task to schedule copies daily, weekly or monthly. Set the interval, first date and weekdays for a weekly schedule. Choose a fixed schedule or wait until the previous task is completed, canceled or removed. Dates use the workspace time zone. The dialog shows the next scheduled date and lets you pause or remove the schedule.
+With `tasks` enabled, open **Repeat** on a task to schedule copies daily, weekly or monthly. Set the interval, first date and weekdays for a weekly schedule. Choose a fixed schedule or wait until the previous task is completed, canceled or removed. Dates use the workspace time zone. The dialog shows the next scheduled date and lets you pause or remove the schedule. Resuming skips elapsed dates and keeps the original cadence.
 
 In **Automation**, managers can configure rules for new tasks, state or assignee changes, added labels, and overdue tasks. Rules can apply to the whole workspace or one team and can filter the tasks they act on. Run a dry run against a task to check whether a rule would match before enabling it. Changes made by a rule do not start another rule. The run history records the outcome.
 

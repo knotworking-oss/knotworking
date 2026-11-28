@@ -1,7 +1,13 @@
-import { addDaysToIsoDate, newId, todayInZone, type RecurrenceSchedule } from "@knotworking/core";
+import {
+  addDaysToIsoDate,
+  newId,
+  startOfDayInZone,
+  todayInZone,
+  type RecurrenceSchedule,
+} from "@knotworking/core";
 import { automationWebhooks } from "@knotworking/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { deriveAutomationKey, tickTaskAutomation } from "./services/task-automation";
+import { deriveAutomationKey, saveRecurrence, tickTaskAutomation } from "./services/task-automation";
 import { deliverAutomationWebhook } from "./services/automation-webhook-transport";
 import { makeApp, signIn, TEST_SECRET, type TestCtx } from "./test-utils";
 
@@ -79,6 +85,46 @@ describe("task automation", () => {
         nextOn: addDaysToIsoDate(today, 2),
       },
     });
+    await call(path, "DELETE");
+  });
+
+  it("resumes a paused cadence without generating occurrences from the paused period", async () => {
+    const taskId = await create("Recurring paused review");
+    const schedule: RecurrenceSchedule = {
+      frequency: "daily",
+      interval: 2,
+      weekdays: [],
+      firstOn: today,
+      timing: "on_schedule",
+    };
+    const path = `/automation/recurrences/${taskId}`;
+    expect((await call(path, "PUT", { schedule, enabled: true })).status).toBe(200);
+    await tick();
+    const { recurrence: before } = await (await call(path)).json();
+    expect(before.nextOn).toBe(addDaysToIsoDate(today, 2));
+    expect((await call(path, "PUT", { schedule, enabled: false })).status).toBe(200);
+
+    const { workspace } = await (await call("/bootstrap")).json();
+    const { user } = await (await ctx.req("/v1/me", { cookie: owner })).json();
+    const resumedOn = addDaysToIsoDate(today, 7);
+    const completed = addDaysToIsoDate(today, 8);
+    const resumed = await saveRecurrence(
+      ctx.handle.db,
+      workspace.id,
+      user.id,
+      taskId,
+      resumedOn,
+      schedule,
+      true,
+    );
+    expect(resumed).toMatchObject({ nextOn: completed, previousTaskId: before.previousTaskId });
+    await tick(startOfDayInZone(resumedOn, zone));
+    expect((await (await call(path)).json()).recurrence.previousTaskId).toBe(before.previousTaskId);
+    await tick(startOfDayInZone(completed, zone));
+    const { recurrence: next } = await (await call(path)).json();
+    expect(next.nextOn).toBe(addDaysToIsoDate(today, 10));
+    expect(next.previousTaskId).not.toBe(before.previousTaskId);
+    expect((await (await call(`/tasks/${next.previousTaskId}`)).json()).dueDate).toBe(completed);
     await call(path, "DELETE");
   });
 

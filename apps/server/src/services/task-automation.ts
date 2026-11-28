@@ -118,16 +118,19 @@ export function saveRecurrence(
       dueDate: task.dueDate,
       labelIds,
     });
+    const nextOn =
+      timingChanged || !old
+        ? nextRecurrenceDate(schedule, addDaysToIsoDate(schedule.firstOn, -1))
+        : enabled && !old.enabled && old.nextOn < today
+          ? nextRecurrenceDate(schedule, addDaysToIsoDate(today, -1))
+          : old.nextOn;
     const values = {
       actorId,
       template,
       schedule,
       enabled,
       lastError: null,
-      nextOn:
-        !old || timingChanged
-          ? nextRecurrenceDate(schedule, addDaysToIsoDate(schedule.firstOn, -1))
-          : old.nextOn,
+      nextOn,
       previousTaskId: old?.previousTaskId ?? taskId,
     };
     const [saved] = await tx

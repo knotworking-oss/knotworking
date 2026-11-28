@@ -325,6 +325,33 @@ function presentAnalysis(row: SnapshotRow, viewer: BiDashboardViewer, access: Sn
   return { ...snapshotHeader(row), results: { analysis: shown } };
 }
 
+async function requireSnapshotAccess(
+  db: Executor,
+  workspaceId: string,
+  row: Pick<SnapshotRow, "id" | "kind" | "takenBy"> | undefined,
+  viewer: BiDashboardViewer,
+) {
+  if (!row || !hasModuleLevel(viewer.modules.bi, "read")) throw notFound("Snapshot");
+  const access = await snapshotAccess(db, workspaceId, viewer);
+  // An analysis is also open to whoever made it (a member, or their agent).
+  const own = row.kind === "analysis" && row.takenBy === viewer.userId;
+  if (!own && !canOpen(access, row.id)) throw notFound("Snapshot");
+  return access;
+}
+
+export async function assertSnapshotVisible(
+  db: Executor,
+  workspaceId: string,
+  id: string,
+  viewer: BiDashboardViewer,
+) {
+  const [row] = await db
+    .select({ id: biSnapshots.id, kind: biSnapshots.kind, takenBy: biSnapshots.takenBy })
+    .from(biSnapshots)
+    .where(and(eq(biSnapshots.workspaceId, workspaceId), eq(biSnapshots.id, id)));
+  await requireSnapshotAccess(db, workspaceId, row, viewer);
+}
+
 /**
  * A snapshot with its figures (as the viewer may see them), and the snapshot of the same dashboard
  * taken just before it when they may open that one, for comparison. 404 when they may not open it.
@@ -334,11 +361,8 @@ export async function getSnapshot(db: Executor, workspaceId: string, id: string,
     .select()
     .from(biSnapshots)
     .where(and(eq(biSnapshots.workspaceId, workspaceId), eq(biSnapshots.id, id)));
-  const access = await snapshotAccess(db, workspaceId, viewer);
-  // An analysis is also open to whoever made it (a member, or their agent).
-  const own = row?.kind === "analysis" && row.takenBy === viewer.userId;
-  if (!row || !viewer.modules.bi || viewer.modules.bi === "none" || !(own || canOpen(access, id)))
-    throw notFound("Snapshot");
+  if (!row) throw notFound("Snapshot");
+  const access = await requireSnapshotAccess(db, workspaceId, row, viewer);
   const previous = await latestEarlier(db, workspaceId, row, (candidate) => canOpen(access, candidate));
   return {
     ...presentSnapshot(row, viewer, access),

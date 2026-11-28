@@ -34,6 +34,7 @@ import {
 } from "./notifications";
 import { assertNoCycle, assertRefs } from "./refs";
 import { assertMilestone } from "./project-milestones";
+import { assertSection } from "./project-sections";
 import { recordTaskActivity, taskActivityChanges } from "./task-activity";
 import { autoFollowTask } from "./task-followers";
 import { taskFilterSql, taskQueryLabelIds, taskQueryOrder } from "./task-query";
@@ -346,6 +347,7 @@ export async function createTask(
     });
     const labelIds = [...new Set(input.labelIds ?? [])];
     if (input.milestoneId) await assertMilestone(tx, workspaceId, input.projectId ?? null, input.milestoneId);
+    if (input.sectionId) await assertSection(tx, workspaceId, input.projectId ?? null, input.sectionId);
     await assertLabels(tx, workspaceId, labelIds);
 
     // New tasks go to the top of manual ordering.
@@ -371,6 +373,7 @@ export async function createTask(
         assigneeId: input.assigneeId ?? null,
         projectId: input.projectId ?? null,
         milestoneId: input.milestoneId ?? null,
+        sectionId: input.sectionId ?? null,
         parentId: input.parentId ?? null,
         startDate: input.startDate ?? null,
         dueDate: input.dueDate ?? null,
@@ -445,6 +448,8 @@ export async function updateTask(
     const projectId = fields.projectId === undefined ? current.task.projectId : fields.projectId;
     if (fields.milestoneId) await assertMilestone(tx, workspaceId, projectId, fields.milestoneId);
     else if (projectId !== current.task.projectId) patch.milestoneId = null;
+    if (fields.sectionId) await assertSection(tx, workspaceId, projectId, fields.sectionId);
+    else if (projectId !== current.task.projectId) patch.sectionId = null;
     let newState: { name: string } | undefined;
     const teamId = fields.teamId ?? current.task.teamId;
     const moving = teamId !== current.task.teamId;

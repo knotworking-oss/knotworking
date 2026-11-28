@@ -1299,6 +1299,7 @@ export type Bootstrap = Awaited<ReturnType<typeof getBootstrap>>;
 export type TaskSummary = Bootstrap["tasks"][number];
 export type SavedTaskView = Bootstrap["taskViews"][number];
 export type ProjectMilestone = Bootstrap["projectMilestones"][number];
+export type ProjectSection = Bootstrap["projectSections"][number];
 /** A dependency: `blockingTaskId` blocks `blockedTaskId`. */
 export type TaskRelation = Bootstrap["taskRelations"][number];
 export type TaskDetail = Awaited<ReturnType<typeof getTask>>;

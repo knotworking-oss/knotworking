@@ -209,6 +209,10 @@ Move one task from its actions menu or choose **Move to team** for a selection. 
 
 Add milestones with optional target dates on a project's page. Assign a task to one of its project's milestones from the task properties. Milestone progress includes completed and open tasks across the full project history. Dated milestones appear as diamonds on the timeline, and the task filter bar can select a milestone. The Client kickoff template creates a kickoff milestone and links tasks due on or before that date.
 
+## Project sections
+
+Add, rename, or reorder sections from a project's page. In **Display → Group by → Project section**, lists and boards show the project's sections in their configured order. Moving a task between sections keeps its workflow status. Deleting a section leaves its tasks in the project with no section. Sections are also available in the filter bar and saved views.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

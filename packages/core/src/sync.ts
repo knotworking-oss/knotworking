@@ -47,6 +47,7 @@ export const syncEntityTypes = [
   "project",
   "project_team",
   "project_milestone",
+  "project_section",
   "task",
   "task_label",
   "task_relation",

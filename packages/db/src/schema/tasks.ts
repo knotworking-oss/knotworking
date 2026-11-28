@@ -123,6 +123,21 @@ export const projectMilestones = pgTable(
   (t) => [index("project_milestones_project_idx").on(t.projectId)],
 );
 
+export const projectSections = pgTable(
+  "project_sections",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sortOrder: text("sort_order").notNull(),
+    ...timestamps(),
+  },
+  (t) => [index("project_sections_project_idx").on(t.projectId)],
+);
+
 // ─── Tasks ──────────────────────────────────────────────────────────────────
 
 export const tasks = pgTable(
@@ -147,6 +162,7 @@ export const tasks = pgTable(
     creatorId: uuid("creator_id").references(() => users.id, { onDelete: "set null" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     milestoneId: uuid("milestone_id").references(() => projectMilestones.id, { onDelete: "set null" }),
+    sectionId: uuid("section_id").references(() => projectSections.id, { onDelete: "set null" }),
     parentId: uuid("parent_id").references((): AnyPgColumn => tasks.id, { onDelete: "set null" }),
     /** When work is planned to begin (Gantt bars run start → due). Never after `due_date`. */
     startDate: date("start_date"),
@@ -163,6 +179,7 @@ export const tasks = pgTable(
     index("tasks_assignee_idx").on(t.assigneeId),
     index("tasks_project_idx").on(t.projectId),
     index("tasks_milestone_idx").on(t.milestoneId),
+    index("tasks_section_idx").on(t.sectionId),
     index("tasks_parent_idx").on(t.parentId),
     uniqueIndex("tasks_workspace_reference_key").on(t.workspaceId, t.reference),
   ],

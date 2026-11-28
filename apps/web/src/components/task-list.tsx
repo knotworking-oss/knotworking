@@ -50,7 +50,7 @@ export function TaskList({
   emptyDescription?: string;
 }) {
   const { canEditTasks: canEdit } = useWorkspace();
-  if (groups.every((g) => g.tasks.length === 0)) {
+  if (groups.every((g) => g.tasks.length === 0 && g.group?.field !== "sectionId")) {
     return (
       <Empty className="h-full">
         <EmptyHeader>
@@ -83,7 +83,7 @@ export function TaskList({
             {groups.map((g) => {
               const items = columns[g.key] ?? [];
               // Empty groups appear while dragging so they can be dropped into.
-              if (items.length === 0 && !dragging) return null;
+              if (items.length === 0 && !dragging && g.group?.field !== "sectionId") return null;
               return (
                 <section key={g.key} aria-label={g.title}>
                   <div className="sticky top-0 z-20 flex h-9 items-center gap-2 border-b bg-muted/60 px-4 text-sm backdrop-blur">

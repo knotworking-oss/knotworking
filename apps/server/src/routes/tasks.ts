@@ -27,6 +27,7 @@ import { validate } from "../validate";
 import { commentRoutes } from "./comments";
 import { taskViewRoutes } from "./task-views";
 import { projectMilestoneRoutes } from "./project-milestones";
+import { projectSectionRoutes } from "./project-sections";
 
 const idParam = z.object({ id: z.uuid() });
 
@@ -38,6 +39,7 @@ const idParam = z.object({ id: z.uuid() });
 export const taskRoutes = new Hono<WorkspaceEnv>()
   .route("/", taskViewRoutes)
   .route("/", projectMilestoneRoutes)
+  .route("/", projectSectionRoutes)
   // ── Tasks ──
   .get("/tasks", validate("query", taskListQuerySchema), async (c) =>
     c.json(await queryTasks(c.var.db, c.var.workspace.id, c.req.valid("query"))),

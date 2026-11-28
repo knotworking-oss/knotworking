@@ -10,6 +10,7 @@ export const taskActivityFields = [
   "assigneeId",
   "projectId",
   "milestoneId",
+  "sectionId",
   "parentId",
   "startDate",
   "dueDate",

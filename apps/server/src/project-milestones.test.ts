@@ -1,4 +1,4 @@
-import { newId } from "@knotworking/core";
+import { newId, sortKeyForMove } from "@knotworking/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeApp, signIn, type TestCtx } from "./test-utils";
 
@@ -106,5 +106,39 @@ describe("project milestones", () => {
     for (const task of result.tasks) {
       expect(task.milestoneId).toBe(task.dueDate <= input.startDate ? milestones.milestones[0].id : null);
     }
+  });
+
+  it("orders sections and moves tasks without changing their workflow state", async () => {
+    const project = await create("/projects", { name: "Section project" });
+    const other = await create("/projects", { name: "Other section project" });
+    const url = `/projects/${project.id}/sections`;
+    const a = await create(url, { name: "Design" });
+    const b = await create(url, { name: "Build" });
+    expect(await (await call(url)).json()).toMatchObject({ sections: [{ id: a.id }, { id: b.id }] });
+    const reorder = await call(`${url}/${b.id}`, "PATCH", { sortOrder: sortKeyForMove(null, a.sortOrder) });
+    expect(reorder.status).toBe(200);
+    expect(await (await call(url)).json()).toMatchObject({ sections: [{ id: b.id }, { id: a.id }] });
+    const task = await create("/tasks", {
+      title: "Design task",
+      teamId,
+      projectId: project.id,
+      sectionId: a.id,
+    });
+    expect(
+      (await call("/tasks", "POST", { title: "Invalid", teamId, projectId: other.id, sectionId: a.id }))
+        .status,
+    ).toBe(400);
+    const moved = await call(`/tasks/${task.id}`, "PATCH", { sectionId: b.id });
+    expect(await moved.json()).toMatchObject({ sectionId: b.id, stateId: task.stateId });
+    expect(await (await call(`/tasks?projectId=${project.id}&group=sectionId`)).json()).toMatchObject({
+      groups: [{ key: b.id, taskIds: [task.id] }],
+    });
+    expect((await call(`${url}/${b.id}`, "DELETE")).status).toBe(204);
+    expect(await (await call(`/tasks/${task.id}`)).json()).toMatchObject({
+      projectId: project.id,
+      sectionId: null,
+    });
+    expect((await call(`/projects/${project.id}`, "DELETE")).status).toBe(204);
+    expect(await (await call(url)).json()).toEqual({ sections: [] });
   });
 });

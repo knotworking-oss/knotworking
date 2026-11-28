@@ -47,6 +47,7 @@ const taskFields = z.object({
   assigneeId: id.nullable().optional(),
   projectId: id.nullable().optional(),
   milestoneId: id.nullable().optional(),
+  sectionId: id.nullable().optional(),
   parentId: id.nullable().optional(),
   labelIds: z.array(id).optional(),
   /** When work is planned to begin. Can't be after `dueDate`. */

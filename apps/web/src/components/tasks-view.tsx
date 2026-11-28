@@ -106,7 +106,7 @@ export function TasksView({
           [...(idx.boot.taskRelations ?? []), ...(history.relations ?? [])],
         )
       : tasks;
-    if (grouping !== "status") return groupTasksBy(shown, idx, grouping, ordering);
+    if (grouping !== "status") return groupTasksBy(shown, idx, grouping, ordering, projectId);
     return teamId
       ? groupByState(
           shown,
@@ -127,6 +127,10 @@ export function TasksView({
         if (group.field === "labelIds" && ([...task.labelIds].sort()[0] ?? null) !== group.value) return;
         if (group.field === "assigneeId" && task.assigneeId !== group.value) patch.assigneeId = group.value;
         if (group.field === "projectId" && task.projectId !== group.value) patch.projectId = group.value;
+        if (group.field === "sectionId" && task.sectionId !== group.value) {
+          if (group.value && idx.sections.get(group.value)?.projectId !== task.projectId) return;
+          patch.sectionId = group.value;
+        }
         if (group.field === "priority") patch.priority = Number(group.value) as Priority;
         if (group.field === "dueWeek") {
           const week = toDay(group.value);
@@ -161,6 +165,9 @@ export function TasksView({
       ...(g.group?.field === "assigneeId" ? { assigneeId: g.group.value } : {}),
       ...(g.group?.field === "projectId" ? { projectId: g.group.value } : {}),
       ...(g.group?.field === "priority" ? { priority: Number(g.group.value) as Priority } : {}),
+      ...(g.group?.field === "sectionId" && g.group.value
+        ? { sectionId: g.group.value, projectId: idx.sections.get(g.group.value)?.projectId }
+        : {}),
     });
 
   return (

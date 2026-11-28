@@ -195,6 +195,7 @@ export const modules: Record<ModuleId, ModuleDefinition> = {
       "task_view",
       "task_follower",
       "project_milestone",
+      "project_section",
       "comment",
     ],
   },

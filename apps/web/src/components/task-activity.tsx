@@ -17,6 +17,7 @@ const fieldLabels: Record<TaskActivityField, string> = {
   assigneeId: "assignee",
   projectId: "project",
   milestoneId: "milestone",
+  sectionId: "project section",
   parentId: "parent task",
   startDate: "start date",
   dueDate: "due date",

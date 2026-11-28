@@ -20,6 +20,7 @@ const taskColumns = {
   creatorId: tasks.creatorId,
   projectId: tasks.projectId,
   milestoneId: tasks.milestoneId,
+  sectionId: tasks.sectionId,
   parentId: tasks.parentId,
   priority: tasks.priority,
   startDate: tasks.startDate,

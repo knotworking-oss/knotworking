@@ -8,6 +8,7 @@ import {
   documents,
   lockWorkspaceLog,
   projectMilestones,
+  projectSections,
   projects,
   projectTeams,
   recordChanges,
@@ -238,9 +239,14 @@ export async function deleteProject(db: Database, workspaceId: string, actorId: 
       .set({ deletedAt: new Date() })
       .where(and(eq(projectMilestones.projectId, projectId), isNull(projectMilestones.deletedAt)))
       .returning({ id: projectMilestones.id });
+    const sections = await tx
+      .update(projectSections)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(projectSections.projectId, projectId), isNull(projectSections.deletedAt)))
+      .returning({ id: projectSections.id });
     const detachedTasks = await tx
       .update(tasks)
-      .set({ projectId: null, milestoneId: null })
+      .set({ projectId: null, milestoneId: null, sectionId: null })
       .where(and(eq(tasks.projectId, projectId), isNull(tasks.deletedAt)))
       .returning();
     const detachedDocs = await tx
@@ -251,6 +257,11 @@ export async function deleteProject(db: Database, workspaceId: string, actorId: 
 
     const changes: Change[] = [
       { entity: "project", entityId: projectId, action: "delete" },
+      ...sections.map((section) => ({
+        entity: "project_section" as const,
+        entityId: section.id,
+        action: "delete" as const,
+      })),
       ...milestones.map((m) => ({
         entity: "project_milestone" as const,
         entityId: m.id,

@@ -40,6 +40,7 @@ export function indexWorkspace(boot: Bootstrap) {
     labels: byId(boot.labels),
     projects: byId(boot.projects),
     milestones: byId(boot.projectMilestones ?? []),
+    sections: byId(boot.projectSections ?? []),
     documents: byId(boot.documents ?? []),
     tasks,
     /** Finished minutes logged per task. */
@@ -97,6 +98,7 @@ export const taskGroupLabels: Record<TaskDisplayGroup, string> = {
   priority: "Priority",
   labelIds: "First label",
   dueWeek: "Due week",
+  sectionId: "Project section",
 };
 
 export const parseTaskGroup = (value: string | null | undefined) =>
@@ -107,8 +109,28 @@ export function groupTasksBy(
   idx: WorkspaceIndex,
   field: Exclude<TaskDisplayGroup, "status">,
   ordering: TaskOrdering,
+  projectId?: string,
 ): TaskGroup[] {
   const groups = new Map<string | null, TaskGroup>();
+  if (field === "sectionId" && projectId) {
+    for (const row of idx.sections.values()) {
+      if (row.projectId === projectId)
+        groups.set(row.id, {
+          key: `sectionId:${row.id}`,
+          title: row.name,
+          type: "backlog",
+          group: { field, value: row.id },
+          tasks: [],
+        });
+    }
+    groups.set(null, {
+      key: "sectionId:",
+      title: "No section",
+      type: "backlog",
+      group: { field, value: null },
+      tasks: [],
+    });
+  }
   for (const task of tasks) {
     let value: string | null;
     let title: string;
@@ -128,6 +150,10 @@ export function groupTasksBy(
       case "labelIds":
         value = [...task.labelIds].sort()[0] ?? null;
         title = value ? (idx.labels.get(value)?.name ?? "Label") : "No labels";
+        break;
+      case "sectionId":
+        value = task.sectionId ?? null;
+        title = value ? (idx.sections.get(value)?.name ?? "Section") : "No section";
         break;
       case "dueWeek": {
         const due = toDay(task.dueDate);
@@ -152,6 +178,11 @@ export function groupTasksBy(
     const right = b.group!.value;
     if (left === null || right === null) return left === null ? 1 : -1;
     if (field === "dueWeek") return compareSortKeys(left, right);
+    if (field === "sectionId")
+      return compareSortKeys(
+        idx.sections.get(left)?.sortOrder ?? "",
+        idx.sections.get(right)?.sortOrder ?? "",
+      );
     if (field === "priority") return priorityRank(Number(left)) - priorityRank(Number(right));
     return a.title.localeCompare(b.title);
   });

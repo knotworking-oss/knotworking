@@ -203,6 +203,26 @@ export function TaskProperties({ initial, stacked = false }: { initial: TaskSumm
           </select>
         </Property>
       )}
+      {task.projectId && (
+        <Property label="Section">
+          <select
+            className="max-w-full rounded-md border bg-background px-2 py-1 text-sm"
+            aria-label="Project section"
+            value={task.sectionId ?? ""}
+            disabled={!canEdit}
+            onChange={(event) => void updateTask(task.id, { sectionId: event.target.value || null })}
+          >
+            <option value="">No section</option>
+            {[...idx.sections.values()]
+              .filter((section) => section.projectId === task.projectId)
+              .map((section) => (
+                <option key={section.id} value={section.id}>
+                  {section.name}
+                </option>
+              ))}
+          </select>
+        </Property>
+      )}
       <Property label="Start date">
         <StartDatePicker
           value={task.startDate}

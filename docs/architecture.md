@@ -196,7 +196,7 @@ Comment writes still go through a transaction that calls `recordChanges` (`comme
 }
 ```
 
-- Conditions accept `eq` and `ne` on `teamId`, `stateId`, `stateType`, `assigneeId`, `creatorId`, `projectId`, `parentId`, `labelId`, `priority`, `hasSubtasks` and `blocked`. Label comparisons test membership. A task is blocked when a live task on a visible team blocks it and that blocker is still open.
+- Conditions accept `eq` and `ne` on `teamId`, `stateId`, `stateType`, `assigneeId`, `creatorId`, `projectId`, `milestoneId`, `parentId`, `labelId`, `priority`, `hasSubtasks` and `blocked`. Label comparisons test membership. A task is blocked when a live task on a visible team blocks it and that blocker is still open.
 - Date conditions also accept `lt`, `lte`, `gt` and `gte`. Use `YYYY-MM-DD` for `startDate` and `dueDate`, and ISO datetimes with a timezone for `createdAt`, `updatedAt` and `completedAt`. Nullable fields accept `null` with `eq` and `ne`. Range comparisons exclude unset values.
 - An expression can nest `and` and `or` groups up to five levels, with 16 children per group and 64 nodes total. The filter parameter is limited to 8,192 characters before URL encoding.
 - `sort` accepts `manual`, `priority`, `created` and `updated`. Omitting it uses the legacy ordering by manual key then newest creation time. Every sort has an ID tie-breaker.

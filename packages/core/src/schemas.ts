@@ -46,6 +46,7 @@ const taskFields = z.object({
   priority: z.union(priorities.map((p) => z.literal(p))).optional(),
   assigneeId: id.nullable().optional(),
   projectId: id.nullable().optional(),
+  milestoneId: id.nullable().optional(),
   parentId: id.nullable().optional(),
   labelIds: z.array(id).optional(),
   /** When work is planned to begin. Can't be after `dueDate`. */

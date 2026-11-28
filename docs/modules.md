@@ -205,6 +205,10 @@ Use **Duplicate task** from a task's actions menu to create a new task in its te
 
 Move one task from its actions menu or choose **Move to team** for a selection. The destination's workflow supplies a state in the same category when possible. Moving a completed task to an equivalent state preserves its completion time.
 
+## Project milestones
+
+Add milestones with optional target dates on a project's page. Assign a task to one of its project's milestones from the task properties. Milestone progress includes completed and open tasks across the full project history. Dated milestones appear as diamonds on the timeline, and the task filter bar can select a milestone. The Client kickoff template creates a kickoff milestone and links tasks due on or before that date.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

@@ -106,6 +106,23 @@ export const projectTeams = pgTable(
   (t) => [uniqueIndex("project_teams_project_team_key").on(t.projectId, t.teamId)],
 );
 
+export const projectMilestones = pgTable(
+  "project_milestones",
+  {
+    id: pk(),
+    workspaceId: workspaceRef(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    targetDate: date("target_date"),
+    sortOrder: text("sort_order").notNull(),
+    completedAt: ts("completed_at"),
+    ...timestamps(),
+  },
+  (t) => [index("project_milestones_project_idx").on(t.projectId)],
+);
+
 // ─── Tasks ──────────────────────────────────────────────────────────────────
 
 export const tasks = pgTable(
@@ -129,6 +146,7 @@ export const tasks = pgTable(
     assigneeId: uuid("assignee_id").references(() => users.id, { onDelete: "set null" }),
     creatorId: uuid("creator_id").references(() => users.id, { onDelete: "set null" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    milestoneId: uuid("milestone_id").references(() => projectMilestones.id, { onDelete: "set null" }),
     parentId: uuid("parent_id").references((): AnyPgColumn => tasks.id, { onDelete: "set null" }),
     /** When work is planned to begin (Gantt bars run start → due). Never after `due_date`. */
     startDate: date("start_date"),
@@ -144,6 +162,7 @@ export const tasks = pgTable(
     index("tasks_team_state_idx").on(t.teamId, t.stateId),
     index("tasks_assignee_idx").on(t.assigneeId),
     index("tasks_project_idx").on(t.projectId),
+    index("tasks_milestone_idx").on(t.milestoneId),
     index("tasks_parent_idx").on(t.parentId),
     uniqueIndex("tasks_workspace_reference_key").on(t.workspaceId, t.reference),
   ],

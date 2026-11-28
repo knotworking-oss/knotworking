@@ -70,6 +70,8 @@ export interface ProjectTemplate {
   audience: string;
   /** The milestone date the tasks are dated from. */
   dateLabel: string;
+  /** Materialize the anchor date as a project milestone. */
+  milestone?: boolean;
   /** Starter tasks: everything a Tasks-only workspace gets. */
   tasks: readonly ProjectTemplateStep[];
   /** Steps that apply when the module is on and the creator can read it. */
@@ -103,6 +105,7 @@ export const projectTemplates: Record<ProjectTemplateId, ProjectTemplate> = {
     workflow: "clients",
     audience: "Teams starting work with a client",
     dateLabel: "Kickoff date",
+    milestone: true,
     tasks: [
       { key: "scope", title: "Confirm scope, contacts and responsibilities", daysFromStart: -5 },
       { key: "agenda", title: "Share the kickoff agenda", daysFromStart: -2 },

@@ -228,6 +228,11 @@ function ProjectTemplateForm({ commandId, onClose }: { commandId: string; onClos
                 </span>
               )}
             </div>
+            {template.milestone && milestoneDate && !dateIssue && (
+              <div className="text-xs text-muted-foreground">
+                Milestone · {template.dateLabel} · {formatLongDate(milestoneDate)}
+              </div>
+            )}
             {suggested.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-muted-foreground">Suggested modules:</span>

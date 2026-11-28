@@ -7,6 +7,7 @@ export * from "./schemas";
 export * from "./sync";
 export * from "./modules";
 export * from "./project-templates";
+export * from "./project-milestones";
 export * from "./purchase-requests";
 export * from "./client-services";
 export * from "./crm";

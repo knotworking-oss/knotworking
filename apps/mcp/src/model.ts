@@ -320,6 +320,7 @@ export function summarizeTask(model: Model, t: TaskRow) {
     priority: priorityName(t.priority),
     assignee: model.userName(t.assigneeId),
     project: t.projectId ? (model.projectsById.get(t.projectId)?.name ?? null) : null,
+    milestoneId: t.milestoneId ?? null,
     labels: t.labelIds.map((id) => model.labelsById.get(id)?.name).filter((n): n is string => Boolean(n)),
     startDate: t.startDate ?? null,
     dueDate: t.dueDate ?? null,

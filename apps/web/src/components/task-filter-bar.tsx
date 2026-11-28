@@ -20,6 +20,7 @@ const fieldNames = {
   assigneeId: "Assignee",
   priority: "Priority",
   labelId: "Label",
+  milestoneId: "Milestone",
   dueDate: "Due on or before",
 } as const;
 type Field = keyof typeof fieldNames;
@@ -56,7 +57,9 @@ export function TaskFilterBar({
         ? [{ id: "unassigned", name: "Unassigned" }, ...idx.boot.users]
         : field === "priority"
           ? priorities.map((priority) => ({ id: String(priority), name: priorityLabels[priority] }))
-          : idx.boot.labels;
+          : field === "milestoneId"
+            ? [{ id: "unassigned", name: "No milestone" }, ...idx.milestones.values()]
+            : idx.boot.labels;
 
   function write(next: TaskFilterExpression[]) {
     if (next.length === 0) {
@@ -105,6 +108,8 @@ export function TaskFilterBar({
         return `${label} ${op === "ne" ? "≠" : ""} ${priorityLabels[condition.value]}`;
       case "labelId":
         return `${label} ${op === "ne" ? "≠" : ""} ${idx.labels.get(condition.value)?.name ?? condition.value}`;
+      case "milestoneId":
+        return `${label} ${op === "ne" ? "≠" : ""} ${condition.value ? (idx.milestones.get(condition.value)?.name ?? condition.value) : "No milestone"}`;
       case "dueDate":
         return `Due date ${op} ${value ?? "unset"}`;
       default:

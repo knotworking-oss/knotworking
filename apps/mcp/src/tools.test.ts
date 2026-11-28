@@ -56,6 +56,7 @@ const READ_TOOLS = [
   "get_task",
   "list_task_activity",
   "list_views",
+  "list_milestones",
   "run_view",
   "query_tasks",
   "list_projects",

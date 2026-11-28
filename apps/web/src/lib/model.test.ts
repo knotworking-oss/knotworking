@@ -42,6 +42,7 @@ it("keeps historical sync rows out of the recent view until reopened and uses fu
       olderCount: 1,
       projectCounts: { project: { open: 1, completed: 1, canceled: 0, started: 0, estimate: 0, logged: 0 } },
       labelCounts: {},
+      milestoneCounts: {},
       stateCounts: { todo: 1, done: 1 },
     },
   });

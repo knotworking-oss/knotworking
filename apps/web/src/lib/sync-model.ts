@@ -26,6 +26,7 @@ const collections = {
   labels: "label",
   projects: "project",
   projectTeams: "project_team",
+  projectMilestones: "project_milestone",
   tasks: "task",
   taskViews: "task_view",
   taskLabels: "task_label",
@@ -83,6 +84,7 @@ const order: Partial<Record<Collection, (a: SyncRow, b: SyncRow) => number>> = {
   labels: byName,
   workflowStates: bySortOrder,
   projects: bySortOrder,
+  projectMilestones: bySortOrder,
   documents: bySortOrder,
   tasks: byTaskOrder,
   taskViews: byName,
@@ -187,13 +189,18 @@ export function setProjectTeams(tables: SyncTables, projectId: string, teamIds: 
 
 /** Deleting a project detaches its tasks and docs (the API does the same, in the sync log). */
 export function detachProject(tables: SyncTables, projectId: string) {
-  let next = tables;
+  let next = deleteWhere(tables, "project_milestone", (row) => row.projectId === projectId);
   for (const entity of ["task", "document"]) {
     const table = getTable(next, entity);
     if (![...table.values()].some((r) => r.projectId === projectId)) continue;
     next = editTable(next, entity, (rows) => {
       for (const [id, row] of rows)
-        if (row.projectId === projectId) rows.set(id, { ...row, projectId: null });
+        if (row.projectId === projectId)
+          rows.set(id, {
+            ...row,
+            projectId: null,
+            ...(entity === "task" ? { milestoneId: null } : {}),
+          });
     });
   }
   return next;

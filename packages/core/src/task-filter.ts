@@ -13,7 +13,7 @@ const instant = z.iso.datetime({ offset: true }).refine((date) => {
 const leafSchema = z.union([
   z.strictObject({ field: z.enum(["teamId", "stateId", "labelId"]), op: equality, value: id }),
   z.strictObject({
-    field: z.enum(["assigneeId", "creatorId", "projectId", "parentId"]),
+    field: z.enum(["assigneeId", "creatorId", "projectId", "parentId", "milestoneId"]),
     op: equality,
     value: id.nullable(),
   }),
@@ -149,6 +149,7 @@ export interface TaskFilterRow {
   assigneeId: string | null;
   creatorId: string | null;
   projectId: string | null;
+  milestoneId?: string | null;
   parentId: string | null;
   priority: number;
   labelIds: readonly string[];
@@ -195,7 +196,7 @@ export function filterTaskRows<T extends TaskFilterRow>(
         case "blocked":
           return (blocked ??= blockedTasks()).has(row.id);
         default:
-          return row[field];
+          return row[field] ?? null;
       }
     }),
   );

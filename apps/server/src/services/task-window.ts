@@ -29,6 +29,7 @@ export async function taskWindowSummary(
         stateId: tasks.stateId,
         category: workflowStates.type,
         projectId: tasks.projectId,
+        milestoneId: tasks.milestoneId,
         count: count(),
         estimate: sum(tasks.estimateMinutes).mapWith(Number),
         older: sql<number>`count(*) filter (where not ${withinTaskWindow(cutoff)})`.mapWith(Number),
@@ -37,7 +38,7 @@ export async function taskWindowSummary(
       .innerJoin(teams, eq(teams.id, tasks.teamId))
       .innerJoin(workflowStates, eq(workflowStates.id, tasks.stateId))
       .where(visible)
-      .groupBy(tasks.stateId, workflowStates.type, tasks.projectId),
+      .groupBy(tasks.stateId, workflowStates.type, tasks.projectId, tasks.milestoneId),
     db
       .select({ id: taskLabels.labelId, count: count() })
       .from(taskLabels)
@@ -63,6 +64,7 @@ export async function taskWindowSummary(
       : [],
   ]);
   const stateCounts: Record<string, number> = {};
+  const milestoneCounts: Record<string, { total: number; completed: number }> = {};
   const projectCounts: Record<
     string,
     { open: number; completed: number; canceled: number; started: number; estimate: number; logged: number }
@@ -72,6 +74,11 @@ export async function taskWindowSummary(
   for (const bucket of buckets) {
     olderCount += bucket.older;
     stateCounts[bucket.stateId] = (stateCounts[bucket.stateId] ?? 0) + bucket.count;
+    if (bucket.milestoneId && bucket.category !== "canceled") {
+      const milestone = (milestoneCounts[bucket.milestoneId] ??= { total: 0, completed: 0 });
+      milestone.total += bucket.count;
+      if (bucket.category === "completed") milestone.completed += bucket.count;
+    }
     if (!bucket.projectId) continue;
     const project = (projectCounts[bucket.projectId] ??= {
       open: 0,
@@ -92,6 +99,7 @@ export async function taskWindowSummary(
     olderCount,
     stateCounts,
     projectCounts,
+    milestoneCounts,
     labelCounts: Object.fromEntries(labels.map((label) => [label.id, label.count])),
   };
 }

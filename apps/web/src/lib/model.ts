@@ -39,6 +39,7 @@ export function indexWorkspace(boot: Bootstrap) {
     states,
     labels: byId(boot.labels),
     projects: byId(boot.projects),
+    milestones: byId(boot.projectMilestones ?? []),
     documents: byId(boot.documents ?? []),
     tasks,
     /** Finished minutes logged per task. */

@@ -26,6 +26,9 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
   const { tasks } = history;
   const router = useRouter();
   const project = idx.projects.get(projectId);
+  const milestones = (idx.boot.projectMilestones ?? []).filter(
+    (row) => row.projectId === projectId && row.targetDate,
+  );
   const timeZone = useWorkspaceTimeZone();
   // "Today" is the workspace's calendar day, worked out after mount: the server render and the
   // browser may disagree about it around midnight, so neither decides it during hydration.
@@ -68,7 +71,7 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
     [idx, ids, history.relations],
   );
 
-  if (rows.length === 0) {
+  if (rows.length === 0 && milestones.length === 0) {
     return (
       <>
         <OlderTasksControl history={history} />
@@ -96,6 +99,7 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
         tasks={rows}
         relations={relations}
         project={project ? { startDate: project.startDate, targetDate: project.targetDate } : undefined}
+        milestones={milestones}
         today={today}
         canEdit={canEdit}
         onReschedule={(id, patch) => void updateTask(id, patch)}

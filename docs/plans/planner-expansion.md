@@ -120,6 +120,8 @@ The filter bar supports status, assignee, priority, label and due date. The URL 
 
 ### Phase 2: structure and data (L)
 
+Projects now have dated milestones, milestone assignment and filtering, progress totals, and timeline diamonds. The Client kickoff template creates its anchor milestone. Sections, custom fields, project updates, memberships, and additional relations remain.
+
 1. **Custom fields.**
    - `custom_field_definitions` (workspace, scope `task` | `project`, optional team or project restriction, name, type, options, required, sort order) and `custom_field_values` (target kind and id, field id, typed value columns: text, number as `numeric`, date, option id(s), user id, boolean). Types: text, number, date, single select, multi select, person, checkbox, URL. Definitions and values for tasks are small enough for the bootstrap with the Phase 0 windowing; revisit if values grow past a threshold.
    - Fields appear in the filter language, group-by, saved views, Gantt colouring, CSV export and the MCP task tools.

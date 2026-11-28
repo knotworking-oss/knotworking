@@ -26,6 +26,7 @@ import { DocsSection } from "./docs-section";
 import { NewTaskButton } from "./new-task-button";
 import { PageHeader } from "./page-header";
 import { ProjectActions } from "./project-actions";
+import { ProjectMilestones } from "./project-milestones";
 import { ProjectTimeline } from "./project-timeline";
 import { TasksView } from "./tasks-view";
 import { ViewSwitcher } from "./view-switcher";
@@ -135,6 +136,7 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
             </span>
           </div>
         </section>
+        <ProjectMilestones projectId={id} />
         {mode === "timeline" ? (
           <ProjectTimeline projectId={id} />
         ) : (

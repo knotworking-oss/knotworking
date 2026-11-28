@@ -35,6 +35,7 @@ import {
 import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { listDocuments } from "./documents";
+import { listProjectMilestones } from "./project-milestones";
 import { listTaskRelations } from "./task-relations";
 import { listTasks } from "./tasks";
 import { listTaskViews } from "./task-views";
@@ -112,6 +113,7 @@ export async function bootstrap(
     timeEntryRows,
     closedWindow,
     viewRows,
+    milestoneRows,
   ] = await Promise.all([
     db
       .select({
@@ -164,6 +166,7 @@ export async function bootstrap(
       : none,
     cutoff ? taskWindowSummary(db, workspaceId, cutoff, can("time")) : null,
     can("tasks") ? listTaskViews(db, workspaceId, options.userId) : none,
+    can("tasks") ? listProjectMilestones(db, workspaceId) : none,
   ]);
 
   return {
@@ -182,6 +185,7 @@ export async function bootstrap(
     projectTeams: projectTeamRows,
     tasks: taskRows,
     taskViews: viewRows,
+    projectMilestones: milestoneRows,
     ...(closedWindow ? { closedWindow } : {}),
     /** Label links with their IDs, so clients can apply `task_label` changes (tasks also carry `labelIds`). */
     taskLabels: taskLabelRows,

@@ -33,6 +33,7 @@ import {
   type NotifiedCallback,
 } from "./notifications";
 import { assertNoCycle, assertRefs } from "./refs";
+import { assertMilestone } from "./project-milestones";
 import { recordTaskActivity, taskActivityChanges } from "./task-activity";
 import { autoFollowTask } from "./task-followers";
 import { taskFilterSql, taskQueryLabelIds, taskQueryOrder } from "./task-query";
@@ -344,6 +345,7 @@ export async function createTask(
       taskParentId: input.parentId,
     });
     const labelIds = [...new Set(input.labelIds ?? [])];
+    if (input.milestoneId) await assertMilestone(tx, workspaceId, input.projectId ?? null, input.milestoneId);
     await assertLabels(tx, workspaceId, labelIds);
 
     // New tasks go to the top of manual ordering.
@@ -368,6 +370,7 @@ export async function createTask(
         estimateMinutes: input.estimateMinutes ?? null,
         assigneeId: input.assigneeId ?? null,
         projectId: input.projectId ?? null,
+        milestoneId: input.milestoneId ?? null,
         parentId: input.parentId ?? null,
         startDate: input.startDate ?? null,
         dueDate: input.dueDate ?? null,
@@ -439,6 +442,9 @@ export async function updateTask(
     // `updatedAt` is set explicitly so a labels-only edit still has a column to
     // update (Drizzle rejects an empty SET) and still bumps the task.
     const patch: Partial<typeof tasks.$inferInsert> = { ...fields, updatedAt: new Date() };
+    const projectId = fields.projectId === undefined ? current.task.projectId : fields.projectId;
+    if (fields.milestoneId) await assertMilestone(tx, workspaceId, projectId, fields.milestoneId);
+    else if (projectId !== current.task.projectId) patch.milestoneId = null;
     let newState: { name: string } | undefined;
     const teamId = fields.teamId ?? current.task.teamId;
     const moving = teamId !== current.task.teamId;

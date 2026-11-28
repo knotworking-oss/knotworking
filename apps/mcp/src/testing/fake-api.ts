@@ -463,6 +463,7 @@ export function createFakeApi() {
   );
 
   const findTask = (id: string) => store.tasks.find((t) => t.id === id);
+  app.get(`${ws}/projects/:id/milestones`, (c) => c.json({ milestones: [] }));
   app.get(`${ws}/tasks/views`, (c) => c.json({ views: store.taskViews }));
   app.get(`${ws}/tasks/views/:id`, (c) => {
     const view = store.taskViews.find((row) => row.id === c.req.param("id"));

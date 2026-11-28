@@ -439,6 +439,24 @@ export function registerTaskTools(ctx: WorkspaceToolContext) {
   );
 
   define(
+    "list_milestones",
+    {
+      module: "tasks",
+      resource: { name: "project_milestones", op: "list" },
+      title: "List project milestones",
+      description: "List the milestones belonging to a project ID, including target dates and completion.",
+      annotations: READ,
+      input: { workspace: workspaceParam, project: id("Project") },
+    },
+    async ({ workspace, project }, api) => {
+      const slug = await slugOf(api, workspace);
+      return api.call(
+        api.client.v1.workspaces[":slug"].projects[":id"].milestones.$get({ param: { slug, id: project } }),
+      );
+    },
+  );
+
+  define(
     "list_comments",
     {
       module: "tasks",

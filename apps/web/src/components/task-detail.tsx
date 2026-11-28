@@ -183,6 +183,26 @@ export function TaskProperties({ initial, stacked = false }: { initial: TaskSumm
           <ProjectChip projectId={task.projectId} {...chip} />
         </ProjectPicker>
       </Property>
+      {task.projectId && (
+        <Property label="Milestone">
+          <select
+            className="max-w-full rounded-md border bg-background px-2 py-1 text-sm"
+            aria-label="Milestone"
+            value={task.milestoneId ?? ""}
+            disabled={!canEdit}
+            onChange={(event) => void updateTask(task.id, { milestoneId: event.target.value || null })}
+          >
+            <option value="">No milestone</option>
+            {(idx.boot.projectMilestones ?? [])
+              .filter((row) => row.projectId === task.projectId)
+              .map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                </option>
+              ))}
+          </select>
+        </Property>
+      )}
       <Property label="Start date">
         <StartDatePicker
           value={task.startDate}

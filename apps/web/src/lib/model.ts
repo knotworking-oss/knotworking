@@ -89,6 +89,19 @@ export interface TaskGroup {
   progress?: number;
   tasks: TaskSummary[];
   group?: { field: Exclude<TaskDisplayGroup, "status">; value: string | null };
+  subgroups?: { key: string; group: TaskGroup }[];
+}
+
+export function withTaskSubgroups(
+  groups: TaskGroup[],
+  subgroup: (tasks: TaskSummary[]) => TaskGroup[],
+): TaskGroup[] {
+  return groups.map((group) => ({
+    ...group,
+    subgroups: subgroup(group.tasks)
+      .filter((child) => child.tasks.length)
+      .map((child) => ({ key: JSON.stringify([group.key, child.key]), group: child })),
+  }));
 }
 
 export const taskGroupLabels: Record<TaskDisplayGroup, string> = {

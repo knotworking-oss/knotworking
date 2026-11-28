@@ -17,6 +17,7 @@ import {
   groupTasksBy,
   parseTaskGroup,
   planDrop,
+  withTaskSubgroups,
   type TaskGroup,
   type TaskOrdering,
 } from "@/lib/model";
@@ -41,7 +42,7 @@ import { defaultBoardProperties, parseTaskProperties } from "@/lib/task-view-pro
  */
 export function TasksView({
   teamId,
-  assignedToMe,
+  assigneeId,
   projectId,
   view,
   ordering,
@@ -49,7 +50,7 @@ export function TasksView({
   savedView,
 }: {
   teamId?: string;
-  assignedToMe?: boolean;
+  assigneeId?: string;
   /** Only this project's tasks (grouped by state category). */
   projectId?: string;
   view: "list" | "board" | "calendar";
@@ -57,10 +58,14 @@ export function TasksView({
   emptyDescription?: string;
   savedView?: SavedTaskView;
 }) {
-  const { idx, viewer, updateTask } = useWorkspace();
+  const { idx, updateTask } = useWorkspace();
   const params = useSearchParams();
   const rawFilter = params.get("filter");
   const grouping = parseTaskGroup(params.get("group")) ?? savedView?.spec.group ?? "status";
+  const rawSubgroup = params.get("subgroup");
+  const requestedSubgroup =
+    rawSubgroup === "none" ? null : (parseTaskGroup(rawSubgroup) ?? savedView?.spec.subgroup);
+  const subgrouping = requestedSubgroup === grouping ? null : requestedSubgroup;
   const rawProperties = params.get("properties");
   const properties = useMemo(
     () => parseTaskProperties(rawProperties) ?? savedView?.spec.properties,
@@ -79,7 +84,7 @@ export function TasksView({
     const conditions: TaskFilterExpression[] = [];
     if (teamId) conditions.push({ field: "teamId", op: "eq", value: teamId });
     if (projectId) conditions.push({ field: "projectId", op: "eq", value: projectId });
-    if (assignedToMe) conditions.push({ field: "assigneeId", op: "eq", value: viewer.id });
+    if (assigneeId) conditions.push({ field: "assigneeId", op: "eq", value: assigneeId });
     if (filter)
       conditions.push(...("and" in filter.expression ? filter.expression.and : [filter.expression]));
     const unique = [
@@ -95,14 +100,15 @@ export function TasksView({
         layout: view,
         sort: ordering,
         group: grouping,
+        ...(subgrouping !== undefined ? { subgroup: subgrouping } : {}),
         ...(properties ? { properties } : {}),
       },
     };
-  }, [teamId, projectId, assignedToMe, viewer.id, filter, view, ordering, grouping, properties]);
+  }, [teamId, projectId, assigneeId, filter, view, ordering, grouping, subgrouping, properties]);
   const history = useOlderTasks({
     teamId,
     projectId,
-    assigneeId: assignedToMe ? viewer.id : undefined,
+    assigneeId,
     sort: ordering,
     filter,
   });
@@ -113,7 +119,7 @@ export function TasksView({
     const filters: TaskFilterExpression[] = [];
     if (teamId) filters.push({ field: "teamId", op: "eq", value: teamId });
     if (projectId) filters.push({ field: "projectId", op: "eq", value: projectId });
-    if (assignedToMe) filters.push({ field: "assigneeId", op: "eq", value: viewer.id });
+    if (assigneeId) filters.push({ field: "assigneeId", op: "eq", value: assigneeId });
     if (filter) filters.push(filter.expression);
     const shown = filters.length
       ? filterTaskRows(
@@ -123,31 +129,59 @@ export function TasksView({
           [...(idx.boot.taskRelations ?? []), ...(history.relations ?? [])],
         )
       : tasks;
-    if (grouping !== "status") return groupTasksBy(shown, idx, grouping, ordering, projectId);
-    return teamId
-      ? groupByState(
-          shown,
-          idx.boot.workflowStates.filter((s) => s.teamId === teamId),
-          idx,
-          ordering,
-        )
-      : groupByCategory(shown, idx, ordering);
-  }, [tasks, teamId, assignedToMe, projectId, viewer.id, idx, ordering, filter, history.relations, grouping]);
+    const groupTasks = (rows: typeof shown, field: typeof grouping) => {
+      if (field !== "status") return groupTasksBy(rows, idx, field, ordering, projectId);
+      return teamId
+        ? groupByState(
+            rows,
+            idx.boot.workflowStates.filter((s) => s.teamId === teamId),
+            idx,
+            ordering,
+          )
+        : groupByCategory(rows, idx, ordering);
+    };
+    const primary = groupTasks(shown, grouping);
+    return view !== "calendar" && subgrouping
+      ? withTaskSubgroups(primary, (rows) => groupTasks(rows, subgrouping))
+      : primary;
+  }, [
+    tasks,
+    teamId,
+    assigneeId,
+    projectId,
+    idx,
+    ordering,
+    filter,
+    history.relations,
+    grouping,
+    subgrouping,
+    view,
+  ]);
 
   const onDrop = useCallback<DropHandler>(
     (taskId, groupKey, column, index) => {
       const task = column[index];
       if (!task || task.id !== taskId) return;
-      const group = groups.find((group) => group.key === groupKey)?.group;
+      const primary = groups.find(
+        (group) => group.key === groupKey || group.subgroups?.some((child) => child.key === groupKey),
+      );
+      if (!primary) return;
+      const secondary = primary.subgroups?.find((child) => child.key === groupKey)?.group;
       const patch: TaskUpdateInput = { ...planDrop(column, index, ordering) };
-      if (group) {
+      for (const target of secondary ? [primary, secondary] : [primary]) {
+        const group = target.group;
+        if (!group) {
+          const stateId = idx.states.has(target.key)
+            ? target.key
+            : idx.boot.workflowStates.find((s) => s.teamId === task.teamId && s.type === target.key)?.id;
+          if (!stateId) return;
+          if (stateId !== task.stateId) patch.stateId = stateId;
+          continue;
+        }
         if (group.field === "labelIds" && ([...task.labelIds].sort()[0] ?? null) !== group.value) return;
         if (group.field === "assigneeId" && task.assigneeId !== group.value) patch.assigneeId = group.value;
         if (group.field === "projectId" && task.projectId !== group.value) patch.projectId = group.value;
-        if (group.field === "sectionId" && task.sectionId !== group.value) {
-          if (group.value && idx.sections.get(group.value)?.projectId !== task.projectId) return;
-          patch.sectionId = group.value;
-        }
+        if (group.field === "sectionId" && task.sectionId !== group.value) patch.sectionId = group.value;
         if (group.field === "priority") patch.priority = Number(group.value) as Priority;
         if (group.field === "dueWeek") {
           const week = toDay(group.value);
@@ -160,31 +194,34 @@ export function TasksView({
             Object.assign(patch, datePatch(task, shiftDates(task, "move", week + weekday(due) - due)));
           }
         }
-        if (Object.keys(patch).length) void updateTask(taskId, patch);
-        return;
       }
-      // Group keys are state IDs, or state categories in cross-team views.
-      const stateId = idx.states.has(groupKey)
-        ? groupKey
-        : idx.boot.workflowStates.find((s) => s.teamId === task.teamId && s.type === groupKey)?.id;
-      if (stateId && stateId !== task.stateId) patch.stateId = stateId;
+      if (
+        patch.sectionId &&
+        idx.sections.get(patch.sectionId)?.projectId !==
+          (patch.projectId === undefined ? task.projectId : patch.projectId)
+      )
+        return;
       if (Object.keys(patch).length) void updateTask(taskId, patch);
     },
     [idx, groups, ordering, updateTask],
   );
 
-  const onCreate = (g: TaskGroup) =>
+  const groupDefaults = (g: TaskGroup) => ({
+    ...(!g.group ? (idx.states.has(g.key) ? { stateId: g.key } : { stateType: g.type }) : {}),
+    ...(g.group?.field === "assigneeId" ? { assigneeId: g.group.value } : {}),
+    ...(g.group?.field === "projectId" ? { projectId: g.group.value } : {}),
+    ...(g.group?.field === "priority" ? { priority: Number(g.group.value) as Priority } : {}),
+    ...(g.group?.field === "sectionId" && g.group.value
+      ? { sectionId: g.group.value, projectId: idx.sections.get(g.group.value)?.projectId }
+      : {}),
+  });
+  const onCreate = (primary: TaskGroup, secondary?: TaskGroup) =>
     newTask({
       teamId,
-      ...(!g.group ? (idx.states.has(g.key) ? { stateId: g.key } : { stateType: g.type }) : {}),
-      ...(assignedToMe ? { assigneeId: viewer.id } : {}),
+      ...(assigneeId ? { assigneeId } : {}),
       ...(projectId ? { projectId } : {}),
-      ...(g.group?.field === "assigneeId" ? { assigneeId: g.group.value } : {}),
-      ...(g.group?.field === "projectId" ? { projectId: g.group.value } : {}),
-      ...(g.group?.field === "priority" ? { priority: Number(g.group.value) as Priority } : {}),
-      ...(g.group?.field === "sectionId" && g.group.value
-        ? { sectionId: g.group.value, projectId: idx.sections.get(g.group.value)?.projectId }
-        : {}),
+      ...groupDefaults(primary),
+      ...(secondary ? groupDefaults(secondary) : {}),
     });
 
   return (
@@ -206,7 +243,7 @@ export function TasksView({
         <TaskCalendar tasks={groups.flatMap((group) => group.tasks)} />
       ) : (
         <BulkTaskSelection
-          key={JSON.stringify([teamId, projectId, assignedToMe, rawFilter, view, grouping])}
+          key={JSON.stringify([teamId, projectId, assigneeId, rawFilter, view, grouping, subgrouping])}
           tasks={groups
             .filter((group) => view !== "board" || group.type !== "canceled")
             .flatMap((group) => group.tasks)}
@@ -216,14 +253,22 @@ export function TasksView({
               groups={groups}
               properties={visibleProperties}
               onDrop={onDrop}
-              onCreate={grouping === "labelIds" || grouping === "dueWeek" ? undefined : onCreate}
+              onCreate={
+                [grouping, subgrouping].some((field) => field === "labelIds" || field === "dueWeek")
+                  ? undefined
+                  : onCreate
+              }
             />
           ) : (
             <TaskList
               groups={groups}
               properties={visibleProperties}
               onDrop={onDrop}
-              onCreate={grouping === "labelIds" || grouping === "dueWeek" ? undefined : onCreate}
+              onCreate={
+                [grouping, subgrouping].some((field) => field === "labelIds" || field === "dueWeek")
+                  ? undefined
+                  : onCreate
+              }
               emptyDescription={emptyDescription}
             />
           )}

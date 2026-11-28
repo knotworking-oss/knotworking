@@ -23,9 +23,23 @@ export const taskViewSpecSchema = z.strictObject({
   layout: z.enum(["list", "board", "calendar"]),
   sort: z.enum(taskOrderings),
   group: z.enum(taskDisplayGroups).optional(),
+  subgroup: z.enum(taskDisplayGroups).nullable().optional(),
   properties: z.array(z.enum(taskViewProperties)).max(taskViewProperties.length).optional(),
 });
 export type TaskViewSpec = z.infer<typeof taskViewSpecSchema>;
+
+/** The pinned view is resolved for each viewer and can be saved as a personal copy. */
+export function myTasksView(userId: string) {
+  return {
+    name: "My tasks",
+    spec: {
+      filter: { version: 1, expression: { field: "assigneeId", op: "eq", value: userId } },
+      layout: "list",
+      sort: "priority",
+      group: "status",
+    } satisfies TaskViewSpec,
+  };
+}
 
 const editableViewSchema = z.strictObject({
   name: z.string().trim().min(1).max(100),

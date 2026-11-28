@@ -37,14 +37,18 @@ export function TaskBoard({
 }: {
   groups: TaskGroup[];
   onDrop: DropHandler;
-  onCreate?: (group: TaskGroup) => void;
+  onCreate?: (group: TaskGroup, subgroup?: TaskGroup) => void;
   properties: ReadonlySet<TaskViewProperty>;
 }) {
   const { canEditTasks: canEdit } = useWorkspace();
   const columnsShown = groups.filter((g) => g.type !== "canceled");
   return (
     <TaskDndProvider
-      groups={columnsShown}
+      groups={columnsShown.flatMap((group) =>
+        group.subgroups?.length
+          ? group.subgroups.map((child) => ({ ...child.group, key: child.key }))
+          : [group],
+      )}
       onDrop={onDrop}
       renderOverlay={(task) => <CardContent task={task} properties={properties} overlay />}
     >
@@ -52,14 +56,18 @@ export function TaskBoard({
         <TaskKeyboardNav dragging={dragging} horizontal>
           <div className="flex h-full gap-4 overflow-x-auto p-4">
             {columnsShown.map((g) => {
-              const items = columns[g.key] ?? [];
+              const subgroups = g.subgroups ?? [];
+              const total = subgroups.length
+                ? subgroups.reduce((count, child) => count + (columns[child.key]?.length ?? 0), 0)
+                : (columns[g.key]?.length ?? 0);
+              const lanes = subgroups.length ? subgroups : [{ key: g.key, group: g }];
               return (
                 <section key={g.key} aria-label={g.title} className="flex w-72 shrink-0 flex-col gap-3">
                   <header className="flex h-7 items-center gap-2 px-1 text-sm">
                     {!g.group && <StatusIcon type={g.type} progress={g.progress} />}
                     <span className="font-medium">{g.title}</span>
-                    <span className="text-muted-foreground tabular-nums">{items.length}</span>
-                    {canEdit && onCreate && (
+                    <span className="text-muted-foreground tabular-nums">{total}</span>
+                    {canEdit && onCreate && subgroups.length === 0 && (
                       <Button
                         variant="ghost"
                         size="icon-xs"
@@ -71,20 +79,44 @@ export function TaskBoard({
                       </Button>
                     )}
                   </header>
-                  <TaskDropZone
-                    id={g.key}
-                    items={items}
-                    className="flex min-h-24 flex-1 flex-col gap-2 rounded-xl pb-4 transition-colors data-over:bg-muted/50"
-                  >
-                    {items.map((task) => (
-                      <BoardCard key={task.id} task={task} column={g.key} properties={properties} />
-                    ))}
-                    {items.length === 0 && (
-                      <div className="rounded-xl border border-dashed px-2 py-8 text-center text-sm text-muted-foreground">
-                        No tasks
+                  {lanes.map(({ key, group }) => {
+                    const items = columns[key] ?? [];
+                    return (
+                      <div key={key} className="flex flex-col gap-1">
+                        {subgroups.length > 0 && (
+                          <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+                            <h3 className="font-medium">{group.title}</h3>
+                            <span className="tabular-nums">{items.length}</span>
+                            {canEdit && onCreate && (
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="ml-auto"
+                                aria-label={`New task in ${g.title} / ${group.title}`}
+                                onClick={() => onCreate(g, group)}
+                              >
+                                <Plus />
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                        <TaskDropZone
+                          id={key}
+                          items={items}
+                          className="flex min-h-20 flex-col gap-2 rounded-xl pb-3 transition-colors data-over:bg-muted/50"
+                        >
+                          {items.map((task) => (
+                            <BoardCard key={task.id} task={task} column={key} properties={properties} />
+                          ))}
+                          {items.length === 0 && (
+                            <div className="rounded-xl border border-dashed px-2 py-6 text-center text-sm text-muted-foreground">
+                              No tasks
+                            </div>
+                          )}
+                        </TaskDropZone>
                       </div>
-                    )}
-                  </TaskDropZone>
+                    );
+                  })}
                 </section>
               );
             })}

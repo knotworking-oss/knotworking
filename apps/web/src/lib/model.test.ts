@@ -13,6 +13,7 @@ import {
   parseOrdering,
   planDrop,
   taskOrderings,
+  withTaskSubgroups,
   type TaskOrdering,
 } from "./model";
 
@@ -229,6 +230,16 @@ describe("grouping", () => {
   it("groupByState honours the ordering", () => {
     const groups = groupByState(boot.tasks, boot.workflowStates, idx, "manual");
     expect(ids(groups.find((g) => g.key === "todo")!.tasks)).toEqual(["t-low", "t-urgent"]);
+  });
+
+  it("uses distinct subgroup IDs when the same priority appears in multiple states", () => {
+    const primary = groupByState(boot.tasks, boot.workflowStates, idx);
+    const nested = withTaskSubgroups(primary, (tasks) => groupTasksBy(tasks, idx, "priority", "manual"));
+    const subgroups = nested.flatMap((group) => group.subgroups ?? []);
+    expect(new Set(subgroups.map((child) => child.key)).size).toBe(subgroups.length);
+    expect(
+      nested.find((group) => group.key === "todo")?.subgroups?.map(({ group }) => ids(group.tasks)),
+    ).toEqual([["t-urgent"], ["t-low"]]);
   });
 
   it("groupByCategory merges states by type, in workflow order, with friendly titles", () => {

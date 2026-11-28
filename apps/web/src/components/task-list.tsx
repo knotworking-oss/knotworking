@@ -47,11 +47,20 @@ export function TaskList({
 }: {
   groups: TaskGroup[];
   onDrop: DropHandler;
-  onCreate?: (group: TaskGroup) => void;
+  onCreate?: (group: TaskGroup, subgroup?: TaskGroup) => void;
   properties: ReadonlySet<TaskViewProperty>;
   emptyDescription?: string;
 }) {
   const { canEditTasks: canEdit } = useWorkspace();
+  const sections = groups.flatMap((parent) =>
+    parent.subgroups?.length
+      ? parent.subgroups.map((child) => ({
+          group: { ...child.group, key: child.key, title: `${parent.title} / ${child.group.title}` },
+          primary: parent,
+          secondary: child.group,
+        }))
+      : [{ group: parent, primary: parent, secondary: undefined }],
+  );
   if (groups.every((g) => g.tasks.length === 0 && g.group?.field !== "sectionId")) {
     return (
       <Empty className="h-full">
@@ -75,14 +84,14 @@ export function TaskList({
   }
   return (
     <TaskDndProvider
-      groups={groups}
+      groups={sections.map((section) => section.group)}
       onDrop={onDrop}
       renderOverlay={(task) => <RowContent task={task} properties={properties} overlay />}
     >
       {({ columns, dragging }) => (
         <TaskKeyboardNav dragging={dragging}>
           <div className="flex flex-col">
-            {groups.map((g) => {
+            {sections.map(({ group: g, primary, secondary }) => {
               const items = columns[g.key] ?? [];
               // Empty groups appear while dragging so they can be dropped into.
               if (items.length === 0 && !dragging && g.group?.field !== "sectionId") return null;
@@ -98,7 +107,7 @@ export function TaskList({
                         size="icon-xs"
                         className="ml-auto text-muted-foreground"
                         aria-label={`New task in ${g.title}`}
-                        onClick={() => onCreate(g)}
+                        onClick={() => onCreate(primary, secondary)}
                       >
                         <Plus />
                       </Button>

@@ -35,16 +35,20 @@ export function DisplayOptions({
   defaultGroup,
   layout = "list",
   defaultProperties,
+  defaultSubgroup,
 }: {
   ordering: TaskOrdering;
   explicitDefault?: boolean;
   defaultGroup?: TaskDisplayGroup;
   layout?: "list" | "board" | "calendar";
   defaultProperties?: readonly TaskViewProperty[];
+  defaultSubgroup?: TaskDisplayGroup | null;
 }) {
   const setParam = useSearchParam();
   const params = useSearchParams();
   const group = parseTaskGroup(params.get("group")) ?? defaultGroup ?? "status";
+  const rawSubgroup = params.get("subgroup");
+  const subgroup = rawSubgroup === "none" ? null : (parseTaskGroup(rawSubgroup) ?? defaultSubgroup);
   const properties =
     parseTaskProperties(params.get("properties")) ??
     defaultProperties ??
@@ -97,6 +101,33 @@ export function DisplayOptions({
             </SelectContent>
           </Select>
         </div>
+        {layout !== "calendar" && (
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="display-subgroup" className="font-normal text-muted-foreground">
+              Subgroup by
+            </Label>
+            <Select
+              value={subgroup && subgroup !== group ? subgroup : "none"}
+              onValueChange={(next) =>
+                setParam("subgroup", next === "none" && !defaultSubgroup ? null : next)
+              }
+            >
+              <SelectTrigger id="display-subgroup" size="sm" className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {taskDisplayGroups
+                  .filter((field) => field !== group)
+                  .map((field) => (
+                    <SelectItem key={field} value={field}>
+                      {taskGroupLabels[field]}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         {layout !== "calendar" && (
           <fieldset className="grid grid-cols-2 gap-x-3 gap-y-2 border-t pt-2 text-xs">
             <legend className="pr-2 text-muted-foreground">Visible properties</legend>

@@ -26,7 +26,7 @@ describe("saved task views", () => {
 
   it("stores personal views and excludes them from anyone else's lists, bootstrap and sync", async () => {
     const cursor = (await read("/bootstrap")).cursor;
-    const compact = { ...spec, properties: [] };
+    const compact = { ...spec, group: "status", subgroup: "assigneeId", properties: [] };
     const created = await call(
       "/tasks/views",
       "POST",

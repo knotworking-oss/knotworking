@@ -227,6 +227,8 @@ The Employee onboarding and Client kickoff templates define ordered sections. Th
 
 **Display → Visible properties** controls the details shown in task lists and boards. The URL carries the selection, and saving the view keeps it. Row and card keyboard shortcuts still open the assignee, label and priority pickers.
 
+**Display → Subgroup by** splits each list section or board column by a second property. The selection is saved with the view, and dragging into a populated subgroup updates both grouped properties where they can be edited by drag.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

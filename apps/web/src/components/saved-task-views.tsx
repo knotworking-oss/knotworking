@@ -7,7 +7,7 @@ export function SavedTaskViews({ teamId }: { teamId?: string }) {
   const { idx, slug } = useWorkspace();
   const all = (idx.boot.taskViews ?? []).filter((view) => !view.teamId || idx.teams.has(view.teamId));
   const views = teamId ? all.filter((view) => view.teamId === teamId) : all;
-  if (!views.length) {
+  if (teamId && !views.length) {
     return (
       <p className="px-6 py-8 text-sm text-muted-foreground">
         Save a view from a task list or board to find it here.
@@ -16,6 +16,17 @@ export function SavedTaskViews({ teamId }: { teamId?: string }) {
   }
   return (
     <ul className="divide-y px-6">
+      {!teamId && (
+        <li>
+          <Link
+            href={`/${slug}/my-tasks`}
+            className="flex items-center justify-between gap-3 py-4 hover:underline"
+          >
+            <span>My tasks</span>
+            <span className="text-xs text-muted-foreground">Pinned</span>
+          </Link>
+        </li>
+      )}
       {views.map((view) => (
         <li key={view.id}>
           <Link

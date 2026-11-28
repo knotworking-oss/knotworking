@@ -28,6 +28,7 @@ export default async function SavedViewPage({ params, searchParams }: Props) {
             <DisplayOptions
               ordering={ordering}
               defaultGroup={saved.spec.group}
+              defaultSubgroup={saved.spec.subgroup}
               layout={layout}
               defaultProperties={saved.spec.properties}
               explicitDefault

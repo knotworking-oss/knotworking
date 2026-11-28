@@ -52,14 +52,15 @@ export function TaskList({
   emptyDescription?: string;
 }) {
   const { canEditTasks: canEdit } = useWorkspace();
-  const sections = groups.flatMap((parent) =>
-    parent.subgroups?.length
-      ? parent.subgroups.map((child) => ({
-          group: { ...child.group, key: child.key, title: `${parent.title} / ${child.group.title}` },
-          primary: parent,
-          secondary: child.group,
-        }))
-      : [{ group: parent, primary: parent, secondary: undefined }],
+  const sections = groups.flatMap<{ group: TaskGroup; primary: TaskGroup; secondary?: TaskGroup }>(
+    (parent) =>
+      parent.subgroups?.length
+        ? parent.subgroups.map((child) => ({
+            group: { ...child.group, key: child.key, title: `${parent.title} / ${child.group.title}` },
+            primary: parent,
+            secondary: child.group,
+          }))
+        : [{ group: parent, primary: parent }],
   );
   if (groups.every((g) => g.tasks.length === 0 && g.group?.field !== "sectionId")) {
     return (

@@ -38,6 +38,7 @@ export function useFilteredTasks({
   const [page, setPage] = useState<{ key: string; tasks: TaskSummary[]; nextCursor: string | null }>();
   const [request, setRequest] = useState<{ key: string; loading: boolean; error?: string }>();
   const requestId = useRef(0);
+  const loaded = useRef<{ key: string; pages: number } | undefined>(undefined);
 
   const load = useCallback(
     async (cursor?: string) => {
@@ -45,20 +46,43 @@ export function useFilteredTasks({
       const id = ++requestId.current;
       setRequest({ key, loading: true });
       try {
-        const result = await unwrap(
-          browserApi().v1.workspaces[":slug"].tasks.$get({
-            param: { slug },
-            query: { teamId, projectId, assigneeId, sort, filter: serialized, limit: "50", cursor },
-          }),
-        );
-        if (id !== requestId.current) return;
+        const previousDepth = loaded.current?.key === key ? loaded.current.pages : 0;
+        const depth = cursor ? 1 : Math.max(1, previousDepth);
+        const tasks: TaskSummary[] = [];
+        let nextCursor = cursor ?? null;
+        let pages = 0;
+        do {
+          const result = await unwrap(
+            browserApi().v1.workspaces[":slug"].tasks.$get({
+              param: { slug },
+              query: {
+                teamId,
+                projectId,
+                assigneeId,
+                sort,
+                filter: serialized,
+                limit: "50",
+                cursor: nextCursor ?? undefined,
+              },
+            }),
+          );
+          if (id !== requestId.current) return;
+          tasks.push(...result.tasks);
+          nextCursor = result.nextCursor;
+          pages++;
+        } while (nextCursor && pages < depth);
+        loaded.current = { key, pages: cursor ? previousDepth + pages : pages };
         setPage((previous) => ({
           key,
-          nextCursor: result.nextCursor,
-          tasks:
-            cursor && previous?.key === key
-              ? [...new Map([...previous.tasks, ...result.tasks].map((task) => [task.id, task])).values()]
-              : result.tasks,
+          nextCursor,
+          tasks: [
+            ...new Map(
+              [...(cursor && previous?.key === key ? previous.tasks : []), ...tasks].map((task) => [
+                task.id,
+                task,
+              ]),
+            ).values(),
+          ],
         }));
         setRequest({ key, loading: false });
       } catch (err) {

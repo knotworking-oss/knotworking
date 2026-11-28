@@ -71,6 +71,32 @@ it("shows a server-matched parent even when none of its subtasks are loaded", as
   await waitFor(() => expect(result.current.tasks).toEqual([]));
 });
 
+it("retains loaded pages when a sync batch refreshes relationship matches", async () => {
+  mocks.get
+    .mockResolvedValueOnce(Response.json({ tasks: [parent], nextCursor: "page-two" }))
+    .mockResolvedValueOnce(Response.json({ tasks: [blocker], nextCursor: null }));
+  const { result } = renderHook(() =>
+    useFilteredTasks({
+      filter: { version: 1, expression: { field: "blocked", op: "eq", value: true } },
+      sort: "manual",
+    }),
+  );
+  await waitFor(() => expect(result.current.nextCursor).toBe("page-two"));
+  await act(() => result.current.load("page-two"));
+  expect(result.current.tasks).toEqual([parent, blocker]);
+  const updated = { ...blocker, title: "Updated blocker" };
+  mocks.get
+    .mockResolvedValueOnce(Response.json({ tasks: [parent], nextCursor: "new-page-two" }))
+    .mockResolvedValueOnce(Response.json({ tasks: [updated], nextCursor: null }));
+  act(() => changes([{ entity: "task", action: "upsert", entityId: blocker.id } as SyncChange]));
+  await waitFor(() => expect(result.current.tasks).toEqual([parent, updated]));
+  expect(mocks.get).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      query: expect.objectContaining({ cursor: "new-page-two" }),
+    }),
+  );
+});
+
 it("removes a dependency present only in historical context and restores it if delete fails", async () => {
   mocks.remove.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
   render(<TaskDependencies initial={parent} context={{ relations: [relation], tasks: [blocker] }} />);
@@ -78,7 +104,9 @@ it("removes a dependency present only in historical context and restores it if d
   fireEvent.click(deleteButton());
   expect(screen.queryByRole("link", { name: "Older blocker" })).toBeNull();
   await waitFor(() => expect(deleteButton()).toBeDefined());
-  fireEvent.click(deleteButton());
-  await waitFor(() => expect(screen.queryByRole("link", { name: "Older blocker" })).toBeNull());
+  await act(async () => {
+    fireEvent.click(deleteButton());
+  });
+  expect(screen.queryByRole("link", { name: "Older blocker" })).toBeNull();
   expect(mocks.remove).toHaveBeenCalledTimes(2);
 });

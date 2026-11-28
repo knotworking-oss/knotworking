@@ -44,6 +44,7 @@ export default async function WorkspaceLayout({
                 tasks: boot.tasks.map((i) => ({
                   id: i.id,
                   title: i.title,
+                  reference: i.reference,
                   stateType: stateType.get(i.stateId) ?? "unstarted",
                 })),
               }}

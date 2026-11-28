@@ -11,8 +11,10 @@ export default async function LabelsSettingsPage({ params }: { params: Promise<{
   const [boot, me] = await Promise.all([getBootstrap(slug), getMe()]);
   const canManage = canManageStructure(me.workspaces.find((w) => w.slug === slug)?.role);
 
-  const usage: Record<string, number> = {};
-  for (const task of boot.tasks) for (const id of task.labelIds) usage[id] = (usage[id] ?? 0) + 1;
+  const usage: Record<string, number> = boot.closedWindow?.labelCounts ?? {};
+  if (!boot.closedWindow) {
+    for (const task of boot.tasks) for (const id of task.labelIds) usage[id] = (usage[id] ?? 0) + 1;
+  }
 
   return (
     <>

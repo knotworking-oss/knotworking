@@ -228,6 +228,11 @@ function ProjectTemplateForm({ commandId, onClose }: { commandId: string; onClos
                 </span>
               )}
             </div>
+            {template.milestone && milestoneDate && !dateIssue && (
+              <div className="text-xs text-muted-foreground">
+                Milestone · {template.dateLabel} · {formatLongDate(milestoneDate)}
+              </div>
+            )}
             {suggested.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-muted-foreground">Suggested modules:</span>
@@ -270,6 +275,7 @@ function ProjectTemplateForm({ commandId, onClose }: { commandId: string; onClos
                         updateTask(task.id, { daysFromStart: offset });
                     }}
                   />
+                  {task.section && <span className="text-xs text-muted-foreground">{task.section}</span>}
                   {task.module && (
                     <Badge variant="outline" title="Links to this module">
                       {moduleDefinitions[task.module].name}

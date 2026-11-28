@@ -71,6 +71,13 @@ export function redactChanges(viewer: Viewer, changes: SyncChange[]): SyncChange
     : changes.filter((change) => change.entity !== "module_access" || change.data?.userId === viewer.userId);
   const dashboardViewer = { userId: viewer.userId, role: viewer.role, modules: viewer.modules ?? {} };
   return visible.flatMap((change): SyncChange[] => {
+    if (change.entity === "task_follower" || change.entity === "project_member")
+      return [{ ...change, actorId: null }];
+    if (change.entity === "task_view") {
+      const view = change.data;
+      if (!view || (view.scope === "personal" && view.ownerId !== viewer.userId)) return [];
+      return view.deletedAt ? [{ ...change, action: "delete", data: null }] : [change];
+    }
     // Dashboard versions (the spec history) go only to those who may change the dashboard.
     if (change.entity === "bi_dashboard_version") {
       // A version row carries its dashboard's owner and scope (a module dashboard needs that module).

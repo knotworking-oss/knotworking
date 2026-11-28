@@ -29,10 +29,14 @@ export default async function TeamSettingsPage({ params }: Props) {
   if (!team) notFound();
   const canManage = canManageStructure(me.workspaces.find((w) => w.slug === slug)?.role);
 
-  const taskCounts: Record<string, number> = {};
-  for (const task of boot.tasks) {
-    if (task.teamId === team.id) taskCounts[task.stateId] = (taskCounts[task.stateId] ?? 0) + 1;
-  }
+  const states = boot.workflowStates.filter((s) => s.teamId === team.id);
+  const taskCounts = Object.fromEntries(
+    states.map((state) => [
+      state.id,
+      boot.closedWindow?.stateCounts[state.id] ??
+        boot.tasks.filter((task) => task.stateId === state.id).length,
+    ]),
+  );
 
   return (
     <>
@@ -56,7 +60,7 @@ export default async function TeamSettingsPage({ params }: Props) {
           slug={slug}
           canManage={canManage}
           team={team}
-          states={boot.workflowStates.filter((s) => s.teamId === team.id)}
+          states={states}
           taskCounts={taskCounts}
           people={boot.users.map((u) => ({ id: u.id, name: u.name, email: u.email, avatarUrl: u.avatarUrl }))}
           memberIds={boot.teamMembers.filter((m) => m.teamId === team.id).map((m) => m.userId)}

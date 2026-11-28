@@ -1,19 +1,69 @@
-import { sortKeyBetween } from "@knotworking/core";
+import { sortKeyBetween, upsertRow } from "@knotworking/core";
 import { describe, expect, it } from "vitest";
 import { makeBootstrap, makeState, makeTask } from "@/test/fixtures";
 import type { TaskSummary } from "./api";
+import { projectProgress } from "./projects";
+import { projectBootstrap, seedTables } from "./sync-model";
 import {
   groupByCategory,
   groupByState,
+  groupTasksBy,
   indexWorkspace,
   orderTasks,
   parseOrdering,
   planDrop,
   taskOrderings,
+  withTaskSubgroups,
   type TaskOrdering,
 } from "./model";
 
 const ids = (tasks: TaskSummary[]) => tasks.map((t) => t.id);
+
+it("groups due dates in Monday weeks with undated tasks last", () => {
+  const tasks = [
+    makeTask({ id: "sunday", dueDate: "2026-12-06" }),
+    makeTask({ id: "monday", dueDate: "2026-12-07" }),
+    makeTask({ id: "undated" }),
+    makeTask({ id: "friday", dueDate: "2026-12-04" }),
+  ];
+  const byWeek = groupTasksBy(tasks, indexWorkspace(makeBootstrap(tasks)), "dueWeek", "manual");
+  expect(byWeek.map((group) => [group.group?.value, ids(group.tasks)])).toEqual([
+    ["2026-11-30", ["friday", "sunday"]],
+    ["2026-12-07", ["monday"]],
+    [null, ["undated"]],
+  ]);
+});
+
+it("keeps historical sync rows out of the recent view until reopened and uses full project counts", () => {
+  const active = makeTask({ id: "active", projectId: "project" });
+  const older = makeTask({ id: "older", stateId: "done", projectId: "project" });
+  const base = makeBootstrap([active], {
+    closedWindow: {
+      cutoff: "2026-02-01T00:00:00.000Z",
+      olderCount: 1,
+      projectCounts: { project: { open: 1, completed: 1, canceled: 0, started: 0, estimate: 0, logged: 0 } },
+      labelCounts: {},
+      milestoneCounts: {},
+      stateCounts: { todo: 1, done: 1 },
+    },
+  });
+  const tables = upsertRow(seedTables(base), "task", { ...older });
+  const snapshot = projectBootstrap(tables, base, "1");
+  expect(ids(snapshot.tasks)).toEqual(["active"]);
+  expect(projectProgress(snapshot.tasks, indexWorkspace(snapshot)).get("project")).toMatchObject({
+    completed: 1,
+    total: 2,
+    ratio: 0.5,
+  });
+  const reopened = upsertRow(tables, "task", {
+    ...older,
+    stateId: "todo",
+    updatedAt: "2026-02-02T00:00:00.000Z",
+  });
+  expect(ids(projectBootstrap(reopened, base, "2").tasks)).toEqual(
+    expect.arrayContaining(["active", "older"]),
+  );
+});
 
 describe("indexWorkspace", () => {
   const boot = makeBootstrap([], {
@@ -180,6 +230,16 @@ describe("grouping", () => {
   it("groupByState honours the ordering", () => {
     const groups = groupByState(boot.tasks, boot.workflowStates, idx, "manual");
     expect(ids(groups.find((g) => g.key === "todo")!.tasks)).toEqual(["t-low", "t-urgent"]);
+  });
+
+  it("uses distinct subgroup IDs when the same priority appears in multiple states", () => {
+    const primary = groupByState(boot.tasks, boot.workflowStates, idx);
+    const nested = withTaskSubgroups(primary, (tasks) => groupTasksBy(tasks, idx, "priority", "manual"));
+    const subgroups = nested.flatMap((group) => group.subgroups ?? []);
+    expect(new Set(subgroups.map((child) => child.key)).size).toBe(subgroups.length);
+    expect(
+      nested.find((group) => group.key === "todo")?.subgroups?.map(({ group }) => ids(group.tasks)),
+    ).toEqual([["t-urgent"], ["t-low"]]);
   });
 
   it("groupByCategory merges states by type, in workflow order, with friendly titles", () => {

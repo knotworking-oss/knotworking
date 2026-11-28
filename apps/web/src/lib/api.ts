@@ -112,7 +112,7 @@ export const getOptionalMe = cache(async () => {
 export const getAuthConfig = cache(async () => unwrap((await client()).v1.public["auth-config"].$get()));
 
 export const getBootstrap = cache((slug: string) =>
-  load((api) => unwrap(ws(api).bootstrap.$get({ param: { slug } }))),
+  load((api) => unwrap(ws(api).bootstrap.$get({ param: { slug }, query: { taskWindow: "recent" } }))),
 );
 
 export const getWorkspaceModuleSettings = cache((slug: string) =>
@@ -183,7 +183,15 @@ export const getWorkspaceCurrency = cache(async (slug: string) =>
 export const getWorkspaceToday = async (slug: string) => todayInZone(await getWorkspaceTimeZone(slug));
 
 export const getTask = cache((slug: string, id: string) =>
-  load((api) => unwrap(ws(api).tasks[":id"].$get({ param: { slug, id } }))),
+  load((api) => unwrap(ws(api).tasks[":id"].$get({ param: { slug, id }, query: { context: "true" } }))),
+);
+
+export const getTaskTimeEntries = cache((slug: string, id: string) =>
+  load((api) => unwrap(ws(api).tasks[":id"]["time-entries"].$get({ param: { slug, id } }))),
+);
+
+export const getTaskFollowing = cache((slug: string, id: string) =>
+  load((api) => unwrap(ws(api).tasks[":id"].following.$get({ param: { slug, id } }))),
 );
 
 /** Comments are fetched per task, not bootstrapped (see docs/architecture.md). */
@@ -1289,6 +1297,9 @@ export type TimeReport = Awaited<ReturnType<typeof getTimeReport>>;
 export type Me = Awaited<ReturnType<typeof getMe>>;
 export type Bootstrap = Awaited<ReturnType<typeof getBootstrap>>;
 export type TaskSummary = Bootstrap["tasks"][number];
+export type SavedTaskView = Bootstrap["taskViews"][number];
+export type ProjectMilestone = Bootstrap["projectMilestones"][number];
+export type ProjectSection = Bootstrap["projectSections"][number];
 /** A dependency: `blockingTaskId` blocks `blockedTaskId`. */
 export type TaskRelation = Bootstrap["taskRelations"][number];
 export type TaskDetail = Awaited<ReturnType<typeof getTask>>;

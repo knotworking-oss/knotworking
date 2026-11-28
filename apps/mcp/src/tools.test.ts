@@ -54,6 +54,11 @@ const READ_TOOLS = [
   "list_tasks",
   "search_tasks",
   "get_task",
+  "list_task_activity",
+  "list_views",
+  "list_milestones",
+  "run_view",
+  "query_tasks",
   "list_projects",
   "get_time_report",
   "list_documents",
@@ -225,6 +230,7 @@ const GATED_TOOLS = [
   "cancel_production_batch",
 ];
 const WRITE_TOOLS = [
+  "bulk_update_tasks",
   "save_crm_lead",
   "convert_crm_lead",
   "save_crm_opportunity",
@@ -336,10 +342,12 @@ const WRITE_TOOLS = [
   "save_management_review",
   "create_task",
   "update_task",
+  "set_task_custom_field",
   "create_comment",
   "create_document",
   "update_document",
   "create_project",
+  "post_project_update",
   "update_project",
   "add_task_dependency",
   "log_time",
@@ -572,6 +580,60 @@ describe("read tools", () => {
     expect((await call("list_projects")).data.total).toBe(1);
     const configured = await session({ defaultWorkspace: "acme" });
     expect((await configured.call("list_projects")).data.total).toBe(1);
+  });
+
+  it("query_tasks forwards the shared filter and pages grouped server results", async () => {
+    const { call, fake } = await session();
+    const filter = JSON.stringify({
+      version: 1,
+      expression: { field: "teamId", op: "eq", value: fake.ids.eng },
+    });
+    const input = { filter, group: "teamId", sort: "manual", limit: 1 };
+    const first = await call("query_tasks", input);
+    expect(first.isError).toBe(false);
+    expect(first.data).toMatchObject({
+      tasks: [{ id: fake.ids.t1 }],
+      groups: [{ key: fake.ids.eng, taskIds: [fake.ids.t1] }],
+      nextCursor: expect.any(String),
+    });
+    const second = await call("query_tasks", { ...input, cursor: first.data.nextCursor });
+    expect(second.isError).toBe(false);
+    expect(second.data).toMatchObject({ tasks: [{ id: fake.ids.t2 }], nextCursor: null });
+    expect((await call("query_tasks", { filter: "{" })).isError).toBe(true);
+  });
+
+  it("lists and runs saved task views with their stored filters", async () => {
+    const { call, fake } = await session();
+    const id = newId();
+    fake.store.taskViews.push({
+      id,
+      name: "No priority",
+      teamId: fake.ids.eng,
+      spec: {
+        filter: { version: 1, expression: { field: "priority", op: "eq", value: 0 } },
+        layout: "board",
+        sort: "priority",
+      },
+    });
+    const list = await call("list_views");
+    expect(list.isError).toBe(false);
+    expect(list.data.views).toMatchObject([{ id, name: "No priority" }]);
+    const page = await call("run_view", { view: id });
+    expect(page.isError).toBe(false);
+    expect(page.data.tasks).toMatchObject([{ id: fake.ids.t2 }]);
+    expect(page.data.tasks).toHaveLength(1);
+  });
+
+  it("updates tasks in one bulk request", async () => {
+    const { call, fake } = await session();
+    const res = await call("bulk_update_tasks", {
+      tasks: [fake.ids.t1, fake.ids.t2],
+      patch: { priority: 1 },
+    });
+    expect(res.isError).toBe(false);
+    expect(res.data.ids).toEqual([fake.ids.t1, fake.ids.t2]);
+    expect(fake.hits("/tasks/bulk", "POST")).toBe(1);
+    expect(fake.store.tasks.map((task) => task.priority)).toEqual([1, 1]);
   });
 
   it("list_tasks resolves names to ids for every filter", async () => {
@@ -820,6 +882,17 @@ describe("read tools", () => {
 });
 
 describe("write tools", () => {
+  it("sets custom task fields and returns them on request", async () => {
+    const { call, fake } = await session();
+    const field = fake.ids.t2;
+    const task = fake.ids.t1;
+    fake.store.taskCustomFields.push({ taskId: task, id: field, name: "Customer reference", value: null });
+    const result = await call("set_task_custom_field", { task, field, value: "ACME-1" });
+    expect(result.isError).toBe(false);
+    expect(result.data).toEqual({ fieldId: field, value: "ACME-1" });
+    const detail = await call("get_task", { task, include_custom_fields: true });
+    expect(detail.data.customFields).toMatchObject([{ id: field, value: "ACME-1" }]);
+  });
   it("create_task resolves team, state, assignee, project and labels by name and converts text to blocks", async () => {
     const { call, fake } = await session();
     const { data, isError } = await call("create_task", {
@@ -865,6 +938,12 @@ describe("write tools", () => {
     // ...and it reads back as the same text.
     const back = (await call("get_task", { task: data.id })).data;
     expect(back.description).toBe("First line\n\nThird line");
+    const history = await call("list_task_activity", { task: data.id, limit: 1 });
+    expect(history.isError).toBe(false);
+    expect(history.data).toMatchObject({
+      events: [{ actorId: fake.ids.me, source: "token", details: { kind: "created" } }],
+      nextCursor: null,
+    });
   });
 
   it("create_task defaults to the team's first state and resolves a state by type when the name misses", async () => {
@@ -1618,6 +1697,19 @@ describe("rate limits on the new tools", () => {
 });
 
 describe("projects", () => {
+  it("posts a project status update and changes the project's health", async () => {
+    const { call, fake } = await session();
+    const project = fake.store.projects[0]!;
+    const result = await call("post_project_update", {
+      project: project.id,
+      health: "at_risk",
+      body: "Waiting for customer sign-off.",
+    });
+    expect(result.isError).toBe(false);
+    expect(result.data).toMatchObject({ projectId: project.id, health: "at_risk", body: { type: "doc" } });
+    expect(project.health).toBe("at_risk");
+  });
+
   it("create_project resolves lead and teams by name and returns the summary", async () => {
     const { call, fake } = await session();
     const { data, isError } = await call("create_project", {

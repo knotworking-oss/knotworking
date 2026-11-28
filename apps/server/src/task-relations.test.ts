@@ -1,4 +1,4 @@
-import { newId } from "@knotworking/core";
+import { newId, textToDoc } from "@knotworking/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeApp, signIn, type TestCtx } from "./test-utils";
 
@@ -16,6 +16,7 @@ describe("task start dates and dependencies", () => {
   let ada: string; // owner
   let marcus: string; // demoted to guest
   let teamId: string;
+  let legacyTaskId: string;
 
   beforeAll(async () => {
     ctx = await makeApp({ seed: true });
@@ -24,7 +25,9 @@ describe("task start dates and dependencies", () => {
     const marcusId = members.find((m: { email: string }) => m.email.startsWith("marcus@")).userId;
     await ctx.req(`${W}/members/${marcusId}`, { method: "PATCH", cookie: ada, json: { role: "guest" } });
     marcus = (await signIn(ctx, "marcus@knotworking.dev")).cookie;
-    teamId = (await boot()).teams[0].id;
+    const initial = await boot();
+    teamId = initial.teams[0].id;
+    legacyTaskId = initial.tasks[0].id;
   }, 60_000);
   afterAll(() => ctx.handle.close());
 
@@ -39,10 +42,229 @@ describe("task start dates and dependencies", () => {
   const newTask = async (title: string, extra: object = {}, team = teamId) => {
     const res = await call("POST", "/tasks", { teamId: team, title, ...extra });
     expect(res.status).toBe(201);
-    return (await res.json()) as { id: string; startDate: string | null; dueDate: string | null };
+    return (await res.json()) as {
+      id: string;
+      reference: string | null;
+      startDate: string | null;
+      dueDate: string | null;
+    };
   };
   const relate = (blockingTaskId: string, blockedTaskId: string, extra: object = {}) =>
     call("POST", "/task-relations", { blockingTaskId, blockedTaskId, ...extra });
+
+  it("keeps symmetric links independent of blocking dependencies", async () => {
+    const a = await newTask("Research");
+    const b = await newTask("Proposal");
+    const path = (id: string) => `/tasks/${id}/links`;
+    const after = await cursor();
+    const response = await call("POST", path(a.id), { kind: "related", targetId: b.id });
+    expect(response.status).toBe(201);
+    const { id } = await response.json();
+    expect(await (await call("GET", path(b.id), undefined, marcus)).json()).toEqual({
+      links: [{ id, kind: "related", task: { id: a.id, title: "Research", reference: a.reference } }],
+    });
+    expect((await call("POST", path(b.id.toUpperCase()), { kind: "related", targetId: a.id })).status).toBe(
+      409,
+    );
+    expect((await call("POST", path(a.id), { kind: "related", targetId: a.id.toUpperCase() })).status).toBe(
+      400,
+    );
+    expect((await call("POST", path(a.id), { kind: "related", targetId: newId() })).status).toBe(404);
+    expect((await call("POST", path(a.id), { kind: "related", targetId: b.id }, marcus)).status).toBe(403);
+    expect((await call("DELETE", `/task-relations/${id}`)).status).toBe(404);
+    expect((await relate(a.id, b.id)).status).toBe(201);
+    expect((await boot()).taskRelations).not.toContainEqual(expect.objectContaining({ id }));
+    expect(await changesAfter(after)).toContainEqual(
+      expect.objectContaining({
+        entity: "task_link",
+        entityId: id,
+        data: { taskIds: [a.id, b.id].sort() },
+      }),
+    );
+    expect((await call("DELETE", `/tasks/${a.id}`)).status).toBe(204);
+    expect(await (await call("GET", path(b.id))).json()).toEqual({ links: [] });
+  });
+
+  it("shows duplicates in both directions and can close the duplicate atomically", async () => {
+    const a = await newTask("Duplicate");
+    const b = await newTask("Original");
+    const c = await newTask("Another original");
+    const canceled = (await boot()).workflowStates.find(
+      (s: { teamId: string; type: string }) => s.teamId === teamId && s.type === "canceled",
+    );
+    const path = (id: string) => `/tasks/${id}/links`;
+    const response = await call("POST", path(a.id), { kind: "duplicate_of", targetId: b.id, close: true });
+    expect(response.status).toBe(201);
+    const { id: linkId } = await response.json();
+    expect(await (await call("GET", `/tasks/${a.id}`)).json()).toMatchObject({
+      stateId: canceled.id,
+      canceledAt: expect.any(String),
+    });
+    expect(await (await call("GET", path(a.id.toUpperCase()))).json()).toMatchObject({
+      links: [{ kind: "duplicate_of", task: { id: b.id } }],
+    });
+    expect(await (await call("GET", path(b.id))).json()).toMatchObject({
+      links: [{ kind: "duplicated_by", task: { id: a.id } }],
+    });
+    expect((await call("POST", path(b.id), { kind: "duplicate_of", targetId: a.id })).status).toBe(409);
+    expect((await call("POST", path(a.id), { kind: "duplicate_of", targetId: c.id })).status).toBe(409);
+    expect((await call("DELETE", `${path(c.id)}/${linkId}`)).status).toBe(404);
+    expect((await call("DELETE", `${path(b.id)}/${linkId}`)).status).toBe(204);
+    expect(await (await call("GET", path(a.id))).json()).toEqual({ links: [] });
+  });
+
+  it("duplicates task properties into a fresh task", async () => {
+    const original = await newTask("Duplicate me", {
+      priority: 2,
+      description: textToDoc("Copy this"),
+      startDate: "2026-12-01",
+      dueDate: "2026-12-02",
+    });
+    const res = await call("POST", `/tasks/${original.id}/duplicate`);
+    expect(res.status).toBe(201);
+    const copy = await res.json();
+    expect(copy.id).not.toBe(original.id);
+    expect(copy).toMatchObject({
+      title: "Duplicate me (copy)",
+      priority: 2,
+      description: textToDoc("Copy this"),
+      startDate: "2026-12-01",
+      dueDate: "2026-12-02",
+      parentId: null,
+    });
+  });
+
+  it("allocates optional short references and keeps a prefix sequence across team renames", async () => {
+    const makeTeam = async (key: string) => {
+      const res = await call("POST", "/teams", { name: key, key });
+      expect(res.status).toBe(201);
+      return res.json();
+    };
+    const team = await makeTeam("REFT");
+    const unnumbered = await newTask("Unnumbered", {}, team.id);
+    expect(unnumbered).toHaveProperty("reference", null);
+    expect((await call("PATCH", `/teams/${team.id}`, { features: ["shortReferences"] })).status).toBe(200);
+    const ordered = await Promise.all(["First", "Second"].map((title) => newTask(title, {}, team.id)));
+    expect(ordered.map((task) => task.reference).sort()).toEqual(["REFT-1", "REFT-2"]);
+    const lookup = await (await call("GET", "/tasks?reference=reft-1")).json();
+    expect(lookup.tasks).toMatchObject([{ reference: "REFT-1" }]);
+    expect((await call("PATCH", `/teams/${team.id}`, { key: "RENAMED" })).status).toBe(200);
+    const reused = await makeTeam("REFT");
+    expect((await call("PATCH", `/teams/${reused.id}`, { features: ["shortReferences"] })).status).toBe(200);
+    expect(await newTask("Third", {}, reused.id)).toHaveProperty("reference", "REFT-3");
+    const moved = await call("PATCH", `/tasks/${lookup.tasks[0].id}`, { teamId: reused.id });
+    expect(await moved.json()).toMatchObject({ reference: "REFT-1", teamId: reused.id });
+  });
+
+  it("moves a task to its equivalent workflow category without resetting completion", async () => {
+    const snapshot = await boot();
+    const other = snapshot.teams.find((team: { id: string }) => team.id !== teamId);
+    const completed = (team: string) =>
+      snapshot.workflowStates.find(
+        (state: { teamId: string; type: string }) => state.teamId === team && state.type === "completed",
+      ).id;
+    const task = await newTask("Move this finished task", { stateId: completed(teamId) });
+    const before = await (await call("GET", `/tasks/${task.id}`)).json();
+    const res = await call("PATCH", `/tasks/${task.id}`, { teamId: other.id });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      teamId: other.id,
+      stateId: completed(other.id),
+      completedAt: before.completedAt,
+    });
+    expect(
+      (await call("PATCH", `/tasks/${task.id}`, { teamId: teamId, stateId: completed(other.id) })).status,
+    ).toBe(400);
+  });
+
+  it("rolls bulk mutations back together and records successful changes", async () => {
+    const snapshot = await boot();
+    const secondTeamId = snapshot.teams.find((team: { id: string }) => team.id !== teamId).id;
+    const stateId = snapshot.workflowStates.find(
+      (state: { teamId: string; type: string }) => state.teamId === teamId && state.type === "started",
+    ).id;
+    const a = await newTask("First bulk row");
+    const b = await newTask("Second bulk row", {}, secondTeamId);
+    const ids = [a.id, b.id];
+    const before = await cursor();
+    const send = (body: unknown) => call("POST", "/tasks/bulk", body);
+    expect((await send({ action: "update", ids, patch: { stateId } })).status).toBe(400);
+    expect((await send({ action: "delete", ids: [a.id, newId()] })).status).toBe(404);
+    expect((await send({ action: "delete", ids: [a.id, a.id] })).status).toBe(400);
+    expect(await changesAfter(before)).toEqual([]);
+    expect((await call("POST", "/tasks/bulk", { action: "delete", ids }, marcus)).status).toBe(403);
+    expect((await send({ action: "update", ids, patch: { priority: 1 } })).status).toBe(200);
+    expect(
+      (await changesAfter(before))
+        .filter((change) => change.entity === "task")
+        .map((change) => change.entityId),
+    ).toEqual(ids);
+    for (const id of ids) {
+      const res = await call("GET", `/tasks/${id}/activity`);
+      expect((await res.json()).events[0].details).toMatchObject({
+        kind: "updated",
+        changes: { priority: { from: 0, to: 1 } },
+      });
+    }
+    expect((await send({ action: "delete", ids })).status).toBe(200);
+    for (const id of ids) expect((await call("GET", `/tasks/${id}`)).status).toBe(404);
+  });
+
+  it("pages task activity, recording real changes and both ends of dependencies", async () => {
+    const seeded = await boot();
+    const oldActivity = await call("GET", `/tasks/${legacyTaskId}/activity`);
+    expect(oldActivity.status).toBe(200);
+    expect(await oldActivity.json()).toEqual({ events: [], nextCursor: null });
+    const a = await newTask("Plan");
+    const b = await newTask("Build");
+    const path = `/tasks/${a.id}/activity`;
+    const labelId = seeded.labels[0].id;
+    const change = { title: "Design", description: textToDoc("Draft content"), labelIds: [labelId] };
+    expect((await call("PATCH", `/tasks/${a.id}`, change)).status).toBe(200);
+    expect((await call("PATCH", `/tasks/${a.id}`, change)).status).toBe(200);
+    expect((await call("PATCH", `/tasks/${a.id}`, { labelIds: [newId()] })).status).toBe(400);
+
+    const relation = await relate(a.id, b.id);
+    expect(relation.status).toBe(201);
+    const { id } = await relation.json();
+    expect((await call("DELETE", `/task-relations/${id}`)).status).toBe(204);
+
+    const response = await call("GET", `${path}?limit=2`, undefined, marcus);
+    expect(response.status).toBe(200);
+    const first = await response.json();
+    expect(first.events.map((event: { details: { kind: string } }) => event.details.kind)).toEqual([
+      "dependency_removed",
+      "dependency_added",
+    ]);
+    expect(first.nextCursor).toBe(first.events[1].id);
+    const second = await (await call("GET", `${path}?limit=2&before=${first.nextCursor}`)).json();
+    expect(second).toMatchObject({
+      events: [
+        {
+          source: "session",
+          details: {
+            kind: "updated",
+            changes: {
+              title: { from: "Plan", to: "Design" },
+              description: { from: false, to: true },
+              labelIds: { from: [], to: [labelId] },
+            },
+          },
+        },
+        { details: { kind: "created" } },
+      ],
+      nextCursor: null,
+    });
+    const other = await (await call("GET", `/tasks/${b.id}/activity`)).json();
+    expect(other.events[0].details).toEqual({
+      kind: "dependency_removed",
+      blockingTaskId: a.id,
+      blockedTaskId: b.id,
+    });
+    expect((await call("GET", `${path}?limit=101`)).status).toBe(400);
+    expect((await call("DELETE", `/tasks/${a.id}`)).status).toBe(204);
+    expect((await call("GET", path)).status).toBe(404);
+  });
 
   describe("start dates", () => {
     it("sets a start date on create and update, and syncs it", async () => {
@@ -234,6 +456,7 @@ describe("task start dates and dependencies", () => {
       expect((await boot()).taskRelations.some((r: { id: string }) => r.id === rel.id)).toBe(false);
       // Tasks of an archived team can't be linked.
       expect((await relate(outside.id, inside.id)).status).toBe(404);
+      expect((await call("GET", `/tasks/${inside.id}/activity`)).status).toBe(404);
 
       const before2 = await cursor();
       expect((await call("PATCH", `/teams/${team.id}`, { archived: false })).status).toBe(200);
@@ -246,6 +469,7 @@ describe("task start dates and dependencies", () => {
         }),
       );
       expect((await boot()).taskRelations).toContainEqual(expect.objectContaining({ id: rel.id }));
+      expect((await call("GET", `/tasks/${inside.id}/activity`)).status).toBe(200);
       // While it was hidden the relation still counted for cycle checks, so restoring can't reveal a cycle.
       expect((await relate(outside.id, inside.id)).status).toBe(409);
     });

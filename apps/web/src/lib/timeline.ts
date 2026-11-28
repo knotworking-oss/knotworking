@@ -7,7 +7,7 @@
  * time zone or daylight saving. Days are inclusive: a task from the 3rd to the 5th covers three days.
  */
 
-import { compareSortKeys } from "@knotworking/core";
+import { compareSortKeys, type SubtaskRollup } from "@knotworking/core";
 
 // ─── Days ────────────────────────────────────────────────────────────────────
 
@@ -158,6 +158,7 @@ export interface TimelineTask {
   startDate: string | null;
   dueDate: string | null;
   sortOrder: string;
+  subtaskRollup?: SubtaskRollup;
 }
 
 /**
@@ -212,7 +213,10 @@ export function timelineRows<T extends TimelineTask>(
     if (visiting.has(t.id)) return null; // malformed parent cycle
     visiting.add(t.id);
     const own = taskSpan(t)?.start ?? null;
-    const days = [own, ...(children.get(t.id) ?? []).map(earliest)].filter((d): d is number => d !== null);
+    const rolledUp = t.subtaskRollup ? (taskSpan(t.subtaskRollup)?.start ?? null) : null;
+    const days = [own, rolledUp, ...(children.get(t.id) ?? []).map(earliest)].filter(
+      (d): d is number => d !== null,
+    );
     const first = days.length ? Math.min(...days) : null;
     firstDay.set(t.id, first);
     return first;

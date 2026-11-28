@@ -180,6 +180,41 @@ Comment writes still go through a transaction that calls `recordChanges` (`comme
 - Replies (`parentId`) are accepted by the API, must point at a live comment on the same task, and are deleted with their parent. The task page shows a flat thread for now.
 - Comments on a deleted task are not served.
 
+### Task queries
+
+`GET /v1/workspaces/:slug/tasks` returns compact task summaries with `nextCursor` (`null` at the end). It accepts the existing `teamId`, `projectId`, `assigneeId` and `stateType` parameters. They combine with the optional URL-encoded JSON `filter`, for example:
+
+```json
+{
+  "version": 1,
+  "expression": {
+    "and": [
+      { "field": "assigneeId", "op": "eq", "value": null },
+      { "field": "dueDate", "op": "lte", "value": "2026-12-31" }
+    ]
+  }
+}
+```
+
+- Conditions accept `eq` and `ne` on `teamId`, `stateId`, `stateType`, `assigneeId`, `creatorId`, `projectId`, `milestoneId`, `parentId`, `labelId`, `priority`, `hasSubtasks` and `blocked`. Label comparisons test membership. A task is blocked when a live task on a visible team blocks it and that blocker is still open.
+- Date conditions also accept `lt`, `lte`, `gt` and `gte`. Use `YYYY-MM-DD` for `startDate` and `dueDate`, and ISO datetimes with a timezone for `createdAt`, `updatedAt` and `completedAt`. Nullable fields accept `null` with `eq` and `ne`. Range comparisons exclude unset values.
+- An expression can nest `and` and `or` groups up to five levels, with 16 children per group and 64 nodes total. The filter parameter is limited to 8,192 characters before URL encoding.
+- `sort` accepts `manual`, `priority`, `created` and `updated`. Omitting it uses the legacy ordering by manual key then newest creation time. Every sort has an ID tie-breaker.
+- `group` accepts `teamId`, `projectId`, `assigneeId`, `stateId`, `stateType`, `priority`, `labelIds` and `dueWeek`. The label group uses the first label ID. Due weeks start on Monday. Groups order by key with unset values first. The page's `groups` array contains `{ key, taskIds }` entries for the returned tasks. A group can span pages.
+- `title` optionally narrows the query by case-insensitive substring of the title or short reference. `reference` matches a complete short reference. `includeRelations=true` returns the visible dependencies touching at least one task on the page.
+- `closedBefore` adds the historical bootstrap cutoff to the query. It combines with the saved or URL filter without nesting that expression further.
+- `limit` is 1–500, default 250. Continue with `cursor=nextCursor` and the same query parameters apart from the page size. A cursor marks a position in the ordering. Edits between requests can move tasks across that position.
+
+SQL filters and paginates before task summaries are returned. The browser uses the shared filter evaluator on the workspace snapshot. MCP exposes the paginated API through `query_tasks`.
+
+### Recent-task bootstrap
+
+The browser requests `GET /bootstrap?taskWindow=recent`. It gets every open task and closed tasks updated since the start of the workspace day 30 calendar days ago by default. Owners and admins can change `closedTaskWindowDays` in General settings. Closed tasks include completed and canceled tasks. This uses last update so that an older closed task returns to the working set when someone edits it.
+
+The `closedWindow` object contains the cutoff and full-workspace task, label and project aggregates. Task label links, dependencies and completed time entries are limited to the loaded tasks. Running timers stay in the snapshot. Task pages fetch their parent, children, dependencies and time entries directly. The browser loads older tasks in pages on request and searches older titles from the command menu and task picker.
+
+Omitting `taskWindow` returns the complete replica for API clients, including MCP. Both modes use the same sync cursor and stream. The browser can accept a reopened task immediately and fetch its unchanged links and time history. The window applies at snapshot time and its cutoff is recalculated on the next bootstrap.
+
 ### Task dates and dependencies
 
 Tasks have an optional `startDate` next to `dueDate` (both `YYYY-MM-DD`), groundwork for a timeline/Gantt view. A start date after the due date is refused with `400 invalid_input`: the shared schema checks both when they are sent together, and the server checks a PATCH of one against the stored other.

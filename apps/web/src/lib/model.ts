@@ -1,11 +1,21 @@
 import {
   compareSortKeys,
+  hasTeamFeature,
+  priorityLabels,
   sortKeyForMove,
+  taskDisplayGroups,
+  taskOrderings,
   workflowStateTypes,
+  type TaskOrdering,
+  type TaskDisplayGroup,
+  type Priority,
+  type TeamFeature,
   type WorkflowStateType,
 } from "@knotworking/core";
 import type { Bootstrap, TaskRelation, TaskSummary, WorkflowState } from "./api";
 import { loggedByTask } from "./time";
+import { fromDay, startOfWeekDay, toDay } from "./timeline";
+import { formatShortDate } from "./format";
 
 /**
  * Normalised lookups over the bootstrap snapshot — the same shape a local
@@ -15,15 +25,22 @@ export function indexWorkspace(boot: Bootstrap) {
   const byId = <T extends { id: string }>(rows: T[]) => new Map(rows.map((r) => [r.id, r]));
   const states = byId(boot.workflowStates);
   const tasks = byId(boot.tasks);
+  const teams = byId(boot.teams);
   const relations = indexRelations(boot.taskRelations ?? [], tasks);
   return {
     boot,
     users: byId(boot.users),
-    teams: byId(boot.teams),
+    teams,
+    hasTeamFeature: (teamId: string, feature: TeamFeature) => {
+      const team = teams.get(teamId);
+      return !!team && hasTeamFeature(team, feature);
+    },
     teamsByKey: new Map(boot.teams.map((t) => [t.key, t])),
     states,
     labels: byId(boot.labels),
     projects: byId(boot.projects),
+    milestones: byId(boot.projectMilestones ?? []),
+    sections: byId(boot.projectSections ?? []),
     documents: byId(boot.documents ?? []),
     tasks,
     /** Finished minutes logged per task. */
@@ -71,6 +88,118 @@ export interface TaskGroup {
   type: WorkflowStateType;
   progress?: number;
   tasks: TaskSummary[];
+  group?: { field: Exclude<TaskDisplayGroup, "status">; value: string | null };
+  subgroups?: { key: string; group: TaskGroup }[];
+}
+
+export function withTaskSubgroups(
+  groups: TaskGroup[],
+  subgroup: (tasks: TaskSummary[]) => TaskGroup[],
+): TaskGroup[] {
+  return groups.map((group) => ({
+    ...group,
+    subgroups: subgroup(group.tasks)
+      .filter((child) => child.tasks.length)
+      .map((child) => ({ key: JSON.stringify([group.key, child.key]), group: child })),
+  }));
+}
+
+export const taskGroupLabels: Record<TaskDisplayGroup, string> = {
+  status: "Status",
+  assigneeId: "Assignee",
+  projectId: "Project",
+  priority: "Priority",
+  labelIds: "First label",
+  dueWeek: "Due week",
+  sectionId: "Project section",
+};
+
+export const parseTaskGroup = (value: string | null | undefined) =>
+  taskDisplayGroups.find((field) => field === value);
+
+export function groupTasksBy(
+  tasks: TaskSummary[],
+  idx: WorkspaceIndex,
+  field: Exclude<TaskDisplayGroup, "status">,
+  ordering: TaskOrdering,
+  projectId?: string,
+): TaskGroup[] {
+  const groups = new Map<string | null, TaskGroup>();
+  if (field === "sectionId" && projectId) {
+    for (const row of idx.sections.values()) {
+      if (row.projectId === projectId)
+        groups.set(row.id, {
+          key: `sectionId:${row.id}`,
+          title: row.name,
+          type: "backlog",
+          group: { field, value: row.id },
+          tasks: [],
+        });
+    }
+    groups.set(null, {
+      key: "sectionId:",
+      title: "No section",
+      type: "backlog",
+      group: { field, value: null },
+      tasks: [],
+    });
+  }
+  for (const task of tasks) {
+    let value: string | null;
+    let title: string;
+    switch (field) {
+      case "assigneeId":
+        value = task.assigneeId;
+        title = value ? (idx.users.get(value)?.name ?? "Former member") : "Unassigned";
+        break;
+      case "projectId":
+        value = task.projectId;
+        title = value ? (idx.projects.get(value)?.name ?? "Project") : "No project";
+        break;
+      case "priority":
+        value = String(task.priority);
+        title = priorityLabels[task.priority as Priority];
+        break;
+      case "labelIds":
+        value = [...task.labelIds].sort()[0] ?? null;
+        title = value ? (idx.labels.get(value)?.name ?? "Label") : "No labels";
+        break;
+      case "sectionId":
+        value = task.sectionId ?? null;
+        title = value ? (idx.sections.get(value)?.name ?? "Section") : "No section";
+        break;
+      case "dueWeek": {
+        const due = toDay(task.dueDate);
+        value = due === null ? null : fromDay(startOfWeekDay(due));
+        title = value ? `Week of ${formatShortDate(value)}` : "No due date";
+        break;
+      }
+    }
+    const existing = groups.get(value);
+    if (existing) existing.tasks.push(task);
+    else
+      groups.set(value, {
+        key: `${field}:${value ?? ""}`,
+        title,
+        type: "backlog",
+        group: { field, value },
+        tasks: [task],
+      });
+  }
+  const ordered = [...groups.values()].sort((a, b) => {
+    const left = a.group!.value;
+    const right = b.group!.value;
+    if (left === null || right === null) return left === null ? 1 : -1;
+    if (field === "dueWeek") return compareSortKeys(left, right);
+    if (field === "sectionId")
+      return compareSortKeys(
+        idx.sections.get(left)?.sortOrder ?? "",
+        idx.sections.get(right)?.sortOrder ?? "",
+      );
+    if (field === "priority") return priorityRank(Number(left)) - priorityRank(Number(right));
+    return a.title.localeCompare(b.title);
+  });
+  return ordered.map((group) => ({ ...group, tasks: orderTasks(group.tasks, ordering) }));
 }
 
 /** Group by workflow state (single team) — keeps team-specific states like "In Review". */
@@ -120,8 +249,7 @@ export function groupByCategory(
     }));
 }
 
-export const taskOrderings = ["priority", "manual", "created", "updated"] as const;
-export type TaskOrdering = (typeof taskOrderings)[number];
+export { taskOrderings, type TaskOrdering };
 export const orderingLabels: Record<TaskOrdering, string> = {
   priority: "Priority",
   manual: "Manual",

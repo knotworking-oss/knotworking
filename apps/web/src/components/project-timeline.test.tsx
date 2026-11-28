@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   taskPatch: vi.fn(),
   syncGet: vi.fn(),
+  rollupsGet: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => {
@@ -41,6 +42,7 @@ vi.mock("@/lib/auth-client", async () => {
       workspaces: {
         ":slug": {
           tasks: { ":id": { $patch: mocks.taskPatch } },
+          projects: { ":id": { "subtask-rollups": { $get: mocks.rollupsGet } } },
           sync: { $get: mocks.syncGet },
         },
       },
@@ -70,6 +72,7 @@ beforeEach(() => {
   mocks.syncGet.mockImplementation(async () =>
     json({ changes: [] as SyncChange[], cursor: "0", hasMore: false }),
   );
+  mocks.rollupsGet.mockImplementation(async () => json({ rollups: {} }));
 });
 
 const ppd = PX_PER_DAY.week; // the default zoom
@@ -131,6 +134,22 @@ function chart(props: Partial<React.ComponentProps<typeof GanttChart>> = {}) {
 const bar = (name: RegExp) => screen.getByRole("button", { name });
 
 describe("GanttChart", () => {
+  it("shows a schedule and progress for a parent whose dated subtasks are outside the visible window", () => {
+    chart({
+      tasks: [
+        g("parent", {
+          title: "Parent",
+          subtaskRollup: { total: 4, completed: 3, startDate: "2026-10-01", dueDate: "2026-10-04" },
+        }),
+      ],
+    });
+    expect(within(screen.getByRole("list", { name: "Tasks" })).getByText("3/4")).toBeDefined();
+    expect(screen.getByRole("img", { name: "Parent subtask dates, 01/10 – 04/10" }).style.width).toBe(
+      `${4 * ppd}px`,
+    );
+    expect(screen.queryByRole("button", { name: /^Parent:/ })).toBeNull();
+  });
+
   it("lists rows by start date with subtasks under their parent", () => {
     chart();
     const names = within(screen.getByRole("list", { name: "Tasks" }))

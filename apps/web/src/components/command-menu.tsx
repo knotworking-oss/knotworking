@@ -58,6 +58,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { toast } from "sonner";
 import { browserApi, errorMessage, unwrap } from "@/lib/auth-client";
 import { useContentSearch } from "@/lib/content-search";
+import { useHistoricalTaskSearch } from "@/lib/historical-task-search";
 import { areaHref, visibleAreas, type NavAccess } from "@/lib/sidebar-nav";
 import { useWorkspace } from "@/lib/workspace-store";
 import { useNewTask } from "./new-task-dialog";
@@ -66,7 +67,7 @@ import { useShortcutsHelp } from "./shortcuts-help";
 
 export interface CommandData {
   slug: string;
-  tasks: { id: string; title: string; stateType: WorkflowStateType }[];
+  tasks: { id: string; title: string; reference?: string | null; stateType: WorkflowStateType }[];
   documents: { id: string; title: string; icon: string | null }[];
   teams: { key: string; name: string; icon: string | null }[];
 }
@@ -83,7 +84,7 @@ export function CommandMenuProvider({ data, children }: { data: CommandData; chi
   const [query, setQuery] = useState("");
   const router = useRouter();
   const { setTheme, resolvedTheme } = useTheme();
-  const { canEdit, can, modules } = useWorkspace();
+  const { canEdit, can, modules, idx } = useWorkspace();
   const newTask = useNewTask();
   const shortcutsHelp = useShortcutsHelp();
 
@@ -105,6 +106,19 @@ export function CommandMenuProvider({ data, children }: { data: CommandData; chi
 
   // Matches inside doc and task bodies come from the server (debounced); titles are filtered locally.
   const content = useContentSearch({ slug: data.slug, query, enabled: open });
+  const historical = useHistoricalTaskSearch(query, open && can("tasks"));
+  const taskIds = new Set(data.tasks.map((task) => task.id));
+  const taskChoices = [
+    ...data.tasks,
+    ...historical
+      .filter((task) => !taskIds.has(task.id))
+      .map((task) => ({
+        id: task.id,
+        title: task.title,
+        reference: task.reference,
+        stateType: idx.states.get(task.stateId)?.type ?? ("unstarted" as const),
+      })),
+  ];
 
   const go = (href: string) => {
     setOpen(false);
@@ -388,15 +402,18 @@ export function CommandMenuProvider({ data, children }: { data: CommandData; chi
             </CommandGroup>
             <CommandSeparator />
             <CommandGroup heading="Tasks">
-              {data.tasks.map((i) => (
+              {taskChoices.map((i) => (
                 <CommandItem
                   key={i.id}
                   value={`task ${i.id} ${i.title}`}
-                  keywords={[i.title]}
+                  keywords={i.reference ? [i.title, i.reference] : [i.title]}
                   onSelect={() => go(`${base}/task/${i.id}`)}
                 >
                   <StatusIcon type={i.stateType} />
-                  <span className="truncate">{i.title}</span>
+                  <span className="truncate">
+                    {i.reference ? `${i.reference} ` : ""}
+                    {i.title}
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>

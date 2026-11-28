@@ -52,11 +52,16 @@ export function ProjectActions({
   onDeleted?: () => void;
   className?: string;
 }) {
-  const { canEditTasks: canEdit, tasks, deleteProject } = useWorkspace();
+  const { canEditTasks: canEdit, tasks, idx, deleteProject } = useWorkspace();
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   if (!canEdit) return null;
-  const taskCount = tasks.filter((t) => t.projectId === project.id).length;
+  const counts = idx.boot.closedWindow?.projectCounts[project.id];
+  const taskCount = idx.boot.closedWindow
+    ? counts
+      ? counts.open + counts.completed + counts.canceled
+      : 0
+    : tasks.filter((t) => t.projectId === project.id).length;
 
   return (
     <>

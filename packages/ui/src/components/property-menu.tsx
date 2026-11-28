@@ -34,6 +34,7 @@ type PropertyMenuProps = Selection & {
   emptyText?: string
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  onSearchChange?: (search: string) => void
   align?: "start" | "center" | "end"
   className?: string
   /** Called as the menu closes and focus is about to return to the trigger; `preventDefault()` to focus elsewhere. */
@@ -52,6 +53,7 @@ function PropertyMenu({
   emptyText = "No results",
   open: openProp,
   onOpenChange,
+  onSearchChange,
   align = "start",
   className,
   onCloseAutoFocus,
@@ -64,6 +66,10 @@ function PropertyMenu({
     onOpenChange?.(o)
   }
   const [search, setSearch] = React.useState("")
+  const changeSearch = (value: string) => {
+    setSearch(value)
+    onSearchChange?.(value)
+  }
 
   const isSelected = (value: string) =>
     selection.multiple ? selection.value.includes(value) : selection.value === value
@@ -95,7 +101,7 @@ function PropertyMenu({
       open={open}
       onOpenChange={(o) => {
         setOpen(o)
-        if (!o) setSearch("")
+        if (!o) changeSearch("")
       }}
     >
       <PopoverTrigger asChild>{children}</PopoverTrigger>
@@ -109,7 +115,7 @@ function PropertyMenu({
         onClick={(e) => e.stopPropagation()}
       >
         <Command onKeyDown={onKeyDown} filter={matches}>
-          <CommandInput placeholder={placeholder} value={search} onValueChange={setSearch} />
+          <CommandInput placeholder={placeholder} value={search} onValueChange={changeSearch} />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>

@@ -175,6 +175,64 @@ A module is done when all of this is true. The tests named here fail if a step i
 9. **Dates**: decide every business date in the workspace's time zone (`todayIn(c)`, `workspaceToday`, the `@knotworking/core` `time-zone.ts` helpers; see [architecture.md](architecture.md#the-workspace-time-zone)), never with `toISOString().slice(0, 10)` or the browser's zone.
 10. **Docs**: a section here and in `docs/data-model.md`; tools listed in `docs/mcp.md`.
 
+## Task activity
+
+The task page fetches Activity on demand. `GET /tasks/:id/activity` requires Tasks read access and supports read-scoped tokens. It returns the newest events first, with a default limit of 25 and a maximum of 100. Pass `nextCursor` as `before` for older entries. MCP exposes the same history through `list_task_activity`.
+
+Task creation, direct edits including label changes, and explicit dependency additions and removals are recorded in the task write transaction. Dependency events appear on both tasks. Description edits record whether a description was present before and after. Events identify the actor and whether the write came through a session, a personal token or an internal service. History starts with this migration.
+
+## Planner settings
+
+Owners and admins can set the recent closed-task window under General settings. Team settings hold three independent preferences for cycles, triage and point estimates. `PATCH /teams/:id` accepts a `features` array containing any of `cycles`, `triage` and `estimates`. An empty array turns them all off, and leaving the field out preserves the current switches. They sync with the team row and will gate those capabilities as they ship.
+
+Enable **Short task references** (`shortReferences`) for a team to give its new tasks references such as `ENG-42`. Existing references survive moves and team renames. Search by reference in the command menu or with `GET /tasks?reference=ENG-42`. UUIDs remain the canonical task identifiers.
+
+## Saved task views
+
+Save a list, board or calendar from its filter bar to reuse its filters, layout and sort order. Open it under Views in the workspace sidebar or from its team. Personal views are visible to their creator. Team views appear under a team and can be read by anyone with Tasks access in the workspace. Workspace views require Tasks manage access to create. The owner or a Tasks manager can change a shared view. The API serves these records under `/tasks/views` and the current viewer's bootstrap.
+
+The task Calendar offers month and week views. A task appears on each day from its planned start through its due date, or on the single date it has. Moving a task to a different day preserves the length of the span. Calendar is also a saved-view layout.
+
+**Display → Group by** groups tasks by status, assignee, project, priority, first label or due week. A task appears in one label group, determined by the lowest label ID. Drag within a label group to reorder. Other groups apply their property when a task is moved between them.
+
+Choose **Select tasks** on a list or board to update priority, status, assignee, project or labels, or delete a selection. Shift-click selects a range, and X toggles the focused row in selection mode. One bulk request can change up to 200 tasks atomically. A bulk status change requires tasks from one team. The API accepts the selection and its action at `POST /tasks/bulk`.
+
+## Task followers
+
+Task creators, assignees and commenters follow the task automatically. Anyone with Tasks read access can follow or unfollow for themselves. An explicit unfollow persists when they comment or get assigned again. Status and comment notifications go to followers, and assignment notifications still go to the new assignee. The task page fetches the current person's preference and the follower count on demand at `GET /tasks/:id/following`. `PUT` on the same route updates their preference.
+
+Use **Duplicate task** from a task's actions menu to create a new task in its team's default workflow state. The copy carries its description, project, labels, assignee, priority, dates and estimate. It starts with its own history and can be edited independently.
+
+Move one task from its actions menu or choose **Move to team** for a selection. The destination's workflow supplies a state in the same category when possible. Moving a completed task to an equivalent state preserves its completion time.
+
+## Project milestones
+
+Add milestones with optional target dates on a project's page. Assign a task to one of its project's milestones from the task properties. Milestone progress includes completed and open tasks across the full project history. Dated milestones appear as diamonds on the timeline, and the task filter bar can select a milestone. The Client kickoff template creates a kickoff milestone and links tasks due on or before that date.
+
+## Project sections
+
+Add, rename, or reorder sections from a project's page. In **Display → Group by → Project section**, lists and boards show the project's sections in their configured order. Moving a task between sections keeps its workflow status. Deleting a section leaves its tasks in the project with no section. Sections are also available in the filter bar and saved views.
+
+## Project people
+
+The People section lists the project lead and contributors. Task writers can add or remove contributors. The lead and contributors follow the project by default, and anyone with Tasks read access can choose their own follow preference. Changing membership leaves an explicit follow or unfollow preference in place. Project access still follows the workspace's Tasks grant.
+
+## Project status updates
+
+Post an update on a project to save a rich-text status message, set its health, and notify its followers. Updates and their comments load in pages. An active project's lead gets a reminder after seven workspace calendar days without an update, at most once per workspace week.
+
+Task details show related tasks and duplicates. A related link appears on both tasks. A duplicate can point to one original and can move to a canceled workflow state when linked. These links are fetched from `GET /tasks/:id/links`, while blocking dependencies continue to drive blocked filters and timeline arrows.
+
+The Employee onboarding and Client kickoff templates define ordered sections. The task preview shows each step's section, and creating the project assigns its tasks to those sections within the same transaction.
+
+**Display → Visible properties** controls the details shown in task lists and boards. The URL carries the selection, and saving the view keeps it. Row and card keyboard shortcuts still open the assignee, label and priority pickers.
+
+**Display → Subgroup by** splits each list section or board column by a second property. The selection is saved with the view, and dragging into a populated subgroup updates both grouped properties where they can be edited by drag.
+
+### Custom fields
+
+Open **Views → Custom fields** to define task and project fields. Tasks managers can create fields for the workspace, a team or a project. Task writers can set and clear values on the applicable record. Supported types are text, number, date, single select, multiple select, person, checkbox and URL. Workspace task search includes applicable text and URL values. Definition changes by API token require the **Manage custom fields** action under API access.
+
 ## General business workflows
 
 - **Project templates.** Open Projects → Use template. The picker groups ten built-in templates by workflow:

@@ -6,6 +6,9 @@ import {
 } from "@knotworking/core";
 import {
   documents,
+  lockWorkspaceLog,
+  projectMilestones,
+  projectSections,
   projects,
   projectTeams,
   recordChanges,
@@ -200,6 +203,7 @@ export async function updateProject(
  */
 export async function deleteProject(db: Database, workspaceId: string, actorId: string, projectId: string) {
   await db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, workspaceId);
     // Acceptance links a newly created project in the same transaction. An existing project
     // cannot acquire an accepted quote between this check and deletion.
     const [delivery] = await tx
@@ -230,9 +234,19 @@ export async function deleteProject(db: Database, workspaceId: string, actorId: 
     if (!row) throw notFound("Project");
 
     const links = await tx.delete(projectTeams).where(eq(projectTeams.projectId, projectId)).returning();
+    const milestones = await tx
+      .update(projectMilestones)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(projectMilestones.projectId, projectId), isNull(projectMilestones.deletedAt)))
+      .returning({ id: projectMilestones.id });
+    const sections = await tx
+      .update(projectSections)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(projectSections.projectId, projectId), isNull(projectSections.deletedAt)))
+      .returning({ id: projectSections.id });
     const detachedTasks = await tx
       .update(tasks)
-      .set({ projectId: null })
+      .set({ projectId: null, milestoneId: null, sectionId: null })
       .where(and(eq(tasks.projectId, projectId), isNull(tasks.deletedAt)))
       .returning();
     const detachedDocs = await tx
@@ -241,8 +255,18 @@ export async function deleteProject(db: Database, workspaceId: string, actorId: 
       .where(and(eq(documents.projectId, projectId), isNull(documents.deletedAt)))
       .returning();
 
-    await recordChanges(tx, workspaceId, actorId, [
+    const changes: Change[] = [
       { entity: "project", entityId: projectId, action: "delete" },
+      ...sections.map((section) => ({
+        entity: "project_section" as const,
+        entityId: section.id,
+        action: "delete" as const,
+      })),
+      ...milestones.map((m) => ({
+        entity: "project_milestone" as const,
+        entityId: m.id,
+        action: "delete" as const,
+      })),
       ...links.map((l) => ({ entity: "project_team" as const, entityId: l.id, action: "delete" as const })),
       ...detachedTasks.map((t) => ({
         entity: "task" as const,
@@ -256,6 +280,9 @@ export async function deleteProject(db: Database, workspaceId: string, actorId: 
         action: "upsert" as const,
         data: d,
       })),
-    ]);
+    ];
+    for (let at = 0; at < changes.length; at += 500) {
+      await recordChanges(tx, workspaceId, actorId, changes.slice(at, at + 500));
+    }
   });
 }

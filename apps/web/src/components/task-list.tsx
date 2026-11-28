@@ -1,6 +1,6 @@
 "use client";
 
-import type { Priority } from "@knotworking/core";
+import type { Priority, TaskViewProperty } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import {
   Empty,
@@ -32,6 +32,7 @@ import {
   StatusPicker,
 } from "./task-pickers";
 import { useWorkspaceTimeZone } from "@/lib/workspace-time";
+import { BulkTaskCheckbox, useBulkTaskRow } from "./bulk-task-controls";
 
 /**
  * Dense list grouped by status. Rows can be dragged within and between groups, and navigated from the
@@ -41,15 +42,27 @@ export function TaskList({
   groups,
   onDrop,
   onCreate,
+  properties,
   emptyDescription = "Tasks assigned to you or your teams will show up here.",
 }: {
   groups: TaskGroup[];
   onDrop: DropHandler;
-  onCreate?: (group: TaskGroup) => void;
+  onCreate?: (group: TaskGroup, subgroup?: TaskGroup) => void;
+  properties: ReadonlySet<TaskViewProperty>;
   emptyDescription?: string;
 }) {
   const { canEditTasks: canEdit } = useWorkspace();
-  if (groups.every((g) => g.tasks.length === 0)) {
+  const sections = groups.flatMap<{ group: TaskGroup; primary: TaskGroup; secondary?: TaskGroup }>(
+    (parent) =>
+      parent.subgroups?.length
+        ? parent.subgroups.map((child) => ({
+            group: { ...child.group, key: child.key, title: `${parent.title} / ${child.group.title}` },
+            primary: parent,
+            secondary: child.group,
+          }))
+        : [{ group: parent, primary: parent }],
+  );
+  if (groups.every((g) => g.tasks.length === 0 && g.group?.field !== "sectionId")) {
     return (
       <Empty className="h-full">
         <EmptyHeader>
@@ -72,21 +85,21 @@ export function TaskList({
   }
   return (
     <TaskDndProvider
-      groups={groups}
+      groups={sections.map((section) => section.group)}
       onDrop={onDrop}
-      renderOverlay={(task) => <RowContent task={task} overlay />}
+      renderOverlay={(task) => <RowContent task={task} properties={properties} overlay />}
     >
       {({ columns, dragging }) => (
         <TaskKeyboardNav dragging={dragging}>
           <div className="flex flex-col">
-            {groups.map((g) => {
+            {sections.map(({ group: g, primary, secondary }) => {
               const items = columns[g.key] ?? [];
               // Empty groups appear while dragging so they can be dropped into.
-              if (items.length === 0 && !dragging) return null;
+              if (items.length === 0 && !dragging && g.group?.field !== "sectionId") return null;
               return (
                 <section key={g.key} aria-label={g.title}>
                   <div className="sticky top-0 z-20 flex h-9 items-center gap-2 border-b bg-muted/60 px-4 text-sm backdrop-blur">
-                    <StatusIcon type={g.type} progress={g.progress} />
+                    {!g.group && <StatusIcon type={g.type} progress={g.progress} />}
                     <span className="font-medium">{g.title}</span>
                     <span className="text-muted-foreground tabular-nums">{items.length}</span>
                     {canEdit && onCreate && (
@@ -95,7 +108,7 @@ export function TaskList({
                         size="icon-xs"
                         className="ml-auto text-muted-foreground"
                         aria-label={`New task in ${g.title}`}
-                        onClick={() => onCreate(g)}
+                        onClick={() => onCreate(primary, secondary)}
                       >
                         <Plus />
                       </Button>
@@ -108,7 +121,7 @@ export function TaskList({
                     className="min-h-1 data-over:bg-muted/40 [&:empty]:min-h-10"
                   >
                     {items.map((task) => (
-                      <TaskRow key={task.id} task={task} column={g.key} />
+                      <TaskRow key={task.id} task={task} column={g.key} properties={properties} />
                     ))}
                   </TaskDropZone>
                 </section>
@@ -121,9 +134,18 @@ export function TaskList({
   );
 }
 
-function TaskRow({ task, column }: { task: TaskSummary; column: string }) {
+function TaskRow({
+  task,
+  column,
+  properties,
+}: {
+  task: TaskSummary;
+  column: string;
+  properties: ReadonlySet<TaskViewProperty>;
+}) {
   const { slug, canEditTasks: canEdit } = useWorkspace();
-  const { nodeProps, handleProps, isDragging } = useSortableTask(task.id, !canEdit);
+  const selection = useBulkTaskRow(task.id);
+  const { nodeProps, handleProps, isDragging } = useSortableTask(task.id, !canEdit || selection.selecting);
   const { linkRef, menus, rowProps } = useTaskRow(task, column);
   return (
     <li {...nodeProps} {...rowProps} className={cn("group/row relative", isDragging && "z-10 opacity-40")}>
@@ -133,8 +155,10 @@ function TaskRow({ task, column }: { task: TaskSummary; column: string }) {
         aria-label={task.title}
         className="peer absolute inset-0 z-0 focus-visible:outline-none"
         {...handleProps}
+        onClick={selection.onClick}
+        {...(selection.selecting ? { onKeyDown: selection.onKeyDown } : {})}
       />
-      <RowContent task={task} menus={menus} />
+      <RowContent task={task} menus={menus} properties={properties} />
     </li>
   );
 }
@@ -144,11 +168,13 @@ function RowContent({
   task,
   overlay,
   menus,
+  properties,
 }: {
   task: TaskSummary;
   overlay?: boolean;
   /** Keyboard-controlled menu state; absent for the drag overlay. */
   menus?: RowMenuProps;
+  properties: ReadonlySet<TaskViewProperty>;
 }) {
   const timeZone = useWorkspaceTimeZone();
   const { idx, canEditTasks: canEdit, updateTask } = useWorkspace();
@@ -170,18 +196,25 @@ function RowContent({
         overlay && "rounded-md border bg-background shadow-lg",
       )}
     >
-      <PriorityPicker
-        value={task.priority as Priority}
-        onChange={(priority) => updateTask(task.id, { priority })}
-        {...menus?.("priority")}
-      >
-        <PriorityChip
-          priority={task.priority as Priority}
-          showName={false}
-          className={control}
-          disabled={!canEdit}
-        />
-      </PriorityPicker>
+      {!overlay && <BulkTaskCheckbox task={task} />}
+      {(properties.has("priority") || menus) && (
+        <PriorityPicker
+          value={task.priority as Priority}
+          onChange={(priority) => updateTask(task.id, { priority })}
+          {...menus?.("priority")}
+        >
+          {properties.has("priority") ? (
+            <PriorityChip
+              priority={task.priority as Priority}
+              showName={false}
+              className={control}
+              disabled={!canEdit}
+            />
+          ) : (
+            <MenuAnchor />
+          )}
+        </PriorityPicker>
+      )}
       <StatusPicker
         teamId={task.teamId}
         value={task.stateId}
@@ -190,8 +223,13 @@ function RowContent({
       >
         <StatusChip stateId={task.stateId} showName={false} className={control} disabled={!canEdit} />
       </StatusPicker>
-      <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
-      {blockers > 0 && <BlockedBadge count={blockers} />}
+      <span className="min-w-0 flex-1 truncate font-medium">
+        {task.reference && (
+          <span className="mr-2 text-xs font-normal text-muted-foreground">{task.reference}</span>
+        )}
+        {task.title}
+      </span>
+      {properties.has("blockers") && blockers > 0 && <BlockedBadge count={blockers} />}
       {menus && (
         <LabelsPicker
           value={task.labelIds}
@@ -202,22 +240,25 @@ function RowContent({
           <MenuAnchor />
         </LabelsPicker>
       )}
-      <span className="hidden items-center gap-1.5 md:flex">
-        {task.labelIds.slice(0, 2).map((id) => {
-          const l = idx.labels.get(id);
-          return l ? (
-            <LabelBadge key={id} color={l.color}>
-              {l.name}
+      {(properties.has("labels") || properties.has("project")) && (
+        <span className="hidden items-center gap-1.5 md:flex">
+          {properties.has("labels") &&
+            task.labelIds.slice(0, 2).map((id) => {
+              const l = idx.labels.get(id);
+              return l ? (
+                <LabelBadge key={id} color={l.color}>
+                  {l.name}
+                </LabelBadge>
+              ) : null;
+            })}
+          {properties.has("project") && project && (
+            <LabelBadge color={project.color} className="hidden lg:inline-flex">
+              {project.name}
             </LabelBadge>
-          ) : null;
-        })}
-        {project && (
-          <LabelBadge color={project.color} className="hidden lg:inline-flex">
-            {project.name}
-          </LabelBadge>
-        )}
-      </span>
-      {(logged > 0 || task.estimateMinutes != null) && (
+          )}
+        </span>
+      )}
+      {properties.has("time") && (logged > 0 || task.estimateMinutes != null) && (
         <TimeSummary
           logged={logged}
           estimate={task.estimateMinutes}
@@ -225,22 +266,30 @@ function RowContent({
           className="hidden shrink-0 sm:inline-flex"
         />
       )}
-      {task.dueDate && (
+      {properties.has("dueDate") && task.dueDate && (
         <span className={cn("text-xs", overdue ? "text-destructive" : "text-muted-foreground")}>
           {formatShortDate(task.dueDate)}
         </span>
       )}
-      <span className="w-12 shrink-0 text-right text-xs text-muted-foreground">
-        {formatShortDate(task.createdAt, timeZone)}
-      </span>
-      <AssigneePicker
-        value={task.assigneeId}
-        onChange={(assigneeId) => updateTask(task.id, { assigneeId })}
-        align="end"
-        {...menus?.("assignee")}
-      >
-        <AssigneeChip userId={task.assigneeId} showName={false} className={control} disabled={!canEdit} />
-      </AssigneePicker>
+      {properties.has("createdAt") && (
+        <span className="w-12 shrink-0 text-right text-xs text-muted-foreground">
+          {formatShortDate(task.createdAt, timeZone)}
+        </span>
+      )}
+      {(properties.has("assignee") || menus) && (
+        <AssigneePicker
+          value={task.assigneeId}
+          onChange={(assigneeId) => updateTask(task.id, { assigneeId })}
+          align="end"
+          {...menus?.("assignee")}
+        >
+          {properties.has("assignee") ? (
+            <AssigneeChip userId={task.assigneeId} showName={false} className={control} disabled={!canEdit} />
+          ) : (
+            <MenuAnchor />
+          )}
+        </AssigneePicker>
+      )}
     </div>
   );
 }

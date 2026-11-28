@@ -1,4 +1,5 @@
 import {
+  bootstrapQuerySchema,
   searchQuerySchema,
   sniffImageType,
   summarizeModules,
@@ -86,13 +87,15 @@ function hideEmails(change: SyncChange): SyncChange {
  */
 export const workspaceRoutes = new Hono<WorkspaceEnv>()
   // ── Sync ──
-  .get("/bootstrap", async (c) => {
+  .get("/bootstrap", validate("query", bootstrapQuerySchema), async (c) => {
     const viewer = { role: c.var.workspace.role, userId: c.var.user.id };
     const payload = await c.var.db.transaction(async (tx) => {
       const modules = await replicaAccess(tx, c);
       const snapshot = await bootstrap(tx, c.var.workspace.id, {
         hideEmails: viewer.role === "guest",
         modules,
+        userId: viewer.userId,
+        recentTasks: c.req.valid("query")?.taskWindow === "recent",
       });
       return {
         ...snapshot,

@@ -126,5 +126,24 @@ describe("information flow integrity", () => {
     expect(calls).toBe(2);
     await drainNotificationEmails(ctx.handle.db);
     expect(calls).toBe(2);
+
+    const project = await (await post("/projects", { name: "Deleted project" })).json();
+    const queuedId = newId();
+    await ctx.handle.db.insert(notifications).values({
+      id: queuedId,
+      workspaceId,
+      userId: recipientId,
+      actorId,
+      type: "project_update_posted",
+      module: "tasks",
+      data: { subjectId: project.id, title: project.name },
+    });
+    expect(
+      (await ctx.req(`/v1/workspaces/acme/projects/${project.id}`, { method: "DELETE", cookie })).status,
+    ).toBe(204);
+    await drainNotificationEmails(ctx.handle.db);
+    const [skipped] = await ctx.handle.db.select().from(notifications).where(eq(notifications.id, queuedId));
+    expect(skipped).toMatchObject({ emailState: "skipped", emailLeaseToken: null });
+    expect(calls).toBe(2);
   });
 });

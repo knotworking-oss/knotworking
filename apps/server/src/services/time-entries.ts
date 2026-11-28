@@ -314,12 +314,12 @@ export async function stopTimer(db: Database, workspaceId: string, actorId: stri
 }
 
 /** Live entries on live tasks, for the bootstrap snapshot. */
-export async function listWorkspaceTimeEntries(db: Executor, workspaceId: string) {
+export async function listWorkspaceTimeEntries(db: Executor, workspaceId: string, scope?: SQL) {
   const rows = await db
     .select({ entry: timeEntries })
     .from(timeEntries)
     .innerJoin(tasks, and(eq(tasks.id, timeEntries.taskId), isNull(tasks.deletedAt)))
-    .where(and(eq(timeEntries.workspaceId, workspaceId), isNull(timeEntries.deletedAt)))
+    .where(and(eq(timeEntries.workspaceId, workspaceId), isNull(timeEntries.deletedAt), scope))
     .orderBy(desc(timeEntries.entryDate), desc(timeEntries.createdAt));
   return rows.map((r) => serializeTimeEntry(r.entry));
 }

@@ -25,6 +25,8 @@ export class WorkspaceSync {
   private changeListeners = new Set<(changes: readonly SyncChange[]) => void>();
   private refetching: Promise<void> | null = null;
   private refetchRequested = false;
+  private countsRefresh: Promise<void> | null = null;
+  private countsRequested = false;
   status: PushStatus = "connecting";
 
   constructor(
@@ -45,12 +47,68 @@ export class WorkspaceSync {
           (c) =>
             c.entity === "module_access" || c.entity === "workspace_modules" || c.entity === "token_action",
         );
-        if (changes.some((c) => refetchOn.has(c.entity)))
+        const cutoff = this.base.closedWindow?.cutoff;
+        // An older task can return to the working set with its next edit. Fetch
+        // unchanged label links and time entries that had been left out of the seed.
+        const promoted =
+          cutoff &&
+          changes.some(
+            (c) =>
+              c.entity === "task" &&
+              c.action === "upsert" &&
+              typeof c.data?.createdAt === "string" &&
+              c.data.createdAt < cutoff &&
+              typeof c.data.updatedAt === "string" &&
+              c.data.updatedAt >= cutoff &&
+              !this.base.tasks.some((task) => task.id === c.entityId),
+          );
+        if (promoted || changes.some((c) => refetchOn.has(c.entity)))
           void this.refetch().then(() => rerender && this.onLostAccess());
         else if (rerender) this.onLostAccess();
+        else if (
+          cutoff &&
+          changes.some(
+            ({ entity }) =>
+              entity === "task" ||
+              entity === "task_label" ||
+              entity === "time_entry" ||
+              entity === "workflow_state" ||
+              entity === "team",
+          )
+        )
+          this.refreshCounts();
       },
     });
     this.store.subscribe(() => this.emit());
+  }
+
+  /** Reconcile full-history metrics without re-downloading the recent-task snapshot. */
+  private refreshCounts() {
+    this.countsRequested = true;
+    this.countsRefresh ??= (async () => {
+      try {
+        do {
+          this.countsRequested = false;
+          const base = this.base;
+          const cutoff = base.closedWindow?.cutoff;
+          if (!cutoff) return;
+          const counts = await unwrap(
+            browserApi().v1.workspaces[":slug"].tasks.counts.$get({
+              param: { slug: this.slug },
+              query: { cutoff },
+            }),
+          );
+          if (this.base === base) {
+            this.base = { ...base, closedWindow: counts };
+            this.emit();
+          }
+        } while (this.countsRequested);
+      } catch (err) {
+        this.failed(err);
+      } finally {
+        this.countsRefresh = null;
+      }
+    })();
   }
 
   getSnapshot = (): Bootstrap => {
@@ -109,7 +167,10 @@ export class WorkspaceSync {
         do {
           this.refetchRequested = false;
           const boot = await unwrap(
-            browserApi().v1.workspaces[":slug"].bootstrap.$get({ param: { slug: this.slug } }),
+            browserApi().v1.workspaces[":slug"].bootstrap.$get({
+              param: { slug: this.slug },
+              query: { taskWindow: "recent" },
+            }),
           );
           this.base = boot;
           this.store.reset(seedTables(boot), boot.cursor);

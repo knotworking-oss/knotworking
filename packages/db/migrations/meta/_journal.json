@@ -771,6 +771,83 @@
       "when": 1795651606248,
       "tag": "0126_invoicing_second_approver",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1795812165740,
+      "tag": "0127_task_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1795813682827,
+      "tag": "0128_planner_windows",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1795814853641,
+      "tag": "0129_saved_task_views",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1795815597319,
+      "tag": "0130_task_followers",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1795816179144,
+      "tag": "0131_task_references",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1795816276486,
+      "tag": "0132_project_milestones",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1795851070830,
+      "tag": "0133_project_sections",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1795851330932,
+      "tag": "0134_project_members",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1795851582940,
+      "tag": "0135_project_updates",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1795851940243,
+      "tag": "0136_task_link_kinds",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1795852808465,
+      "tag": "0137_planner_custom_fields",
+      "breakpoints": true
     }
   ]
 }

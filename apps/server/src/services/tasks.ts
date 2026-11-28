@@ -1,14 +1,21 @@
 import {
   sortKeyBetween,
+  hasTeamFeature,
+  olderClosedTaskFilter,
   taskDatesInOrder,
+  type TaskActivitySource,
   type TaskCreateInput,
+  type TaskListQuery,
   type TaskUpdateInput,
   type WorkflowStateType,
 } from "@knotworking/core";
 import {
   taskLabels,
+  taskRelations,
+  taskReferenceCounters,
   tasks,
   labels,
+  lockWorkspaceLog,
   recordChanges,
   teams,
   workflowStates,
@@ -16,7 +23,7 @@ import {
   type Executor,
   type Transaction,
 } from "@knotworking/db";
-import { and, asc, desc, eq, inArray, isNull, min, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray, isNull, min, or, sql, type SQL } from "drizzle-orm";
 import { badRequest, notFound } from "../errors";
 import {
   notifyMentioned,
@@ -26,21 +33,33 @@ import {
   type NotifiedCallback,
 } from "./notifications";
 import { assertNoCycle, assertRefs } from "./refs";
-import { deleteRelationsOfTask } from "./task-relations";
+import { assertMilestone } from "./project-milestones";
+import { assertSection } from "./project-sections";
+import { recordTaskActivity, taskActivityChanges } from "./task-activity";
+import { autoFollowTask } from "./task-followers";
+import { taskFilterSql, taskQueryLabelIds, taskQueryOrder } from "./task-query";
+import { withinTaskWindow } from "./task-window";
+import { deleteRelationsOfTask, listTaskRelations } from "./task-relations";
 
 type TaskRow = typeof tasks.$inferSelect;
+const { description: _description, ...taskSummaryColumns } = getTableColumns(tasks);
 
 export interface TaskFilters {
   teamId?: string;
   projectId?: string;
   assigneeId?: string;
   stateType?: WorkflowStateType;
+  windowCutoff?: string;
   /** Omitted only for the complete internal bootstrap snapshot. Public lists are paginated. */
   limit?: number;
 }
 
 /** Wire format for a task. References are IDs — clients join against bootstrap data. */
-export function serializeTask(row: TaskRow, labelIds: string[], withDescription = false) {
+export function serializeTask(
+  row: Omit<TaskRow, "description"> & { description?: TaskRow["description"] },
+  labelIds: string[],
+  withDescription = false,
+) {
   const { description, deletedAt: _deleted, workspaceId: _ws, ...rest } = row;
   return {
     ...rest,
@@ -62,20 +81,24 @@ async function labelIdsFor(db: Executor, taskIds: string[]) {
   return map;
 }
 
-export async function listTasks(db: Executor, workspaceId: string, f: TaskFilters) {
+function taskListConditions(workspaceId: string, f: TaskFilters) {
   const where: SQL[] = [eq(tasks.workspaceId, workspaceId), isNull(tasks.deletedAt)];
   if (f.teamId) where.push(eq(tasks.teamId, f.teamId));
   if (f.projectId) where.push(eq(tasks.projectId, f.projectId));
   if (f.assigneeId) where.push(eq(tasks.assigneeId, f.assigneeId));
   if (f.stateType) where.push(eq(workflowStates.type, f.stateType));
+  if (f.windowCutoff) where.push(withinTaskWindow(f.windowCutoff));
+  return where;
+}
 
+export async function listTasks(db: Executor, workspaceId: string, f: TaskFilters) {
   const query = db
-    .select({ task: tasks })
+    .select({ task: taskSummaryColumns })
     .from(tasks)
     .innerJoin(workflowStates, eq(workflowStates.id, tasks.stateId))
     // Tasks of archived teams are hidden along with the team.
     .innerJoin(teams, and(eq(teams.id, tasks.teamId), isNull(teams.deletedAt)))
-    .where(and(...where))
+    .where(and(...taskListConditions(workspaceId, f)))
     .orderBy(asc(tasks.sortOrder), desc(tasks.createdAt));
   const rows = await (f.limit === undefined ? query : query.limit(f.limit));
 
@@ -86,7 +109,64 @@ export async function listTasks(db: Executor, workspaceId: string, f: TaskFilter
   return rows.map((r) => serializeTask(r.task, labelMap.get(r.task.id) ?? []));
 }
 
-export async function getTask(db: Database, workspaceId: string, taskId: string) {
+export async function queryTasks(db: Executor, workspaceId: string, input: TaskListQuery) {
+  const paging = taskQueryOrder(workspaceId, input);
+  const rows = await db
+    .select({
+      task: taskSummaryColumns,
+      labelIds: taskQueryLabelIds,
+      groupKey: paging.groupKey,
+      cursorKeys: paging.cursorKeys,
+    })
+    .from(tasks)
+    .innerJoin(workflowStates, eq(workflowStates.id, tasks.stateId))
+    .innerJoin(teams, and(eq(teams.id, tasks.teamId), isNull(teams.deletedAt)))
+    .where(
+      and(
+        ...taskListConditions(workspaceId, input),
+        input.filter ? taskFilterSql(input.filter) : undefined,
+        input.closedBefore
+          ? taskFilterSql({ version: 1, expression: olderClosedTaskFilter(input.closedBefore) })
+          : undefined,
+        input.title
+          ? sql`(strpos(lower(${tasks.title}), lower(${input.title})) > 0
+          or strpos(lower(${tasks.reference}), lower(${input.title})) > 0)`
+          : undefined,
+        input.reference ? eq(tasks.reference, input.reference) : undefined,
+        paging.after,
+      ),
+    )
+    .orderBy(...paging.order)
+    .limit(input.limit + 1);
+  const page = rows.slice(0, input.limit);
+  const groups = new Map<string | null, string[]>();
+  if (input.group) {
+    for (const row of page) {
+      const ids = groups.get(row.groupKey);
+      if (ids) ids.push(row.task.id);
+      else groups.set(row.groupKey, [row.task.id]);
+    }
+  }
+  const ids = page.map((row) => row.task.id);
+  const relations =
+    input.includeRelations === "true"
+      ? ids.length
+        ? await listTaskRelations(
+            db,
+            workspaceId,
+            or(inArray(taskRelations.blockingTaskId, ids), inArray(taskRelations.blockedTaskId, ids)),
+          )
+        : []
+      : undefined;
+  return {
+    tasks: page.map((row) => serializeTask(row.task, row.labelIds)),
+    nextCursor: rows.length > input.limit ? paging.encodeCursor(page.at(-1)!.cursorKeys) : null,
+    ...(input.group ? { groups: [...groups].map(([key, taskIds]) => ({ key, taskIds })) } : {}),
+    ...(relations ? { relations } : {}),
+  };
+}
+
+export async function getTask(db: Database, workspaceId: string, taskId: string, includeContext = false) {
   const [row] = await db
     .select({ task: tasks })
     .from(tasks)
@@ -97,15 +177,89 @@ export async function getTask(db: Database, workspaceId: string, taskId: string)
   const children = await db
     .select({ task: tasks })
     .from(tasks)
+    .innerJoin(teams, and(eq(teams.id, tasks.teamId), isNull(teams.deletedAt)))
     .where(and(eq(tasks.parentId, row.task.id), eq(tasks.workspaceId, workspaceId), isNull(tasks.deletedAt)))
     .orderBy(asc(tasks.sortOrder));
+  let context;
+  if (includeContext) {
+    const relations = await listTaskRelations(
+      db,
+      workspaceId,
+      or(eq(taskRelations.blockedTaskId, taskId), eq(taskRelations.blockingTaskId, taskId)),
+    );
+    const ids = new Set(
+      relations.map((relation) =>
+        relation.blockedTaskId === taskId ? relation.blockingTaskId : relation.blockedTaskId,
+      ),
+    );
+    if (row.task.parentId) ids.add(row.task.parentId);
+    const related = ids.size
+      ? await db
+          .select(taskSummaryColumns)
+          .from(tasks)
+          .innerJoin(teams, and(eq(teams.id, tasks.teamId), isNull(teams.deletedAt)))
+          .where(
+            and(eq(tasks.workspaceId, workspaceId), isNull(tasks.deletedAt), inArray(tasks.id, [...ids])),
+          )
+      : [];
+    context = { relations, tasks: related.map((task) => serializeTask(task, [])) };
+  }
   return {
     ...serializeTask(row.task, labelMap.get(row.task.id) ?? [], true),
     children: children.map((c) => serializeTask(c.task, [])),
+    ...(context ? { context } : {}),
   };
 }
 
-async function resolveState(tx: Transaction, teamId: string, stateId: string | undefined) {
+export async function duplicateTask(
+  db: Database,
+  workspaceId: string,
+  actorId: string,
+  taskId: string,
+  onNotified: NotifiedCallback,
+  source: TaskActivitySource,
+) {
+  let notifications: NotificationRow[] = [];
+  const copy = await db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, workspaceId);
+    const [original] = await tx
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId), isNull(tasks.deletedAt)));
+    if (!original) throw notFound("Task");
+    const labelIds = (await labelIdsFor(tx, [taskId])).get(taskId) ?? [];
+    return createTask(
+      tx,
+      workspaceId,
+      actorId,
+      {
+        title: `${original.title.slice(0, 505)} (copy)`,
+        teamId: original.teamId,
+        priority: original.priority as TaskCreateInput["priority"],
+        projectId: original.projectId,
+        assigneeId: original.assigneeId,
+        startDate: original.startDate,
+        dueDate: original.dueDate,
+        estimateMinutes: original.estimateMinutes,
+        ...(original.description ? { description: original.description } : {}),
+        labelIds,
+      },
+      (rows) => {
+        notifications = rows;
+      },
+      source,
+    );
+  });
+  if (notifications.length) onNotified(notifications);
+  return copy;
+}
+
+async function resolveState(
+  tx: Transaction,
+  teamId: string,
+  stateId: string | undefined,
+  preferred = "unstarted" as WorkflowStateType,
+) {
   if (stateId) {
     const [state] = await tx
       .select()
@@ -126,7 +280,8 @@ async function resolveState(tx: Transaction, teamId: string, stateId: string | u
     .from(workflowStates)
     .where(and(eq(workflowStates.teamId, teamId), isNull(workflowStates.deletedAt)))
     .orderBy(asc(workflowStates.sortOrder));
-  const state = states.find((s) => s.type === "unstarted") ?? states[0];
+  const state =
+    states.find((s) => s.type === preferred) ?? states.find((s) => s.type === "unstarted") ?? states[0];
   if (!state) throw badRequest("Team has no workflow states");
   return state;
 }
@@ -150,6 +305,18 @@ async function assertLabels(tx: Transaction, workspaceId: string, labelIds: stri
   if (found.length !== new Set(labelIds).size) throw badRequest("Unknown labelIds");
 }
 
+async function assignTaskReference(tx: Transaction, workspaceId: string, prefix: string) {
+  const [counter] = await tx
+    .insert(taskReferenceCounters)
+    .values({ workspaceId, prefix, lastNumber: 1 })
+    .onConflictDoUpdate({
+      target: [taskReferenceCounters.workspaceId, taskReferenceCounters.prefix],
+      set: { lastNumber: sql`${taskReferenceCounters.lastNumber} + 1` },
+    })
+    .returning({ number: taskReferenceCounters.lastNumber });
+  return `${prefix}-${counter!.number}`;
+}
+
 /**
  * `onNotified` runs after the transaction commits with the notifications the
  * write created (used for email delivery); the rows themselves are inserted in
@@ -161,11 +328,13 @@ export async function createTask(
   actorId: string,
   input: TaskCreateInput,
   onNotified?: NotifiedCallback,
+  source: TaskActivitySource = "internal",
 ) {
   let notified: NotificationRow[] = [];
   const result = await db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, workspaceId);
     const [team] = await tx
-      .select({ id: teams.id })
+      .select({ id: teams.id, key: teams.key, features: teams.features })
       .from(teams)
       .where(and(eq(teams.id, input.teamId), eq(teams.workspaceId, workspaceId), isNull(teams.deletedAt)));
     if (!team) throw badRequest("Unknown teamId");
@@ -177,6 +346,8 @@ export async function createTask(
       taskParentId: input.parentId,
     });
     const labelIds = [...new Set(input.labelIds ?? [])];
+    if (input.milestoneId) await assertMilestone(tx, workspaceId, input.projectId ?? null, input.milestoneId);
+    if (input.sectionId) await assertSection(tx, workspaceId, input.projectId ?? null, input.sectionId);
     await assertLabels(tx, workspaceId, labelIds);
 
     // New tasks go to the top of manual ordering.
@@ -192,12 +363,17 @@ export async function createTask(
         workspaceId,
         teamId: team.id,
         title: input.title,
+        reference: hasTeamFeature(team, "shortReferences")
+          ? await assignTaskReference(tx, workspaceId, team.key)
+          : null,
         description: input.description ?? null,
         stateId: state.id,
         priority: input.priority ?? 0,
         estimateMinutes: input.estimateMinutes ?? null,
         assigneeId: input.assigneeId ?? null,
         projectId: input.projectId ?? null,
+        milestoneId: input.milestoneId ?? null,
+        sectionId: input.sectionId ?? null,
         parentId: input.parentId ?? null,
         startDate: input.startDate ?? null,
         dueDate: input.dueDate ?? null,
@@ -223,6 +399,8 @@ export async function createTask(
         data: l,
       })),
     ]);
+    await recordTaskActivity(tx, workspaceId, [task!.id], actorId, source, { kind: "created" });
+    await autoFollowTask(tx, workspaceId, task!.id, [actorId, task!.assigneeId]);
     notified = [
       ...(await notifyTaskCreated(tx, workspaceId, actorId, task!)),
       ...(await notifyMentioned(tx, workspaceId, actorId, { task: task! }, null, task!.description)),
@@ -234,15 +412,17 @@ export async function createTask(
 }
 
 export async function updateTask(
-  db: Database,
+  db: Executor,
   workspaceId: string,
   actorId: string,
   taskId: string,
   input: TaskUpdateInput,
   onNotified?: NotifiedCallback,
+  source: TaskActivitySource = "internal",
 ) {
   let notified: NotificationRow[] = [];
   const result = await db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, workspaceId);
     const [current] = await tx
       .select({ task: tasks })
       .from(tasks)
@@ -265,11 +445,40 @@ export async function updateTask(
     // `updatedAt` is set explicitly so a labels-only edit still has a column to
     // update (Drizzle rejects an empty SET) and still bumps the task.
     const patch: Partial<typeof tasks.$inferInsert> = { ...fields, updatedAt: new Date() };
+    const projectId = fields.projectId === undefined ? current.task.projectId : fields.projectId;
+    if (fields.milestoneId) await assertMilestone(tx, workspaceId, projectId, fields.milestoneId);
+    else if (projectId !== current.task.projectId) patch.milestoneId = null;
+    if (fields.sectionId) await assertSection(tx, workspaceId, projectId, fields.sectionId);
+    else if (projectId !== current.task.projectId) patch.sectionId = null;
     let newState: { name: string } | undefined;
-    if (stateId && stateId !== current.task.stateId) {
-      const state = await resolveState(tx, current.task.teamId, stateId);
+    const teamId = fields.teamId ?? current.task.teamId;
+    const moving = teamId !== current.task.teamId;
+    let previousType: WorkflowStateType | undefined;
+    if (moving) {
+      const activeTeams = await tx
+        .select({ id: teams.id })
+        .from(teams)
+        .where(
+          and(
+            inArray(teams.id, [teamId, current.task.teamId]),
+            eq(teams.workspaceId, workspaceId),
+            isNull(teams.deletedAt),
+          ),
+        );
+      if (!activeTeams.some((team) => team.id === current.task.teamId)) throw notFound("Task");
+      if (!activeTeams.some((team) => team.id === teamId)) throw badRequest("Unknown teamId");
+      const [previous] = await tx
+        .select({ type: workflowStates.type })
+        .from(workflowStates)
+        .where(eq(workflowStates.id, current.task.stateId));
+      previousType = previous?.type;
+    }
+    if (moving || (stateId && stateId !== current.task.stateId)) {
+      const state = await resolveState(tx, teamId, stateId, previousType);
       newState = state;
-      Object.assign(patch, { stateId: state.id }, lifecycleFor(state.type, current.task));
+      patch.stateId = state.id;
+      if (!moving || state.type !== previousType)
+        Object.assign(patch, lifecycleFor(state.type, current.task));
     }
 
     const [task] = await tx.update(tasks).set(patch).where(eq(tasks.id, taskId)).returning();
@@ -277,6 +486,7 @@ export async function updateTask(
       { entity: "task", entityId: taskId, action: "upsert", data: task },
     ];
 
+    let previousLabelIds: string[];
     let finalLabelIds: string[];
     if (labelIds) {
       const next = [...new Set(labelIds)];
@@ -285,6 +495,7 @@ export async function updateTask(
         .select()
         .from(taskLabels)
         .where(and(eq(taskLabels.taskId, taskId), isNull(taskLabels.deletedAt)));
+      previousLabelIds = existing.map((link) => link.labelId);
       const removed = existing.filter((l) => !next.includes(l.labelId));
       const added = next.filter((id) => !existing.some((l) => l.labelId === id));
       if (removed.length) {
@@ -319,10 +530,23 @@ export async function updateTask(
       }
       finalLabelIds = next;
     } else {
-      finalLabelIds = (await labelIdsFor(tx, [taskId])).get(taskId) ?? [];
+      previousLabelIds = (await labelIdsFor(tx, [taskId])).get(taskId) ?? [];
+      finalLabelIds = previousLabelIds;
     }
 
     await recordChanges(tx, workspaceId, actorId, changes);
+    const activityChanges = taskActivityChanges(
+      { ...current.task, labelIds: previousLabelIds },
+      { ...task!, labelIds: finalLabelIds },
+    );
+    if (Object.keys(activityChanges).length > 0) {
+      await recordTaskActivity(tx, workspaceId, [taskId], actorId, source, {
+        kind: "updated",
+        changes: activityChanges,
+      });
+    }
+    if (task!.assigneeId !== current.task.assigneeId)
+      await autoFollowTask(tx, workspaceId, taskId, [current.task.assigneeId, task!.assigneeId]);
     notified = await notifyTaskUpdated(tx, workspaceId, actorId, current.task, task!, newState);
     // Only a description edit can add mentions; the diff against the stored text keeps autosaves quiet.
     if (fields.description !== undefined)
@@ -342,8 +566,15 @@ export async function updateTask(
   return result;
 }
 
-export async function deleteTask(db: Database, workspaceId: string, actorId: string, taskId: string) {
+export async function deleteTask(
+  db: Executor,
+  workspaceId: string,
+  actorId: string,
+  taskId: string,
+  source: TaskActivitySource = "internal",
+) {
   await db.transaction(async (tx) => {
+    await lockWorkspaceLog(tx, workspaceId);
     const [row] = await tx
       .update(tasks)
       .set({ deletedAt: new Date() })
@@ -356,5 +587,6 @@ export async function deleteTask(db: Database, workspaceId: string, actorId: str
       { entity: "task", entityId: taskId, action: "delete" },
       ...relationTombstones,
     ]);
+    await recordTaskActivity(tx, workspaceId, [taskId], actorId, source, { kind: "deleted" });
   });
 }

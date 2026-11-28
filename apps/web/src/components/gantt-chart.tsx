@@ -115,6 +115,7 @@ export function GanttChart({
   tasks,
   relations,
   project,
+  milestones,
   today,
   canEdit,
   onReschedule,
@@ -125,6 +126,7 @@ export function GanttChart({
   tasks: GanttTask[];
   relations: GanttRelation[];
   project?: { startDate: string | null; targetDate: string | null };
+  milestones?: readonly { id: string; name: string; targetDate: string | null; completedAt: string | null }[];
   /** Today's date (YYYY-MM-DD) in the viewer's time zone. */
   today: string;
   canEdit: boolean;
@@ -157,11 +159,21 @@ export function GanttChart({
   const range = useMemo(
     () =>
       timelineRange(
-        [...tasks.flatMap((t) => [t.startDate, t.dueDate]), project?.startDate, project?.targetDate],
+        [
+          ...tasks.flatMap((t) => [
+            t.startDate,
+            t.dueDate,
+            t.subtaskRollup?.startDate,
+            t.subtaskRollup?.dueDate,
+          ]),
+          project?.startDate,
+          project?.targetDate,
+          ...(milestones ?? []).map((row) => row.targetDate),
+        ],
         today,
         zoom,
       ),
-    [tasks, project?.startDate, project?.targetDate, today, zoom],
+    [tasks, project?.startDate, project?.targetDate, milestones, today, zoom],
   );
   const width = range.days * ppd;
   const header = useMemo(() => headerRows(range, zoom), [range, zoom]);
@@ -362,6 +374,24 @@ export function GanttChart({
               {projectEnd !== null && (
                 <Flag x={dayToX(projectEnd, range, zoom) + ppd} label="Target" align="end" />
               )}
+              {milestones?.map((row) => {
+                const day = toDay(row.targetDate);
+                return (
+                  day !== null && (
+                    <span
+                      key={row.id}
+                      title={row.name}
+                      aria-label={row.name}
+                      role="img"
+                      className={cn(
+                        "absolute bottom-1 size-2.5 -translate-x-1/2 rotate-45 border border-primary bg-background",
+                        row.completedAt && "bg-primary",
+                      )}
+                      style={{ left: dayToX(day, range, zoom) + ppd / 2 }}
+                    />
+                  )
+                );
+              })}
               <div
                 className="absolute bottom-0 h-1.5 w-0.5 -translate-x-1/2 bg-primary"
                 style={{ left: todayX }}
@@ -390,6 +420,12 @@ export function GanttChart({
                     </Link>
                   ) : (
                     <span className="min-w-0 flex-1 truncate">{task.title}</span>
+                  )}
+                  {task.subtaskRollup && (
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      <span className="sr-only">Subtasks completed </span>
+                      {task.subtaskRollup.completed}/{task.subtaskRollup.total}
+                    </span>
                   )}
                 </li>
               ))}
@@ -481,6 +517,21 @@ export function GanttChart({
                 ))}
               </svg>
 
+              {rows.map(({ task }, index) => {
+                const span = task.subtaskRollup ? taskSpan(task.subtaskRollup) : null;
+                if (!span || !task.subtaskRollup) return null;
+                const box = barBox(span, range, zoom);
+                return (
+                  <div
+                    key={task.id}
+                    role="img"
+                    aria-label={`${task.title} subtask dates, ${describeDates(task.subtaskRollup)}`}
+                    title={`Subtask dates · ${describeDates(task.subtaskRollup)}`}
+                    className="absolute h-1 rounded bg-primary/45"
+                    style={{ left: box.x, width: box.width, top: (index + 1) * ROW_HEIGHT - 6 }}
+                  />
+                );
+              })}
               {rows.map(({ task }, index) => {
                 const entry = boxes.get(task.id);
                 if (!entry) return null;
@@ -718,6 +769,12 @@ function Unscheduled({
               </Link>
             ) : (
               <span className="min-w-0 flex-1 truncate">{t.title}</span>
+            )}
+            {t.subtaskRollup && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                <span className="sr-only">Subtasks completed </span>
+                {t.subtaskRollup.completed}/{t.subtaskRollup.total}
+              </span>
             )}
             {canEdit ? (
               <span className="flex items-center gap-1" aria-label={`Dates for ${t.title}`} role="group">

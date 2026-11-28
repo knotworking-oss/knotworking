@@ -13,6 +13,7 @@ import { cn } from "@knotworking/ui/lib/utils";
 import { CalendarArrowUp, CalendarDays, Tag, UserRound } from "lucide-react";
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { formatShortDate } from "@/lib/format";
+import { useHistoricalTaskSearch } from "@/lib/historical-task-search";
 import { useWorkspace } from "@/lib/workspace-store";
 
 /**
@@ -373,7 +374,9 @@ export function TaskPicker({
   placeholder?: string;
 }) {
   const { idx, tasks } = useWorkspace();
-  const options: PropertyOption[] = tasks
+  const [query, setQuery] = useState("");
+  const historical = useHistoricalTaskSearch(query);
+  const options: PropertyOption[] = [...tasks, ...historical.filter((task) => !idx.tasks.has(task.id))]
     .filter((t) => !exclude?.(t.id))
     .map((t) => {
       const state = idx.states.get(t.stateId);
@@ -391,6 +394,7 @@ export function TaskPicker({
       value={props.value ?? null}
       onValueChange={(v) => props.onChange(v)}
       placeholder={placeholder}
+      onSearchChange={setQuery}
       emptyText="No tasks"
       open={props.open}
       onOpenChange={props.onOpenChange}

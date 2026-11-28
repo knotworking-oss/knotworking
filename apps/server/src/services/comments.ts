@@ -9,6 +9,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { ApiError, badRequest, notFound } from "../errors";
 import { isAdmin } from "./members";
 import { notifyTaskCommented, type NotifiedCallback } from "./notifications";
+import { autoFollowTask } from "./task-followers";
 
 type CommentRow = typeof comments.$inferSelect;
 
@@ -25,7 +26,7 @@ export interface CommentActor {
 
 async function assertTask(db: Executor, workspaceId: string, taskId: string) {
   const [task] = await db
-    .select({ id: tasks.id, title: tasks.title, assigneeId: tasks.assigneeId })
+    .select({ id: tasks.id, title: tasks.title, assigneeId: tasks.assigneeId, creatorId: tasks.creatorId })
     .from(tasks)
     .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId), isNull(tasks.deletedAt)));
   if (!task) throw notFound("Task");
@@ -82,6 +83,7 @@ export async function createTaskComment(
     await recordChanges(tx, workspaceId, actorId, [
       { entity: "comment", entityId: row!.id, action: "upsert", data: row },
     ]);
+    await autoFollowTask(tx, workspaceId, taskId, [actorId]);
     const notified = await notifyTaskCommented(
       tx,
       workspaceId,

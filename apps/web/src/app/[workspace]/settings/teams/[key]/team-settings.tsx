@@ -1,6 +1,6 @@
 "use client";
 
-import type { TagColorName } from "@knotworking/core";
+import { teamFeatures, type TagColorName, type TeamFeature } from "@knotworking/core";
 import { Button } from "@knotworking/ui/components/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@knotworking/ui/components/card";
 import { ColorPicker } from "@knotworking/ui/components/color-picker";
@@ -65,6 +65,12 @@ export function TeamSettings({ slug, canManage, team, states, taskCounts, people
       </div>
 
       <GeneralCard slug={slug} team={team} canManage={canManage} />
+      <PlannerFeaturesCard
+        key={JSON.stringify(team.features)}
+        slug={slug}
+        team={team}
+        canManage={canManage}
+      />
       <MembersCard slug={slug} teamId={team.id} people={people} memberIds={memberIds} canManage={canManage} />
       <WorkflowEditor
         slug={slug}
@@ -81,6 +87,79 @@ export function TeamSettings({ slug, canManage, team, states, taskCounts, people
         />
       )}
     </div>
+  );
+}
+
+const featureLabels: Record<TeamFeature, string> = {
+  cycles: "Cycles",
+  triage: "Triage",
+  estimates: "Point estimates",
+  shortReferences: "Short task references",
+};
+
+function PlannerFeaturesCard({ slug, team, canManage }: { slug: string; team: Team; canManage: boolean }) {
+  const router = useRouter();
+  const [features, setFeatures] = useState(team.features ?? []);
+  const [saving, setSaving] = useState(false);
+  const dirty = teamFeatures.some(
+    (feature) => features.includes(feature) !== (team.features ?? []).includes(feature),
+  );
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await unwrap(
+        browserApi().v1.workspaces[":slug"].teams[":id"].$patch({
+          param: { slug, id: team.id },
+          json: { features },
+        }),
+      );
+      toast.success("Planner features saved");
+      router.refresh();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Planner features</CardTitle>
+        <CardDescription>
+          Short references apply to new tasks. Other preferences take effect as their features become
+          available.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={save} className="flex flex-col items-start gap-3">
+          {teamFeatures.map((feature) => (
+            <label key={feature} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={features.includes(feature)}
+                disabled={!canManage || saving}
+                onChange={(event) =>
+                  setFeatures(
+                    event.target.checked
+                      ? [...features, feature]
+                      : features.filter((item) => item !== feature),
+                  )
+                }
+              />
+              {featureLabels[feature]}
+            </label>
+          ))}
+          {canManage && (
+            <Button type="submit" size="sm" disabled={!dirty || saving}>
+              Save planner features
+            </Button>
+          )}
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 

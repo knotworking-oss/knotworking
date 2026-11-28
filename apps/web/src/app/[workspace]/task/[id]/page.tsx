@@ -14,7 +14,11 @@ import { Subtasks, TaskActions, TaskDependencies, TaskProperties, TaskTitle } fr
 import { Backlinks } from "@/components/backlinks";
 import { PageHeader } from "@/components/page-header";
 import { TaskAttachments } from "@/components/task-attachments";
+import { TaskActivity } from "@/components/task-activity";
 import { TaskComments } from "@/components/task-comments";
+import { TaskFollowing } from "@/components/task-following";
+import { TaskLinks } from "@/components/task-links";
+import { CustomFieldValues } from "@/components/custom-field-values";
 import { TaskDescription } from "@/components/task-description";
 import { TaskTime } from "@/components/task-time";
 import {
@@ -23,6 +27,8 @@ import {
   getTaskAttachments,
   getTaskBacklinks,
   getTaskComments,
+  getTaskFollowing,
+  getTaskTimeEntries,
   type TaskSummary,
 } from "@/lib/api";
 import { formatLongDate } from "@/lib/format";
@@ -38,25 +44,39 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function TaskPage({ params }: Props) {
   const { workspace: slug, id } = await params;
-  const [boot, task, { comments }, { attachments }, backlinks] = await Promise.all([
-    getBootstrap(slug),
+  const bootstrap = getBootstrap(slug);
+  const [boot, task, { comments }, { attachments }, backlinks, time, following] = await Promise.all([
+    bootstrap,
     getTask(slug, id),
     getTaskComments(slug, id),
     getTaskAttachments(slug, id),
     getTaskBacklinks(slug, id),
+    bootstrap.then((boot) =>
+      boot.modules.some((m) => m.id === "time" && m.access !== "none") ? getTaskTimeEntries(slug, id) : null,
+    ),
+    getTaskFollowing(slug, id),
   ]);
   const idx = indexWorkspace(boot);
   // The task's team is missing from the bootstrap when it has been archived.
   const team = idx.teams.get(task.teamId);
   if (!team) notFound();
   const creator = task.creatorId ? idx.users.get(task.creatorId) : undefined;
-  const parent = task.parentId ? boot.tasks.find((i) => i.id === task.parentId) : undefined;
-  const { description, children: _children, ...summary } = task;
+  const { description, children, context, ...summary } = task;
+  const parent = task.parentId
+    ? (idx.tasks.get(task.parentId) ?? context?.tasks.find((i) => i.id === task.parentId))
+    : undefined;
   const initial: TaskSummary = summary;
 
   return (
     <>
-      <PageHeader actions={<TaskActions initial={initial} teamKey={team.key} />}>
+      <PageHeader
+        actions={
+          <>
+            <TaskFollowing key={task.id} taskId={task.id} initial={following} />
+            <TaskActions initial={initial} teamKey={team.key} />
+          </>
+        }
+      >
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -78,7 +98,7 @@ export default async function TaskPage({ params }: Props) {
               </>
             )}
             <BreadcrumbItem>
-              <BreadcrumbPage className="max-w-80 truncate">{task.title}</BreadcrumbPage>
+              <BreadcrumbPage className="max-w-80 truncate">{task.reference ?? task.title}</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
@@ -96,9 +116,11 @@ export default async function TaskPage({ params }: Props) {
               <TaskProperties initial={initial} stacked />
             </section>
             <TaskDescription key={task.id} taskId={task.id} initial={description} />
-            <Subtasks initial={initial} />
-            <TaskDependencies initial={initial} />
-            <TaskTime initial={initial} />
+            <CustomFieldValues key={`fields:${task.id}`} target="task" id={task.id} />
+            <Subtasks key={task.id} initial={initial} initialChildren={children} />
+            <TaskDependencies key={task.id} initial={initial} context={context} />
+            <TaskLinks key={task.id} taskId={task.id} teamId={task.teamId} />
+            <TaskTime initial={initial} initialEntries={time?.entries} />
             <TaskAttachments taskId={task.id} initial={attachments} />
             <Backlinks
               slug={slug}
@@ -107,6 +129,7 @@ export default async function TaskPage({ params }: Props) {
               teamKeys={new Map(boot.teams.map((t) => [t.id, t.key]))}
             />
             <TaskComments taskId={task.id} initial={comments} />
+            <TaskActivity key={task.id} taskId={task.id} />
           </div>
         </article>
 

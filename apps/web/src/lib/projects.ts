@@ -16,6 +16,18 @@ export const noProgress: ProjectProgress = { total: 0, completed: 0, started: 0,
  */
 export function projectProgress(tasks: TaskSummary[], idx: WorkspaceIndex) {
   const map = new Map<string, ProjectProgress>();
+  if (idx.boot.closedWindow) {
+    for (const [id, counts] of Object.entries(idx.boot.closedWindow.projectCounts)) {
+      const total = counts.open + counts.completed;
+      map.set(id, {
+        total,
+        completed: counts.completed,
+        started: counts.started,
+        ratio: total ? counts.completed / total : 0,
+      });
+    }
+    return map;
+  }
   for (const t of tasks) {
     if (!t.projectId) continue;
     const type = idx.states.get(t.stateId)?.type;

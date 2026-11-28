@@ -24,6 +24,8 @@ import { currencySchema } from "./currency";
 import { timeZoneSchema } from "./time-zone";
 import { financialYearStartMonthSchema } from "./financial-year";
 import { MAX_TOKEN_ORDER_VALUE, tokenActionIds } from "./token-actions";
+import { taskFilterJsonSchema, taskGroupFields, taskOrderings } from "./task-filter";
+import { closedTaskWindowDaysSchema, teamFeaturesSchema } from "./planner-settings";
 
 /**
  * Input validation shared by the API server and every client. Clients validate
@@ -44,6 +46,8 @@ const taskFields = z.object({
   priority: z.union(priorities.map((p) => z.literal(p))).optional(),
   assigneeId: id.nullable().optional(),
   projectId: id.nullable().optional(),
+  milestoneId: id.nullable().optional(),
+  sectionId: id.nullable().optional(),
   parentId: id.nullable().optional(),
   labelIds: z.array(id).optional(),
   /** When work is planned to begin. Can't be after `dueDate`. */
@@ -70,11 +74,29 @@ export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
  * checks it against the stored other one.
  */
 export const taskUpdateSchema = taskFields
-  .omit({ id: true, teamId: true })
+  .omit({ id: true })
   .partial()
   .extend({ title: z.string().trim().min(1).max(512).optional() })
   .refine(taskDatesInOrder, taskDatesInOrderMessage);
 export type TaskUpdateInput = z.infer<typeof taskUpdateSchema>;
+
+export const TASK_BULK_LIMIT = 200;
+export const taskBulkPatchSchema = taskFields
+  .pick({ teamId: true, stateId: true, assigneeId: true, priority: true, projectId: true, labelIds: true })
+  .partial()
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, "Select a change to apply");
+export type TaskBulkPatch = z.infer<typeof taskBulkPatchSchema>;
+const taskBulkIds = z
+  .array(id)
+  .min(1)
+  .max(TASK_BULK_LIMIT)
+  .refine((ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length, "Duplicate task");
+export const taskBulkSchema = z.discriminatedUnion("action", [
+  z.strictObject({ action: z.literal("update"), ids: taskBulkIds, patch: taskBulkPatchSchema }),
+  z.strictObject({ action: z.literal("delete"), ids: taskBulkIds }),
+]);
+export type TaskBulkInput = z.infer<typeof taskBulkSchema>;
 
 /**
  * A dependency between two tasks: `blockingTaskId` blocks `blockedTaskId`
@@ -97,8 +119,27 @@ export const taskListQuerySchema = z.object({
   projectId: id.optional(),
   assigneeId: id.optional(),
   stateType: z.enum(workflowStateTypes).optional(),
+  filter: taskFilterJsonSchema.optional(),
+  closedBefore: z.iso.datetime({ precision: 3 }).optional(),
+  sort: z.enum(taskOrderings).optional(),
+  group: z.enum(taskGroupFields).optional(),
+  title: z.string().trim().min(2).max(200).optional(),
+  reference: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z][A-Z0-9]{1,9}-[1-9]\d{0,9}$/)
+    .optional(),
+  includeRelations: z.literal("true").optional(),
+  cursor: z
+    .string()
+    .min(1)
+    .max(2048)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .optional(),
   limit: z.coerce.number().int().min(1).max(500).default(250),
 });
+export type TaskListQuery = z.infer<typeof taskListQuerySchema>;
 
 export const documentCreateSchema = z.object({
   id: id.optional(),
@@ -276,7 +317,7 @@ export type TeamCreateInput = z.infer<typeof teamCreateSchema>;
 export const teamUpdateSchema = teamCreateSchema
   .omit({ id: true, memberIds: true })
   .partial()
-  .extend({ archived: z.boolean().optional() });
+  .extend({ archived: z.boolean().optional(), features: teamFeaturesSchema.optional() });
 export type TeamUpdateInput = z.infer<typeof teamUpdateSchema>;
 
 export const teamMemberAddSchema = z.object({ userId: id });
@@ -322,6 +363,7 @@ export const workspaceSettingsSchema = z.object({
   currency: currencySchema,
   /** Month the financial year starts in, 1 (January) to 12 (`DEFAULT_FINANCIAL_YEAR_START_MONTH`). */
   financialYearStartMonth: financialYearStartMonthSchema,
+  closedTaskWindowDays: closedTaskWindowDaysSchema,
 });
 export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 

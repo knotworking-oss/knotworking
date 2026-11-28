@@ -16,7 +16,7 @@ import { TimeSummary } from "@knotworking/ui/components/time-tracking";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
-import { formatShortDate } from "@/lib/format";
+import { formatDateTime, formatShortDate } from "@/lib/format";
 import { parseOrdering } from "@/lib/model";
 import { noProgress, projectProgress } from "@/lib/projects";
 import { projectTime } from "@/lib/time";
@@ -26,6 +26,11 @@ import { DocsSection } from "./docs-section";
 import { NewTaskButton } from "./new-task-button";
 import { PageHeader } from "./page-header";
 import { ProjectActions } from "./project-actions";
+import { ProjectMilestones } from "./project-milestones";
+import { ProjectSections } from "./project-sections";
+import { ProjectPeople } from "./project-people";
+import { ProjectUpdates } from "./project-updates";
+import { CustomFieldValues } from "./custom-field-values";
 import { ProjectTimeline } from "./project-timeline";
 import { TasksView } from "./tasks-view";
 import { ViewSwitcher } from "./view-switcher";
@@ -37,8 +42,14 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
   const router = useRouter();
   const project = idx.projects.get(id);
   const progress = useMemo(() => projectProgress(tasks, idx).get(id) ?? noProgress, [tasks, idx, id]);
-  const time = useMemo(() => projectTime(tasks, idx.loggedMinutes).get(id), [tasks, idx, id]);
-  const mode = view === "board" || view === "timeline" ? view : "list";
+  const time = useMemo(
+    () =>
+      idx.boot.closedWindow
+        ? idx.boot.closedWindow.projectCounts[id]
+        : projectTime(tasks, idx.loggedMinutes).get(id),
+    [tasks, idx, id],
+  );
+  const mode = view === "board" || view === "calendar" || view === "timeline" ? view : "list";
   const ordering = parseOrdering(order);
 
   if (!project) {
@@ -73,7 +84,7 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
         actions={
           <>
             <ViewSwitcher view={mode} timeline />
-            {mode !== "timeline" && <DisplayOptions ordering={ordering} />}
+            {mode !== "timeline" && <DisplayOptions ordering={ordering} layout={mode} />}
             <NewTaskButton defaults={{ projectId: id }} />
             <ProjectActions project={project} onDeleted={() => router.push(`/${slug}/projects`)} />
           </>
@@ -102,6 +113,14 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <ProjectStatusBadge status={project.status} />
             {project.health && <ProjectHealthBadge health={project.health} />}
+            {project.lastUpdateAt && (
+              <span className="text-muted-foreground">
+                Status updated{" "}
+                <time dateTime={project.lastUpdateAt}>
+                  {formatDateTime(project.lastUpdateAt, idx.boot.workspace.timeZone)}
+                </time>
+              </span>
+            )}
             <span className="flex items-center gap-2">
               {lead && (
                 <MemberAvatar userId={lead.id} name={lead.name} src={lead.avatarUrl} className="size-5" />
@@ -128,7 +147,12 @@ export function ProjectDetail({ id, view, order }: { id: string; view?: string; 
               <span className="tabular-nums">{pct}%</span>
             </span>
           </div>
+          <CustomFieldValues key={`fields:${id}`} target="project" id={id} />
         </section>
+        <ProjectMilestones projectId={id} />
+        <ProjectSections projectId={id} />
+        <ProjectPeople key={id} projectId={id} />
+        <ProjectUpdates key={`updates:${id}`} projectId={id} />
         {mode === "timeline" ? (
           <ProjectTimeline projectId={id} />
         ) : (

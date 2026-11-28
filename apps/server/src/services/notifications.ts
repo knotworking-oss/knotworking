@@ -28,6 +28,7 @@ import {
   notificationPreferences,
   notifications,
   productLabels,
+  projects,
   productionBatches,
   purchaseOrders,
   qualityAudits,
@@ -52,6 +53,7 @@ import { notFound } from "../errors";
 import type { Mailer } from "../mailer";
 import { sopTargetUserIds } from "./sop-audience";
 import { getActiveWorkspaceModules } from "./workspace-modules";
+import { taskFollowerIds } from "./task-followers";
 
 /**
  * Per-user notifications. They are personal data, so (like `calendar_events`)
@@ -616,10 +618,10 @@ export function notifyTaskCreated(
 }
 
 /**
- * A task was updated. A new assignee gets `task_assigned`; otherwise the
- * existing assignee hears about a status change. Never notifies the actor.
+ * A new assignee gets `task_assigned`. Other followers hear about a status
+ * change, excluding the person who made the change.
  */
-export function notifyTaskUpdated(
+export async function notifyTaskUpdated(
   tx: Transaction,
   workspaceId: string,
   actorId: string,
@@ -629,12 +631,15 @@ export function notifyTaskUpdated(
 ): Promise<NotificationRow[]> {
   const drafts: Draft[] = [];
   const assignee = after.assigneeId;
-  if (assignee && assignee !== actorId) {
-    if (assignee !== before.assigneeId) {
-      drafts.push({ userId: assignee, type: "task_assigned", data: { taskTitle: after.title } });
-    } else if (newState) {
+  const assigned = assignee && assignee !== before.assigneeId ? assignee : null;
+  if (assigned && assigned !== actorId) {
+    drafts.push({ userId: assigned, type: "task_assigned", data: { taskTitle: after.title } });
+  }
+  if (newState) {
+    for (const userId of await taskFollowerIds(tx, workspaceId, after)) {
+      if (userId === actorId || userId === assigned) continue;
       drafts.push({
-        userId: assignee,
+        userId,
         type: "task_status_changed",
         data: { taskTitle: after.title, stateName: newState.name },
       });
@@ -644,26 +649,23 @@ export function notifyTaskUpdated(
 }
 
 /**
- * Someone commented on a task: tell its assignee. Call this from the comment
+ * Someone commented on a task: tell its followers. Call this from the comment
  * write path inside the same transaction as the insert.
  */
-export function notifyTaskCommented(
+export async function notifyTaskCommented(
   tx: Transaction,
   workspaceId: string,
   authorId: string,
-  task: Pick<TaskRow, "id" | "title" | "assigneeId">,
+  task: Pick<TaskRow, "id" | "title" | "assigneeId" | "creatorId">,
   snippet: string,
 ): Promise<NotificationRow[]> {
-  const drafts: Draft[] =
-    task.assigneeId && task.assigneeId !== authorId
-      ? [
-          {
-            userId: task.assigneeId,
-            type: "task_commented",
-            data: { taskTitle: task.title, snippet: snippet.slice(0, 200) },
-          },
-        ]
-      : [];
+  const drafts: Draft[] = (await taskFollowerIds(tx, workspaceId, task))
+    .filter((userId) => userId !== authorId)
+    .map((userId) => ({
+      userId,
+      type: "task_commented",
+      data: { taskTitle: task.title, snippet: snippet.slice(0, 200) },
+    }));
   return insertAll(tx, workspaceId, authorId, task, drafts);
 }
 
@@ -679,6 +681,8 @@ const documentOf = sql`(${notifications.data}->>'documentId')::uuid`;
  * An archived subject (a status, not a deletion) still shows its notification.
  */
 const deletedSubjects: { type: NotificationType; module?: ModuleId; table: AnyPgTable; key?: "staffId" }[] = [
+  { type: "project_update_posted", table: projects },
+  { type: "project_update_due", table: projects },
   { type: "audit_upcoming", table: qualityAudits },
   { type: "nonconformance_assigned", table: qualityNonconformances },
   { type: "nonconformance_due", table: qualityNonconformances },
@@ -958,6 +962,12 @@ export async function sendNotificationEmails(
     if (!n) continue;
     const owned = and(eq(notifications.id, n.id), eq(notifications.emailLeaseToken, leaseToken));
     try {
+      const [subjectVisible] = await db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .leftJoin(tasks, eq(tasks.id, notifications.taskId))
+        .leftJoin(documents, onDocument)
+        .where(and(owned, visible));
       const [recipient] = await db
         .select({ email: users.email, enabled: workspaceMembers.notifyEmail })
         .from(workspaceMembers)
@@ -985,6 +995,7 @@ export async function sendNotificationEmails(
       const access = (await memberAccess(db, n.workspaceId, active)).get(n.userId);
       const owner = n.module ?? (n.taskId ? "tasks" : n.data.documentId ? "docs" : null);
       if (
+        !subjectVisible ||
         !recipient?.enabled ||
         preference?.email === false ||
         (owner && !hasModuleLevel(access?.[owner], "read")) ||

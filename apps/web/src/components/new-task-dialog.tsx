@@ -48,6 +48,7 @@ export interface NewTaskDefaults {
   stateType?: string;
   assigneeId?: string | null;
   projectId?: string | null;
+  sectionId?: string | null;
   parentId?: string | null;
   priority?: Priority;
 }
@@ -59,6 +60,7 @@ interface Draft {
   assigneeId: string | null;
   labelIds: string[];
   projectId: string | null;
+  sectionId: string | null;
   startDate: string | null;
   dueDate: string | null;
   parentId: string | null;
@@ -163,6 +165,7 @@ function NewTaskDialog({
       assigneeId: defaults.assigneeId ?? null,
       labelIds: [],
       projectId: defaults.projectId ?? parent?.projectId ?? null,
+      sectionId: defaults.sectionId ?? null,
       startDate: null,
       dueDate: null,
       parentId: parent?.id ?? null,
@@ -282,9 +285,29 @@ function NewTaskDialog({
             <LabelsPicker value={draft.labelIds} onChange={(v) => set("labelIds", v)}>
               <LabelsChip labelIds={draft.labelIds} />
             </LabelsPicker>
-            <ProjectPicker value={draft.projectId} onChange={(v) => set("projectId", v)}>
+            <ProjectPicker
+              value={draft.projectId}
+              onChange={(projectId) => setDraft((current) => ({ ...current, projectId, sectionId: null }))}
+            >
               <ProjectChip projectId={draft.projectId} />
             </ProjectPicker>
+            {draft.projectId && (
+              <select
+                className="h-8 max-w-40 rounded-md border bg-background px-2 text-xs"
+                aria-label="Project section"
+                value={draft.sectionId ?? ""}
+                onChange={(event) => set("sectionId", event.target.value || null)}
+              >
+                <option value="">No section</option>
+                {[...idx.sections.values()]
+                  .filter((section) => section.projectId === draft.projectId)
+                  .map((section) => (
+                    <option key={section.id} value={section.id}>
+                      {section.name}
+                    </option>
+                  ))}
+              </select>
+            )}
             <StartDatePicker
               value={draft.startDate}
               max={draft.dueDate}

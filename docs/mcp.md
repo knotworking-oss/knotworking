@@ -210,6 +210,20 @@ Every workspace-scoped tool takes an optional `workspace` slug (see `KNOTWORKING
 
 **Paging.** `list_tasks`, `search_tasks`, `list_projects`, `list_documents` and `list_comments` take `limit` (defaults unchanged) and `offset` (default 0) and return `total`, `offset`, `returned` and `hasMore`. `list_comments` without `offset` shows the _newest_ `limit` comments of a long thread (its `offset` says where that window starts); pass `offset: 0` to page forward from the oldest.
 
+The `task_activity` resource in `find_records` (tool `list_task_activity`) reads the newest events for a task by ID. It accepts `limit` (1–100, default 25) and `before`. Pass the returned `nextCursor` as `before` for the next page.
+
+`query_tasks` sends a versioned JSON filter to the server and returns task summaries with raw IDs. Use `sort`, `group` and `limit` to control the page, and pass `nextCursor` back as `cursor` to continue. The tool works independently of the workspace snapshot. See [Task queries](architecture.md#task-queries) for the filter grammar.
+
+Use `find_records` with the `task_views` resource (tool `list_views`) to find a saved task view. `run_view` uses its stored filter, team scope and sort on the server. Pass its `nextCursor` back as `cursor` for older pages.
+
+`bulk_update_tasks` applies one patch to up to 200 task IDs in a transaction. It accepts status, priority, assignee, project and label IDs. A state ID must belong to all selected tasks' teams, and a label list replaces the existing labels.
+
+`list_milestones` lists a project's milestones by project ID. It is also the `project_milestones` resource available through `find_records`. Task summaries include the assigned `milestoneId`.
+
+`post_project_update` accepts a project ID, health and plain-text body. It posts the update, sets the project health and notifies the lead and followers.
+
+Pass `include_custom_fields: true` to `get_task` to read applicable custom fields, types, options and values. `set_task_custom_field` sets one value by task and field ID. Pass `null` to clear it.
+
 **Large workspaces.** The API's workspace snapshot (bootstrap) holds at most 5000 tasks, silently. The tools never rely on it for tasks: `get_task`, `update_task`, `list_comments` and `create_comment` address the task directly (`GET …/tasks/:id`), and the snapshot is used only to turn names into ids. `list_tasks` and `search_tasks` send `team`, `project`, `assignee` and a specific `state_type` to `GET …/tasks` (up to 500 matching tasks); other filters (`state` name, `open`, `none`) are applied to what was fetched, and with no API-side filter the snapshot is the source. When a source may have been cut off (the snapshot has exactly 5000 tasks, or the API returned 500) the result carries `truncated: true` and a `note`, and `total` is then only a lower bound: narrow the filters. `get_workspace_overview` reports `tasksTruncated` the same way.
 
 | Tool                               | Kind   | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |

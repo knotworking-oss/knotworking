@@ -5,6 +5,7 @@ import {
   biDashboardViewParamsSchema,
   biPeriodPresets,
   biQuerySpecSchema,
+  newId,
   pipelineCapabilities,
   pipelineEventKinds,
   pipelineEvents,
@@ -466,7 +467,7 @@ function StepFields({
 }
 
 function newStep(kind: PipelineKind, userId: string): PipelineStep {
-  const base = { id: crypto.randomUUID(), title: pipelineCapabilities[kind].label };
+  const base = { id: newId(), title: pipelineCapabilities[kind].label };
   switch (kind) {
     case "stock.position":
       return { ...base, kind, locationId: null, limit: 30 };
@@ -737,7 +738,7 @@ export function PipelineView({
     const steps = [newStep("stock.position", userId), newStep("quality.audit_requirements", userId)];
     if (can("governance") && options.standards[0])
       steps.push({
-        id: crypto.randomUUID(),
+        id: newId(),
         kind: "governance.standard_gaps",
         title: "Standard gaps",
         standardId: options.standards.length === 1 ? options.standards[0].id : "",
@@ -756,7 +757,7 @@ export function PipelineView({
 
   async function run(id: string) {
     setBusy(id);
-    const commandId = requests.current.get(id) ?? crypto.randomUUID();
+    const commandId = requests.current.get(id) ?? newId();
     requests.current.set(id, commandId);
     try {
       const result = await unwrap(
